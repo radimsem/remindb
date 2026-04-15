@@ -121,7 +121,7 @@ func TestYamlParser_LargeMapPromoted(t *testing.T) {
 	}
 }
 
-func TestYamlParser_LongSequencePromoted(t *testing.T) {
+func TestYamlParser_LongScalarSequenceToon(t *testing.T) {
 	data := []byte("tags:\n  - a\n  - b\n  - c\n  - d\n  - e\n")
 	nodes, err := parseYaml("t.yaml", data)
 	if err != nil {
@@ -140,10 +140,37 @@ func TestYamlParser_LongSequencePromoted(t *testing.T) {
 	if tags.Depth != 2 {
 		t.Errorf("tags.Depth = %d, want 2", tags.Depth)
 	}
+	if tags.Format != FormatToon {
+		t.Errorf("tags.Format = %q, want %q", tags.Format, FormatToon)
+	}
 
-	const want = "tags:\n- a\n- b\n- c\n- d\n- e"
+	const want = "tags[5]: a,b,c,d,e"
 	if tags.Content != want {
 		t.Errorf("tags.Content = %q, want %q", tags.Content, want)
+	}
+}
+
+func TestYamlParser_UniformObjectArrayToon(t *testing.T) {
+	data := []byte(`users:
+  - {id: 1, name: alice}
+  - {id: 2, name: bob}
+  - {id: 3, name: carol}
+  - {id: 4, name: dave}
+  - {id: 5, name: eve}
+`)
+	nodes, err := parseYaml("t.yaml", data)
+	if err != nil {
+		t.Fatalf("parseYaml: %v", err)
+	}
+
+	users := nodes[0].Children[0]
+	if users.Format != FormatToon {
+		t.Fatalf("users.Format = %q, want %q", users.Format, FormatToon)
+	}
+
+	const want = "users[5]{id,name}:\n  1,alice\n  2,bob\n  3,carol\n  4,dave\n  5,eve"
+	if users.Content != want {
+		t.Errorf("users.Content = %q, want %q", users.Content, want)
 	}
 }
 

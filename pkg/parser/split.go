@@ -51,14 +51,21 @@ func buildMap(path, key string, m map[string]any, depth int) *ContextNode {
 	return n
 }
 
-// Build an array node. Arrays render as a single leaf; elements are not further recursed.
+// Build an array node. Arrays render as a single leaf; elements are not further recursed. TOON-encoded when uniform and savings beat the threshold.
 func buildList(path, key string, items []any, depth int) *ContextNode {
+	plain := renderList(key, items)
+	content, format := plain, FormatPlain
+	if encoded, ok := tryToonList(key, items, plain); ok {
+		content = encoded
+		format = FormatToon
+	}
+
 	return &ContextNode{
 		SourceFile: path,
 		NodeType:   NodeList,
-		Content:    renderList(key, items),
+		Content:    content,
 		Depth:      depth,
-		Format:     FormatPlain,
+		Format:     format,
 	}
 }
 

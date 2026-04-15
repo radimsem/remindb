@@ -54,24 +54,65 @@ func TestJsonParser_ShortArrayInlined(t *testing.T) {
 	}
 }
 
-func TestJsonParser_LongArrayPromoted(t *testing.T) {
+func TestJsonParser_LongScalarArrayToon(t *testing.T) {
 	data := []byte(`{"tags": ["a", "b", "c", "d", "e"]}`)
 	nodes, err := parseJson("t.json", data)
 	if err != nil {
 		t.Fatalf("parseJson: %v", err)
 	}
 
-	root := nodes[0]
-	if len(root.Children) != 1 {
-		t.Fatalf("Children = %d, want 1 (tags promoted at 5 elements)", len(root.Children))
-	}
-
-	tags := root.Children[0]
+	tags := nodes[0].Children[0]
 	if tags.NodeType != NodeList {
 		t.Errorf("tags.NodeType = %v, want NodeList", tags.NodeType)
 	}
-	if tags.Depth != 2 {
-		t.Errorf("tags.Depth = %d, want 2", tags.Depth)
+	if tags.Format != FormatToon {
+		t.Errorf("tags.Format = %q, want %q", tags.Format, FormatToon)
+	}
+	if tags.Content != "tags[5]: a,b,c,d,e" {
+		t.Errorf("tags.Content = %q", tags.Content)
+	}
+}
+
+func TestJsonParser_UniformObjectArrayToon(t *testing.T) {
+	data := []byte(`{"users":[
+		{"id":1,"name":"alice"},
+		{"id":2,"name":"bob"},
+		{"id":3,"name":"carol"},
+		{"id":4,"name":"dave"},
+		{"id":5,"name":"eve"}
+	]}`)
+	nodes, err := parseJson("t.json", data)
+	if err != nil {
+		t.Fatalf("parseJson: %v", err)
+	}
+
+	users := nodes[0].Children[0]
+	if users.Format != FormatToon {
+		t.Fatalf("users.Format = %q, want %q", users.Format, FormatToon)
+	}
+
+	const want = "users[5]{id,name}:\n  1,alice\n  2,bob\n  3,carol\n  4,dave\n  5,eve"
+	if users.Content != want {
+		t.Errorf("users.Content = %q, want %q", users.Content, want)
+	}
+}
+
+func TestJsonParser_NonUniformArrayStaysPlain(t *testing.T) {
+	data := []byte(`{"items":[
+		{"id":1,"name":"a"},
+		{"id":2,"label":"b"},
+		"scalar",
+		{"id":4,"name":"d"},
+		{"id":5,"name":"e"}
+	]}`)
+	nodes, err := parseJson("t.json", data)
+	if err != nil {
+		t.Fatalf("parseJson: %v", err)
+	}
+
+	items := nodes[0].Children[0]
+	if items.Format != FormatPlain {
+		t.Errorf("items.Format = %q, want %q (non-uniform array)", items.Format, FormatPlain)
 	}
 }
 
