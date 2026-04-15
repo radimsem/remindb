@@ -1,0 +1,33 @@
+#!/usr/bin/env bash
+# Pre-commit hook: gofmt + golangci-lint on staged Go files.
+# Exits non-zero to block the commit if anything fails.
+
+set -euo pipefail
+
+# Collect staged .go files (added/copied/modified, not deleted), NUL-separated.
+mapfile -d '' -t staged < <(git diff --cached --name-only -z --diff-filter=ACM -- '*.go')
+
+# No Go changes staged — nothing to do.
+if [ ${#staged[@]} -eq 0 ]; then
+    exit 0
+fi
+
+# 1. gofmt: every staged file must be gofmt-clean.
+unformatted=$(gofmt -l -- "${staged[@]}")
+if [ -n "$unformatted" ]; then
+    echo "pre-commit: the following files are not gofmt-clean:" >&2
+    echo "$unformatted" >&2
+    echo >&2
+    echo "fix with: gofmt -w <files>  (then re-stage and retry the commit)" >&2
+    exit 1
+fi
+
+# 2. golangci-lint: run against the whole module. Cheap for small modules
+#    and catches issues that cross file boundaries (imports, exported API).
+if ! golangci-lint run ./...; then
+    echo >&2
+    echo "pre-commit: golangci-lint reported issues (see above)." >&2
+    exit 1
+fi
+
+exit 0
