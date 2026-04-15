@@ -153,6 +153,62 @@ if !ok { return nil }
 return v
 ```
 
+### Prefer named functions over variable-assigned closures
+
+A helper assigned to a local `var` and called later in the same function
+is harder to reason about than a named file-level func with explicit
+parameters. State passed in beats state closed over.
+
+```go
+// Bad — state captured implicitly, logic hidden inside the assignment
+func parseMarkdown(...) ([]*Node, error) {
+    var out []*Node
+    attach := func(n *Node) {
+        if top.node == nil { out = append(out, n); return }
+        top.node.Children = append(top.node.Children, n)
+    }
+    for _, b := range blocks { attach(nodeFrom(b)) }
+    return out, nil
+}
+
+// Good — state threaded through parameters and return values
+func attachNode(stack []frame, out []*Node, n *Node) []*Node { ... }
+
+func parseMarkdown(...) ([]*Node, error) {
+    var out []*Node
+    for _, b := range blocks {
+        out = attachNode(stack, out, nodeFrom(b))
+    }
+    return out, nil
+}
+```
+
+Closures are fine as *callbacks to library APIs* (`ast.WalkFunc(tree, func(...) ...)`). They are not fine as "helper I assign to a var and call three lines down".
+
+### Extract intermediate expressions into named locals
+
+When a struct-field value or function argument is a non-trivial
+expression — concatenation, `fmt.Sprintf`, map lookup, method chain —
+lift it to a named local on the preceding line. The name gives the
+callsite a spine to read along.
+
+```go
+// Bad
+return &Node{Content: head + ":\n" + strings.Join(lines, "\n")}
+for _, k := range keys {
+    out = append(out, p.fromKV(path, k, m[k], depth))
+}
+
+// Good
+content := head + ":\n" + strings.Join(lines, "\n")
+return &Node{Content: content}
+
+for _, k := range keys {
+    v := m[k]
+    out = append(out, p.fromKV(path, k, v, depth))
+}
+```
+
 ---
 
 ## 2. Memory Efficiency ★
@@ -395,6 +451,42 @@ default:   ...
 }
 ```
 
+### Blank-line grouping inside function bodies
+
+Separate setup, main logic, and teardown with single blank lines. Dense
+uninterrupted bodies hurt scanability even when every line is essential.
+
+```go
+// Bad
+func (p YamlParser) fromMap(path string, m map[string]any, depth int) []*Node {
+    keys := make([]string, 0, len(m))
+    for k := range m { keys = append(keys, k) }
+    sort.Strings(keys)
+    out := make([]*Node, 0, len(keys))
+    for _, k := range keys {
+        v := m[k]
+        out = append(out, p.fromKV(path, k, v, depth))
+    }
+    return out
+}
+
+// Good
+func (p YamlParser) fromMap(path string, m map[string]any, depth int) []*Node {
+    keys := make([]string, 0, len(m))
+    for k := range m {
+        keys = append(keys, k)
+    }
+    sort.Strings(keys)
+
+    out := make([]*Node, 0, len(keys))
+    for _, k := range keys {
+        v := m[k]
+        out = append(out, p.fromKV(path, k, v, depth))
+    }
+    return out
+}
+```
+
 ### Named returns only when they clarify
 
 Useful for documenting multi-return APIs. Harmful when they invite naked returns in long functions.
@@ -474,18 +566,63 @@ func (p Paragraph) Emit(w io.Writer) error { ... }
 
 Premature interfaces fragment the code. With one concrete type, export the type.
 
+### Namespace prefix-sharing helpers via a struct
+
+When a file grows ≥3 free functions sharing a name prefix
+(`yamlFromMap`, `yamlFromKV`, `yamlFormatScalar`), consolidate them as
+methods on an empty struct whose name carries the prefix. Each method
+drops its prefix since the type provides the namespace. A thin
+free-function wrapper stays as the entry point the rest of the package
+calls into.
+
+```go
+// Bad
+func yamlFromMap(...)       { ... }
+func yamlFromKV(...)        { ... }
+func yamlFromSlice(...)     { ... }
+func yamlFormatScalar(...)  { ... }
+
+// Good
+type YamlParser struct{}
+
+func parseYaml(path string, data []byte) ([]*Node, error) {
+    return YamlParser{}.parse(path, data)
+}
+
+func (p YamlParser) parse(...)        { ... }
+func (p YamlParser) fromMap(...)      { ... }
+func (p YamlParser) fromKV(...)       { ... }
+func (p YamlParser) fromSlice(...)    { ... }
+func (p YamlParser) formatScalar(...) { ... }
+```
+
+Empty struct + value receiver = zero allocation. The struct is
+namespacing, not state; keep the receiver short (`p`).
+
 ---
 
 ## 5. Error Handling
 
 ### Wrap with `%w`, match with `errors.Is` / `errors.As`
 
+Error messages use a `"failed to <verb>: ..."` prefix for action
+failures (parse, read, write, open, close). Pure validation errors —
+where nothing failed to happen, the input was just wrong — carry no
+prefix.
+
 ```go
-// Bad — breaks the chain
+// Bad — breaks the chain with %s instead of %w
 return fmt.Errorf("parse failed: %s", err)
 
-// Good
-return fmt.Errorf("parse %s: %w", path, err)
+// Bad — package-name prefix says where, not what
+return fmt.Errorf("parser: yaml %s: %w", path, err)
+
+// Good — verb-framed, chain intact
+return fmt.Errorf("failed to parse: yaml %s: %w", path, err)
+return fmt.Errorf("failed to read: %s: %w", path, err)
+
+// Good — pure validation, no action to have failed
+return fmt.Errorf("unsupported extension %q", ext)
 
 // At call sites
 if errors.Is(err, os.ErrNotExist) { ... }
@@ -682,16 +819,34 @@ mu.Unlock()
 
 ## 7. Comments & Naming
 
-### Document exported identifiers; begin with the name
+### Let code speak; comment only what the name can't
+
+- **Types get no doc comment** — even exported ones. Bare:
+  `type JsonParser struct{}`, `type ContextNode struct{...}`. If the
+  name needs a paragraph of explanation, the name is wrong.
+- **Functions and methods get at most a one-line comment**, and only
+  where intent isn't clear from the name. Start with a verb ("Convert
+  a JSON object to...", "Render a YAML scalar as..."). Skip entirely
+  for trivial wrappers (`parseJson`, `ParseBytes`, empty-struct
+  constructors).
+- **Package comment stays, but brief** — one or two lines, on a single
+  file per package, starting "Package X".
 
 ```go
-// Bad
-// parses a markdown file
-func ParseMarkdown(r io.Reader) (*AST, error) { ... }
+// Bad — narrates what the name already said
+// JsonParser is the parser for JSON files. It carries no state.
+type JsonParser struct{}
+
+// ParseBytes parses pre-read content from bytes.
+func ParseBytes(path string, data []byte) ([]*Node, error) { ... }
 
 // Good
-// ParseMarkdown reads Markdown from r and returns its AST.
-func ParseMarkdown(r io.Reader) (*AST, error) { ... }
+type JsonParser struct{}
+
+func ParseBytes(path string, data []byte) ([]*Node, error) { ... }
+
+// Convert a JSON array to a NodeList.
+func (p JsonParser) fromSlice(path, key string, items []any, depth int) *Node { ... }
 ```
 
 ### Document *why*, not *what*, for non-obvious code
@@ -720,7 +875,11 @@ package parser
 - `MixedCaps`, never `snake_case`.
 - Short names in short scopes (`i`, `n`, `r`, `b`); full names at package level.
 - Avoid stutter: `parser.New()` not `parser.NewParser()`; `store.Node` not `store.StoreNode`.
-- Initialisms stay uppercase: `parseURL`, `HTMLTag`, `userID`.
+- **Pascal-case file-format and protocol initialisms**: `YamlParser`,
+  `JsonEncoder`, `ToonWriter`, `McpServer`, `SqlStore` — not
+  `YAMLParser`, `JSONEncoder`, `TOONWriter`. Keeps multi-word
+  CamelCase readable. Standard Go initialisms (URL, HTML, ID) still
+  follow the stdlib convention: `parseURL`, `HTMLTag`, `userID`.
 - Single-method interfaces take the `-er` suffix: `Reader`, `Emitter`, `NodeGetter`.
 - No Hungarian notation and no type prefixes: `name`, not `strName`.
 
@@ -812,6 +971,27 @@ See §2 — copy when storing a slice long-term.
 ### Don't conflate "concise" with "clever"
 
 If a reader has to puzzle out what a line does, it's too dense. Readability wins over terseness.
+
+### Don't doc-comment what the name already says
+
+```go
+// Bad — the name already conveys this
+// parseJson parses data as JSON and returns the node tree.
+func parseJson(data []byte) ([]*Node, error) { ... }
+
+// Bad — narrates struct shape readable from the field list
+// ContextNode is one unit of content extracted from a source file,
+// populated by parsers and later filled in by the transformer.
+type ContextNode struct { ... }
+
+// Good — bare
+func parseJson(data []byte) ([]*Node, error) { ... }
+type ContextNode struct { ... }
+```
+
+### Don't assign a closure to a variable as a local helper
+
+See §1 — extract a named file-level function and pass state explicitly.
 
 ---
 
