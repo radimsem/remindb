@@ -8,24 +8,16 @@ import (
 	"github.com/goccy/go-yaml"
 )
 
-// YamlParser converts YAML source into ContextNode trees. It carries no
-// state; the struct exists so the helper methods don't need to share a
-// yaml prefix.
 type YamlParser struct{}
 
-// parseYaml is the dispatcher's entry point for YAML: it constructs a
-// YamlParser and delegates to its parse method.
 func parseYaml(path string, data []byte) ([]*ContextNode, error) {
 	return YamlParser{}.parse(path, data)
 }
 
-// parse unmarshals data as YAML under source path and returns top-level
-// ContextNodes. Map keys are emitted in sorted order so content hashes
-// are stable across re-parses of the same document.
 func (p YamlParser) parse(path string, data []byte) ([]*ContextNode, error) {
 	var root any
 	if err := yaml.Unmarshal(data, &root); err != nil {
-		return nil, fmt.Errorf("parser: yaml %s: %w", path, err)
+		return nil, fmt.Errorf("failed to parse: yaml %s: %w", path, err)
 	}
 
 	switch v := root.(type) {
@@ -38,17 +30,18 @@ func (p YamlParser) parse(path string, data []byte) ([]*ContextNode, error) {
 	case []any:
 		return []*ContextNode{p.fromSlice(path, "", v, 1)}, nil
 	default:
+		content := p.formatScalar(v)
+
 		return []*ContextNode{{
 			SourceFile: path,
 			NodeType:   NodeKV,
-			Content:    p.formatScalar(v),
+			Content:    content,
 			Depth:      1,
 		}}, nil
 	}
 }
 
-// fromMap converts a YAML mapping to ContextNodes, one per key, in
-// sorted-key order for determinism.
+// Convert a YAML mapping to ContextNodes, one per key, in sorted-key order for determinism.
 func (p YamlParser) fromMap(path string, m map[string]any, depth int) []*ContextNode {
 	keys := make([]string, 0, len(m))
 	for k := range m {
@@ -58,14 +51,13 @@ func (p YamlParser) fromMap(path string, m map[string]any, depth int) []*Context
 
 	out := make([]*ContextNode, 0, len(keys))
 	for _, k := range keys {
-		out = append(out, p.fromKV(path, k, m[k], depth))
+		v := m[k]
+		out = append(out, p.fromKV(path, k, v, depth))
 	}
 	return out
 }
 
-// fromKV produces one ContextNode for a single key-value pair. Scalars
-// collapse to NodeKV with content "key: value"; nested maps become NodeKV
-// with child nodes; sequences become NodeList.
+// Produce one ContextNode for a single key-value pair.
 func (p YamlParser) fromKV(path, key string, value any, depth int) *ContextNode {
 	switch v := value.(type) {
 	case map[string]any:
@@ -90,18 +82,18 @@ func (p YamlParser) fromKV(path, key string, value any, depth int) *ContextNode 
 		return p.fromSlice(path, key, v, depth)
 
 	default:
+		content := key + ": " + p.formatScalar(v)
+
 		return &ContextNode{
 			SourceFile: path,
 			NodeType:   NodeKV,
-			Content:    key + ": " + p.formatScalar(v),
+			Content:    content,
 			Depth:      depth,
 		}
 	}
 }
 
-// fromSlice converts a YAML sequence to a NodeList. Flat scalar lists
-// inline items as dash-prefixed lines; sequences holding maps or nested
-// sequences hang each item off as a child node.
+// Convert a YAML sequence to a NodeList.
 func (p YamlParser) fromSlice(path, key string, items []any, depth int) *ContextNode {
 	head := key
 	if head == "" {
@@ -113,10 +105,12 @@ func (p YamlParser) fromSlice(path, key string, items []any, depth int) *Context
 		for _, it := range items {
 			lines = append(lines, "- "+p.formatScalar(it))
 		}
+		content := head + ":\n" + strings.Join(lines, "\n")
+
 		return &ContextNode{
 			SourceFile: path,
 			NodeType:   NodeList,
-			Content:    head + ":\n" + strings.Join(lines, "\n"),
+			Content:    content,
 			Depth:      depth,
 		}
 	}
@@ -134,8 +128,7 @@ func (p YamlParser) fromSlice(path, key string, items []any, depth int) *Context
 	return n
 }
 
-// sliceIsFlat reports whether every element of items is a YAML scalar.
-// A flat slice renders inline; a non-flat slice expands into child nodes.
+// Report whether every element of items is a YAML scalar.
 func (p YamlParser) sliceIsFlat(items []any) bool {
 	for _, it := range items {
 		switch it.(type) {
@@ -146,9 +139,7 @@ func (p YamlParser) sliceIsFlat(items []any) bool {
 	return true
 }
 
-// normalizeKeys turns a non-string-keyed YAML mapping into a string-keyed
-// one by stringifying each key. Used for YAML maps whose keys are
-// integers, booleans, or other scalar types.
+// Stringify non-string keys so the mapping is uniformly keyed by strings.
 func (p YamlParser) normalizeKeys(m map[any]any) map[string]any {
 	out := make(map[string]any, len(m))
 	for k, v := range m {
@@ -157,7 +148,7 @@ func (p YamlParser) normalizeKeys(m map[any]any) map[string]any {
 	return out
 }
 
-// formatScalar renders a YAML scalar as its canonical string form.
+// Render a YAML scalar as its canonical string form.
 func (p YamlParser) formatScalar(v any) string {
 	switch x := v.(type) {
 	case string:

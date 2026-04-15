@@ -12,10 +12,7 @@ type frame struct {
 	level int
 }
 
-// attachNode places n under the innermost open section on stack. If stack
-// has only the sentinel root, n is returned as a new top-level entry of out
-// with depth 1; otherwise n becomes a child of the top frame's node with
-// depth one greater than its parent.
+// Place n under the innermost open section and set its Depth from the parent.
 func attachNode(stack []frame, out []*ContextNode, n *ContextNode) []*ContextNode {
 	top := stack[len(stack)-1]
 	if top.node == nil {
@@ -28,9 +25,7 @@ func attachNode(stack []frame, out []*ContextNode, n *ContextNode) []*ContextNod
 	return out
 }
 
-// popSections trims stack back to the first frame whose heading level is
-// less than level, so a new heading at that level attaches to the correct
-// ancestor.
+// Pop frames whose heading level >= level so a new heading attaches to the correct ancestor.
 func popSections(stack []frame, level int) []frame {
 	for len(stack) > 1 && stack[len(stack)-1].level >= level {
 		stack = stack[:len(stack)-1]
@@ -38,11 +33,7 @@ func popSections(stack []frame, level int) []frame {
 	return stack
 }
 
-// parseMarkdown turns Markdown source into a ContextNode tree. A preamble
-// (YAML or TOML metadata block), when present, becomes the first top-level
-// node; headings are then organized into sections by level — a heading of
-// level N becomes the parent of all subsequent blocks until the next
-// heading of level ≤ N.
+// Parse Markdown source into a ContextNode tree: preamble first (if any), then heading-organized body.
 func parseMarkdown(path string, data []byte) ([]*ContextNode, error) {
 	front, body, kind := splitPreamble(data)
 
@@ -57,9 +48,8 @@ func parseMarkdown(path string, data []byte) ([]*ContextNode, error) {
 		}
 	}
 
-	p := mdparser.NewWithExtensions(
-		mdparser.CommonExtensions | mdparser.Tables | mdparser.FencedCode,
-	)
+	exts := mdparser.CommonExtensions | mdparser.Tables | mdparser.FencedCode
+	p := mdparser.NewWithExtensions(exts)
 	doc := p.Parse(body)
 
 	stack := []frame{{level: 0}} // sentinel root
@@ -67,10 +57,11 @@ func parseMarkdown(path string, data []byte) ([]*ContextNode, error) {
 	for _, child := range doc.GetChildren() {
 		switch block := child.(type) {
 		case *ast.Heading:
+			content := extractText(block)
 			n := &ContextNode{
 				SourceFile: path,
 				NodeType:   NodeHeading,
-				Content:    extractText(block),
+				Content:    content,
 			}
 
 			stack = popSections(stack, block.Level)
@@ -87,9 +78,7 @@ func parseMarkdown(path string, data []byte) ([]*ContextNode, error) {
 	return out, nil
 }
 
-// nodeFromBlock maps a non-heading block-level AST node to a ContextNode.
-// Returns nil when the block has no extractable content (e.g. a horizontal
-// rule or a paragraph whose only children are whitespace).
+// Map a non-heading block-level AST node to a ContextNode, or nil if no extractable content.
 func nodeFromBlock(path string, n ast.Node) *ContextNode {
 	switch b := n.(type) {
 	case *ast.CodeBlock:
@@ -136,8 +125,7 @@ func nodeFromBlock(path string, n ast.Node) *ContextNode {
 	}
 }
 
-// extractText concatenates all visible text inside n, converting inline
-// breaks into spaces or newlines so adjacent text runs stay separated.
+// Concatenate visible text inside n, inserting spaces/newlines for inline breaks.
 func extractText(n ast.Node) string {
 	var sb strings.Builder
 	ast.WalkFunc(n, func(node ast.Node, entering bool) ast.WalkStatus {
@@ -159,20 +147,21 @@ func extractText(n ast.Node) string {
 	return strings.TrimSpace(sb.String())
 }
 
-// extractListText renders each top-level list item as one "- text" line.
-// Nested list items are flattened into their parent item's text.
+// Render each top-level list item as one "- text" line, flattening nested items.
 func extractListText(list *ast.List) string {
 	var lines []string
 	for _, item := range list.GetChildren() {
-		if text := extractText(item); text != "" {
-			lines = append(lines, "- "+text)
+		text := extractText(item)
+		if text == "" {
+			continue
 		}
+		line := "- " + text
+		lines = append(lines, line)
 	}
 	return strings.Join(lines, "\n")
 }
 
-// extractTableText renders a table as tab-separated values, one row per line.
-// The header row comes first, then body rows in source order.
+// Render a table as tab-separated rows, header first.
 func extractTableText(tbl *ast.Table) string {
 	var rows []string
 	ast.WalkFunc(tbl, func(node ast.Node, entering bool) ast.WalkStatus {
