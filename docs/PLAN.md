@@ -38,12 +38,10 @@ remindb/
 │   │   ├── preamble.go       # Preamble extraction (YAML/TOML metadata at file start)
 │   │   └── ast.go            # Unified AST node definitions
 │   │
-│   ├── transformer/          # COMPILER PHASE — Stage 2
+│   ├── transformer/          # COMPILER PHASE — Stage 2 (enrichment, no restructuring)
 │   │   ├── transformer.go    # Pipeline orchestrator
-│   │   ├── typing.go         # Node type classification (heading/list/table/code/text)
 │   │   ├── anchor.go         # Anchor generation + minimization (content-hash based)
 │   │   ├── compress.go       # Whitespace trimming, redundant char removal
-│   │   ├── toon.go           # JSON→TOON compilation for structured data nodes
 │   │   ├── label.go          # Context label generation (short summary per node)
 │   │   ├── tokenest.go       # Token count estimation (cl100k_base approximation)
 │   │   └── prefix.go         # Prefix tree compression for repeated paths
@@ -236,7 +234,8 @@ CREATE INDEX idx_diffs_node        ON diffs(node_id);
        NodeType    NodeType       // heading, list, table, code, text, kv, preamble
        Depth       int
        Label       string         // auto-generated context hint
-       Content     string         // raw or TOON-encoded content
+       Content     string         // rendered content in `Format`
+       Format      string         // plain | toon — how Content is encoded
        ContentHash string
        TokenCount  int
        Children    []*ContextNode
@@ -247,31 +246,31 @@ CREATE INDEX idx_diffs_node        ON diffs(node_id);
    - Extract preamble (YAML/TOML metadata block) before parsing body
    - Generate heading-based hierarchy (H1 > H2 > H3 nesting)
 3. Implement YAML parser using `goccy/go-yaml`:
-   - Walk YAML document tree, map keys to nodes
-   - Nested maps become parent-child relationships
+   - Unmarshal into `any`, normalize `map[any]any` → `map[string]any` recursively
+   - Apply the split rule: scalars stay inlined in the parent's `Content`; maps/arrays with ≥ `MaxInlineFields` (=5) entries promote to their own `ContextNode`
+   - Sub-threshold subtrees render as block YAML-style text (sorted keys, deterministic)
 4. Implement JSON parser:
-   - Parse with `encoding/json` into `map[string]any`
-   - Convert structured portions to TOON via `toon-go` for token savings
-   - Generate nodes from top-level keys and nested structures
-5. Write comprehensive parser tests against `testdata/` fixtures.
+   - Parse with `encoding/json` + `UseNumber()` for integer precision
+   - Share the split rule and renderer with the YAML parser (see `split.go`)
+   - **TOON encoding at parse time**: when a promoted array/map is uniform and TOON beats plain by a savings threshold (≥15%), store its subtree as TOON in `Content` and set `Format: "toon"`. Otherwise `Format: "plain"`. The transformer never restructures `Content`.
+5. Preamble extraction (`preamble.go`): reuse the YAML parser on the front-matter block; relabel the produced root as `NodePreamble`.
+6. Write comprehensive parser tests against `testdata/` fixtures.
 
 ### Phase 2 — Transformer (Weeks 2–3)
 
-**Goal:** Compress, label, and optimize parsed nodes for minimal token usage.
+**Goal:** Enrich parsed nodes (anchors, labels, token counts, compression) without restructuring them. Content form (plain vs TOON) and the split rule are decided by the parser in Phase 1 — the transformer only annotates and compresses.
 
 **Tasks:**
 1. **Whitespace trimming:** Strip redundant whitespace, normalize line endings, collapse blank lines
-2. **TOON compilation:** For structured data nodes (JSON objects, YAML maps, tables), encode to TOON format — achieving ~40% token reduction on uniform arrays
-3. **Node typing:** Classify each node with its semantic type for targeted retrieval
-4. **Anchor minimization:** Generate short, stable anchors from content hashes (base62-encoded xxhash, truncated to 8 chars). Ensure uniqueness within the DB
-5. **Context label generation:** Auto-generate 1-line summaries per node:
+2. **Anchor minimization:** Generate short, stable anchors from content hashes (base62-encoded xxhash, truncated to 8 chars). Ensure uniqueness within the DB
+3. **Context label generation:** Auto-generate 1-line summaries per node:
    - Headings: use the heading text itself
    - Lists: "N-item list about {first item topic}"
    - Tables: "Table with columns: {col1, col2, ...} ({N} rows)"
    - Code blocks: "Code ({language}): {first line or function name}"
    - Text: first sentence, truncated to 80 chars
-6. **Token estimation:** Implement a fast BPE-approximate counter (character-based heuristic: `len(text) * 0.75` for English, refined with a lookup for common token boundaries)
-7. **Prefix tree compression:** For deeply nested YAML/JSON paths, compress common prefixes into shared anchors
+4. **Token estimation:** Implement a fast BPE-approximate counter (character-based heuristic: `len(text) * 0.75` for English, refined with a lookup for common token boundaries)
+5. **Prefix tree compression:** For deeply nested YAML/JSON paths, compress common prefixes into shared anchors
 
 ### Phase 3 — Diff Engine (Weeks 3–4)
 
