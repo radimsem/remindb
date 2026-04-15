@@ -27,10 +27,10 @@ type ContextNode struct {
 	ID          string
 	ParentID    string
 	SourceFile  string
-	NodeType    NodeType
 	Label       string
 	Content     string
 	ContentHash string
 	Depth       int
 	TokenCount  int
+	NodeType
 }
