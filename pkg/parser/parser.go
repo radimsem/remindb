@@ -23,6 +23,8 @@ func Parse(path string, r io.Reader) ([]*ContextNode, error) {
 		return parseMarkdown(path, data)
 	case ".yml", ".yaml":
 		return parseYaml(path, data)
+	case ".json":
+		return parseJson(path, data)
 	default:
 		return nil, fmt.Errorf("parser: unsupported extension %q", ext)
 	}
