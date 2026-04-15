@@ -14,6 +14,15 @@ const (
 	NodePreamble NodeType = "preamble"
 )
 
+const (
+	FormatPlain = "plain"
+	FormatToon  = "toon"
+)
+
+// MaxInlineFields is the threshold for promoting a nested map or array to its
+// own ContextNode. Smaller structures stay inlined in the parent's Content.
+const MaxInlineFields = 5
+
 type ContextNode struct {
 	Children    []*ContextNode
 	ID          string
@@ -22,6 +31,7 @@ type ContextNode struct {
 	Label       string
 	Content     string
 	ContentHash string
+	Format      string
 	Depth       int
 	TokenCount  int
 	NodeType

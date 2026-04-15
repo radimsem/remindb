@@ -1,37 +1,43 @@
 package parser
 
-import "testing"
+import (
+	"strings"
+	"testing"
+)
 
-func TestYamlParser_FlatMapSortedKeys(t *testing.T) {
+func TestYamlParser_FlatMapInlined(t *testing.T) {
 	nodes, err := parseYaml("t.yaml", []byte("b: 2\na: 1\n"))
 	if err != nil {
 		t.Fatalf("parseYaml: %v", err)
 	}
-	if len(nodes) != 2 {
-		t.Fatalf("len = %d, want 2", len(nodes))
+	if len(nodes) != 1 {
+		t.Fatalf("len = %d, want 1 root", len(nodes))
 	}
 
-	if nodes[0].Content != "a: 1" {
-		t.Errorf("nodes[0].Content = %q, want %q", nodes[0].Content, "a: 1")
+	n := nodes[0]
+	if n.NodeType != NodeKV {
+		t.Errorf("NodeType = %v, want NodeKV", n.NodeType)
 	}
-	if nodes[1].Content != "b: 2" {
-		t.Errorf("nodes[1].Content = %q, want %q", nodes[1].Content, "b: 2")
+	if n.Depth != 1 {
+		t.Errorf("Depth = %d, want 1", n.Depth)
+	}
+	if n.Format != FormatPlain {
+		t.Errorf("Format = %q, want %q", n.Format, FormatPlain)
+	}
+	if n.SourceFile != "t.yaml" {
+		t.Errorf("SourceFile = %q", n.SourceFile)
 	}
 
-	for _, n := range nodes {
-		if n.NodeType != NodeKV {
-			t.Errorf("NodeType = %v, want NodeKV", n.NodeType)
-		}
-		if n.Depth != 1 {
-			t.Errorf("Depth = %d, want 1", n.Depth)
-		}
-		if n.SourceFile != "t.yaml" {
-			t.Errorf("SourceFile = %q", n.SourceFile)
-		}
+	const want = "a: 1\nb: 2"
+	if n.Content != want {
+		t.Errorf("Content = %q, want %q", n.Content, want)
+	}
+	if len(n.Children) != 0 {
+		t.Errorf("Children = %d, want 0", len(n.Children))
 	}
 }
 
-func TestYamlParser_NestedMap(t *testing.T) {
+func TestYamlParser_NestedMapInlined(t *testing.T) {
 	data := []byte("server:\n  host: localhost\n  port: 8080\n")
 	nodes, err := parseYaml("t.yaml", data)
 	if err != nil {
@@ -42,25 +48,16 @@ func TestYamlParser_NestedMap(t *testing.T) {
 	}
 
 	n := nodes[0]
-	if n.Content != "server" || n.NodeType != NodeKV {
-		t.Errorf("parent: content=%q type=%v", n.Content, n.NodeType)
+	const want = "server:\n  host: localhost\n  port: 8080"
+	if n.Content != want {
+		t.Errorf("Content = %q, want %q", n.Content, want)
 	}
-	if len(n.Children) != 2 {
-		t.Fatalf("Children = %d, want 2", len(n.Children))
-	}
-
-	if n.Children[0].Content != "host: localhost" {
-		t.Errorf("Children[0] = %q", n.Children[0].Content)
-	}
-	if n.Children[1].Content != "port: 8080" {
-		t.Errorf("Children[1] = %q", n.Children[1].Content)
-	}
-	if n.Children[0].Depth != 2 {
-		t.Errorf("child Depth = %d, want 2", n.Children[0].Depth)
+	if len(n.Children) != 0 {
+		t.Errorf("Children = %d, want 0 (server has <5 fields)", len(n.Children))
 	}
 }
 
-func TestYamlParser_FlatSequence(t *testing.T) {
+func TestYamlParser_ShortSequenceInlined(t *testing.T) {
 	nodes, err := parseYaml("t.yaml", []byte("tags:\n  - go\n  - mcp\n"))
 	if err != nil {
 		t.Fatalf("parseYaml: %v", err)
@@ -70,13 +67,83 @@ func TestYamlParser_FlatSequence(t *testing.T) {
 	}
 
 	n := nodes[0]
-	if n.NodeType != NodeList {
-		t.Errorf("NodeType = %v, want NodeList", n.NodeType)
+	if n.NodeType != NodeKV {
+		t.Errorf("NodeType = %v, want NodeKV (root map with inlined list)", n.NodeType)
 	}
 
 	const want = "tags:\n- go\n- mcp"
 	if n.Content != want {
 		t.Errorf("Content = %q, want %q", n.Content, want)
+	}
+	if len(n.Children) != 0 {
+		t.Errorf("Children = %d, want 0", len(n.Children))
+	}
+}
+
+func TestYamlParser_LargeMapPromoted(t *testing.T) {
+	data := []byte(strings.Join([]string{
+		"config:",
+		"  a: 1",
+		"  b: 2",
+		"  c: 3",
+		"  d: 4",
+		"  e: 5",
+		"scalar: 42",
+	}, "\n") + "\n")
+
+	nodes, err := parseYaml("t.yaml", data)
+	if err != nil {
+		t.Fatalf("parseYaml: %v", err)
+	}
+	if len(nodes) != 1 {
+		t.Fatalf("len = %d, want 1 root", len(nodes))
+	}
+
+	root := nodes[0]
+	if root.Content != "scalar: 42" {
+		t.Errorf("root.Content = %q, want %q", root.Content, "scalar: 42")
+	}
+	if len(root.Children) != 1 {
+		t.Fatalf("root.Children = %d, want 1 (config)", len(root.Children))
+	}
+
+	config := root.Children[0]
+	if config.NodeType != NodeKV {
+		t.Errorf("config.NodeType = %v, want NodeKV", config.NodeType)
+	}
+	if config.Depth != 2 {
+		t.Errorf("config.Depth = %d, want 2", config.Depth)
+	}
+
+	const wantConfig = "config:\n  a: 1\n  b: 2\n  c: 3\n  d: 4\n  e: 5"
+	if config.Content != wantConfig {
+		t.Errorf("config.Content = %q, want %q", config.Content, wantConfig)
+	}
+}
+
+func TestYamlParser_LongSequencePromoted(t *testing.T) {
+	data := []byte("tags:\n  - a\n  - b\n  - c\n  - d\n  - e\n")
+	nodes, err := parseYaml("t.yaml", data)
+	if err != nil {
+		t.Fatalf("parseYaml: %v", err)
+	}
+
+	root := nodes[0]
+	if len(root.Children) != 1 {
+		t.Fatalf("Children = %d, want 1 (tags promoted at 5 elements)", len(root.Children))
+	}
+
+	tags := root.Children[0]
+	if tags.NodeType != NodeList {
+		t.Errorf("tags.NodeType = %v, want NodeList", tags.NodeType)
+	}
+	if tags.Depth != 2 {
+		t.Errorf("tags.Depth = %d, want 2", tags.Depth)
+	}
+
+	const want = "tags:\n- a\n- b\n- c\n- d\n- e"
+	if tags.Content != want {
+		t.Errorf("tags.Content = %q, want %q", tags.Content, want)
 	}
 }
 
@@ -98,10 +165,7 @@ func TestYamlParser_Determinism(t *testing.T) {
 	if len(a) != len(b) {
 		t.Fatalf("lengths differ: %d vs %d", len(a), len(b))
 	}
-
-	for i := range a {
-		if a[i].Content != b[i].Content {
-			t.Errorf("i=%d: %q != %q", i, a[i].Content, b[i].Content)
-		}
+	if a[0].Content != b[0].Content {
+		t.Errorf("non-deterministic: %q != %q", a[0].Content, b[0].Content)
 	}
 }

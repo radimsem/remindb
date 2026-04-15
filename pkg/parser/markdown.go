@@ -62,6 +62,7 @@ func parseMarkdown(path string, data []byte) ([]*ContextNode, error) {
 				SourceFile: path,
 				NodeType:   NodeHeading,
 				Content:    content,
+				Format:     FormatPlain,
 			}
 
 			stack = popSections(stack, block.Level)
@@ -90,28 +91,28 @@ func nodeFromBlock(path string, n ast.Node) *ContextNode {
 		if content == "" {
 			return nil
 		}
-		return &ContextNode{SourceFile: path, NodeType: NodeCode, Content: content}
+		return &ContextNode{SourceFile: path, NodeType: NodeCode, Content: content, Format: FormatPlain}
 
 	case *ast.List:
 		content := extractListText(b)
 		if content == "" {
 			return nil
 		}
-		return &ContextNode{SourceFile: path, NodeType: NodeList, Content: content}
+		return &ContextNode{SourceFile: path, NodeType: NodeList, Content: content, Format: FormatPlain}
 
 	case *ast.Table:
 		content := extractTableText(b)
 		if content == "" {
 			return nil
 		}
-		return &ContextNode{SourceFile: path, NodeType: NodeTable, Content: content}
+		return &ContextNode{SourceFile: path, NodeType: NodeTable, Content: content, Format: FormatPlain}
 
 	case *ast.HTMLBlock:
 		content := strings.TrimSpace(string(b.Literal))
 		if content == "" {
 			return nil
 		}
-		return &ContextNode{SourceFile: path, NodeType: NodeText, Content: content}
+		return &ContextNode{SourceFile: path, NodeType: NodeText, Content: content, Format: FormatPlain}
 
 	case *ast.HorizontalRule:
 		return nil
@@ -121,7 +122,7 @@ func nodeFromBlock(path string, n ast.Node) *ContextNode {
 		if content == "" {
 			return nil
 		}
-		return &ContextNode{SourceFile: path, NodeType: NodeText, Content: content}
+		return &ContextNode{SourceFile: path, NodeType: NodeText, Content: content, Format: FormatPlain}
 	}
 }
 

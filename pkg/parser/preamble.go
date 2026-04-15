@@ -70,22 +70,17 @@ func trimLeadingNewline(b []byte) []byte {
 func preambleNode(path string, front []byte, kind preambleKind) (*ContextNode, error) {
 	switch kind {
 	case preambleYaml:
-		children, err := YamlParser{}.parse(path, front)
+		nodes, err := YamlParser{}.parse(path, front)
 		if err != nil {
 			return nil, fmt.Errorf("failed to parse: preamble %s: %w", path, err)
 		}
-
-		for _, c := range children {
-			c.Depth = 2
+		if len(nodes) == 0 {
+			return nil, nil
 		}
 
-		return &ContextNode{
-			SourceFile: path,
-			NodeType:   NodePreamble,
-			Content:    "preamble",
-			Depth:      1,
-			Children:   children,
-		}, nil
+		root := nodes[0]
+		root.NodeType = NodePreamble
+		return root, nil
 
 	case preambleToml:
 		content := string(bytes.TrimSpace(front))
@@ -95,6 +90,7 @@ func preambleNode(path string, front []byte, kind preambleKind) (*ContextNode, e
 			NodeType:   NodePreamble,
 			Content:    content,
 			Depth:      1,
+			Format:     FormatPlain,
 		}, nil
 	}
 
