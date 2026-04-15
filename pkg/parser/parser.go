@@ -21,6 +21,8 @@ func Parse(path string, r io.Reader) ([]*ContextNode, error) {
 	switch ext := strings.ToLower(filepath.Ext(path)); ext {
 	case ".md", ".markdown":
 		return parseMarkdown(path, data)
+	case ".yml", ".yaml":
+		return parseYaml(path, data)
 	default:
 		return nil, fmt.Errorf("parser: unsupported extension %q", ext)
 	}
