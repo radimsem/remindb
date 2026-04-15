@@ -35,7 +35,7 @@ remindb/
 │   │   ├── markdown.go       # Markdown → AST (gomarkdown/markdown)
 │   │   ├── yaml.go           # YAML → AST (goccy/go-yaml)
 │   │   ├── json.go           # JSON → AST (encoding/json + TOON encoding)
-│   │   ├── frontmatter.go    # Frontmatter extraction (YAML/TOML in .md)
+│   │   ├── preamble.go       # Preamble extraction (YAML/TOML metadata at file start)
 │   │   └── ast.go            # Unified AST node definitions
 │   │
 │   ├── transformer/          # COMPILER PHASE — Stage 2
@@ -134,7 +134,7 @@ CREATE TABLE nodes (
     id           CHAR(12) PRIMARY KEY,      -- base62-encoded xxhash, fixed 12 chars
     parent_id    CHAR(12) REFERENCES nodes(id) ON DELETE CASCADE,
     source_file  VARCHAR(512) NOT NULL,     -- origin file path (max realistic path)
-    node_type    VARCHAR(16) NOT NULL,      -- heading|list|table|code|text|frontmatter|kv
+    node_type    VARCHAR(16) NOT NULL,      -- heading|list|table|code|text|preamble|kv
     depth        TINYINT NOT NULL,          -- nesting depth in source (0-15 is plenty)
     label        VARCHAR(120) NOT NULL,     -- short context summary for agent
     content      TEXT NOT NULL,             -- token-compressed content (only field that needs TEXT)
@@ -197,7 +197,7 @@ CREATE INDEX idx_diffs_node        ON diffs(node_id);
 - `CHAR(12)` for node IDs: base62-encoded xxhash64 truncated to 12 chars gives 62¹² ≈ 3.2×10²¹ possible values — zero collision risk at any practical scale
 - `CHAR(16)` for content hashes: xxhash64 produces 8 bytes → 16 hex chars, always fixed length
 - `CHAR(3)` for diff ops: `add`, `mod`, `rem` — fixed 3-char enum avoids string overhead
-- `VARCHAR(16)` for node_type: longest value is `frontmatter` (11 chars), 16 gives headroom
+- `VARCHAR(16)` for node_type: longest value is `preamble` (8 chars), 16 gives headroom
 - `VARCHAR(120)` for label: enforces the "1-line summary" constraint at the schema level
 - `INTEGER` timestamps: unix epoch integers are 4–8 bytes vs DATETIME strings at 19 bytes, and sort/compare as native integers
 - `TEXT` only where unbounded: `content`, `old_content`, `new_content` — these genuinely vary from 10 bytes to 100KB
@@ -233,7 +233,7 @@ CREATE INDEX idx_diffs_node        ON diffs(node_id);
        ID          string         // generated anchor
        ParentID    string
        SourceFile  string
-       NodeType    NodeType       // heading, list, table, code, text, kv, frontmatter
+       NodeType    NodeType       // heading, list, table, code, text, kv, preamble
        Depth       int
        Label       string         // auto-generated context hint
        Content     string         // raw or TOON-encoded content
@@ -244,7 +244,7 @@ CREATE INDEX idx_diffs_node        ON diffs(node_id);
    ```
 2. Implement Markdown parser using `gomarkdown/markdown`:
    - Walk AST via `ast.WalkFunc`, map `ast.Heading`, `ast.List`, `ast.Table`, `ast.CodeBlock`, `ast.Paragraph` to `ContextNode`
-   - Extract frontmatter before parsing body
+   - Extract preamble (YAML/TOML metadata block) before parsing body
    - Generate heading-based hierarchy (H1 > H2 > H3 nesting)
 3. Implement YAML parser using `goccy/go-yaml`:
    - Walk YAML document tree, map keys to nodes

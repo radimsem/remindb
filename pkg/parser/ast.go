@@ -9,13 +9,13 @@ package parser
 type NodeType string
 
 const (
-	NodeHeading     NodeType = "heading"
-	NodeList        NodeType = "list"
-	NodeTable       NodeType = "table"
-	NodeCode        NodeType = "code"
-	NodeText        NodeType = "text"
-	NodeKV          NodeType = "kv"
-	NodeFrontmatter NodeType = "frontmatter"
+	NodeHeading  NodeType = "heading"
+	NodeList     NodeType = "list"
+	NodeTable    NodeType = "table"
+	NodeCode     NodeType = "code"
+	NodeText     NodeType = "text"
+	NodeKV       NodeType = "kv"
+	NodePreamble NodeType = "preamble"
 )
 
 // ContextNode is one unit of content extracted from a source file. Parsers

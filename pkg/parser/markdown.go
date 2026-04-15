@@ -38,17 +38,31 @@ func popSections(stack []frame, level int) []frame {
 	return stack
 }
 
-// parseMarkdown turns Markdown source into a ContextNode tree. Headings are
-// organized into sections by level: a heading of level N becomes the parent
-// of all subsequent blocks until the next heading of level ≤ N.
+// parseMarkdown turns Markdown source into a ContextNode tree. A preamble
+// (YAML or TOML metadata block), when present, becomes the first top-level
+// node; headings are then organized into sections by level — a heading of
+// level N becomes the parent of all subsequent blocks until the next
+// heading of level ≤ N.
 func parseMarkdown(path string, data []byte) ([]*ContextNode, error) {
+	front, body, kind := splitPreamble(data)
+
+	var out []*ContextNode
+	if kind != preambleNone {
+		pn, err := preambleNode(path, front, kind)
+		if err != nil {
+			return nil, err
+		}
+		if pn != nil {
+			out = append(out, pn)
+		}
+	}
+
 	p := mdparser.NewWithExtensions(
 		mdparser.CommonExtensions | mdparser.Tables | mdparser.FencedCode,
 	)
-	doc := p.Parse(data)
+	doc := p.Parse(body)
 
 	stack := []frame{{level: 0}} // sentinel root
-	var out []*ContextNode
 
 	for _, child := range doc.GetChildren() {
 		switch block := child.(type) {
