@@ -1,0 +1,9 @@
+{
+  "name": "remindb",
+  "version": "0.1.0",
+  "features": ["parsing", "compilation", "mcp"],
+  "server": {
+    "host": "localhost",
+    "port": 8080
+  }
+}
