@@ -419,6 +419,8 @@ func BenchmarkTokens_AgentSession(b *testing.B) {
 		{"bench", "testdata/bench"},
 		{"openclaw", "testdata/openclaw"},
 		{"codex", "testdata/codex"},
+		{"claude_code", "testdata/claude-code"},
+		{"gemini_cli", "testdata/gemini-cli"},
 	}
 
 	searchQueries := []string{
@@ -438,8 +440,8 @@ func BenchmarkTokens_AgentSession(b *testing.B) {
 			var naiveTok, remindbTok int
 
 			// Phase 1: Orientation.
-			// Naive: read all files. remindb: tree.
-			naiveTok += countDirTokens(b, dir)
+			// Naive: list files + read all contents. remindb: tree.
+			naiveTok += tokens.Estimate(listDirFiles(dir)) + countDirTokens(b, dir)
 			remindbTok += tokens.Estimate(renderTree(ctx, st))
 
 			// Phase 2: Search (3 queries).
