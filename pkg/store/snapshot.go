@@ -102,3 +102,41 @@ func (s *Store) ListSnapshots(ctx context.Context, limit int) ([]*Snapshot, erro
 	}
 	return out, rows.Err()
 }
+
+func (s *Store) GetDiffsBySnapshot(ctx context.Context, snapshotID int64) ([]*DiffRecord, error) {
+	rows, err := s.db.QueryContext(ctx,
+		`SELECT snapshot_id, node_id, op, old_hash, new_hash, old_content, new_content
+		FROM diffs WHERE snapshot_id = ?
+		ORDER BY id`, snapshotID)
+	if err != nil {
+		return nil, err
+	}
+
+	defer func() { _ = rows.Close() }()
+	return collectDiffRows(rows)
+}
+
+func (s *Store) GetDiffsSince(ctx context.Context, sinceSnapshotID int64) ([]*DiffRecord, error) {
+	rows, err := s.db.QueryContext(ctx,
+		`SELECT snapshot_id, node_id, op, old_hash, new_hash, old_content, new_content
+		FROM diffs WHERE snapshot_id > ?
+		ORDER BY snapshot_id, id`, sinceSnapshotID)
+	if err != nil {
+		return nil, err
+	}
+
+	defer func() { _ = rows.Close() }()
+	return collectDiffRows(rows)
+}
+
+func collectDiffRows(rows *sql.Rows) ([]*DiffRecord, error) {
+	var out []*DiffRecord
+	for rows.Next() {
+		var d DiffRecord
+		if err := rows.Scan(&d.SnapshotID, &d.NodeID, &d.Op, &d.OldHash, &d.NewHash, &d.OldContent, &d.NewContent); err != nil {
+			return nil, err
+		}
+		out = append(out, &d)
+	}
+	return out, rows.Err()
+}

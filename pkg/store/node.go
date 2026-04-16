@@ -146,6 +146,37 @@ func (s *Store) DeleteNodeTx(ctx context.Context, tx *sql.Tx, id string) error {
 	return err
 }
 
+func (s *Store) GetDescendants(ctx context.Context, id string, maxDepth int) ([]*Node, error) {
+	rows, err := s.db.QueryContext(ctx, `
+		WITH RECURSIVE desc_cte(nid, lvl) AS (
+			SELECT id, 1 FROM nodes WHERE parent_id = ?
+			UNION ALL
+			SELECT n.id, d.lvl + 1 FROM nodes n
+			JOIN desc_cte d ON n.parent_id = d.nid
+			WHERE d.lvl < ?
+		)
+		SELECT `+nodeColumns+` FROM nodes WHERE id IN (SELECT nid FROM desc_cte)`, id, maxDepth)
+	if err != nil {
+		return nil, err
+	}
+
+	defer func() { _ = rows.Close() }()
+	return collectRows(rows)
+}
+
+func (s *Store) GetSiblings(ctx context.Context, id string) ([]*Node, error) {
+	rows, err := s.db.QueryContext(ctx, `
+		SELECT `+nodeColumns+` FROM nodes
+		WHERE parent_id = (SELECT parent_id FROM nodes WHERE id = ?)
+		AND id != ?`, id, id)
+	if err != nil {
+		return nil, err
+	}
+
+	defer func() { _ = rows.Close() }()
+	return collectRows(rows)
+}
+
 func collectRows(rows *sql.Rows) ([]*Node, error) {
 	var out []*Node
 	for rows.Next() {
