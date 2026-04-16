@@ -7,9 +7,13 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"unicode/utf8"
 )
 
-var ErrUnsupportedExt = errors.New("unsupported extension")
+var (
+	ErrUnsupportedExt = errors.New("unsupported extension")
+	ErrInvalidUTF8    = errors.New("invalid UTF-8")
+)
 
 // Read r and route it to a format-specific parser based on path's extension.
 func Parse(path string, r io.Reader) ([]*ContextNode, error) {
@@ -29,6 +33,10 @@ func ParseFile(path string) ([]*ContextNode, error) {
 }
 
 func ParseBytes(path string, data []byte) ([]*ContextNode, error) {
+	if !utf8.Valid(data) {
+		return nil, fmt.Errorf("%w: %s", ErrInvalidUTF8, path)
+	}
+
 	ext := strings.ToLower(filepath.Ext(path))
 	switch ext {
 	case ".md", ".markdown":
