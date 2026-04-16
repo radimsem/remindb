@@ -1,10 +1,30 @@
 package parser
 
 import (
+	"fmt"
 	"strings"
 
 	toon "github.com/toon-format/toon-go"
 )
+
+type ToonParser struct{}
+
+func parseToon(path string, data []byte) ([]*ContextNode, error) {
+	return ToonParser{}.parse(path, data)
+}
+
+func (p ToonParser) parse(path string, data []byte) ([]*ContextNode, error) {
+	root, err := toon.Decode(data)
+	if err != nil {
+		return nil, fmt.Errorf("failed to parse: toon %s: %w", path, err)
+	}
+
+	if root == nil {
+		return nil, nil
+	}
+
+	return []*ContextNode{buildNode(path, "", root, 1)}, nil
+}
 
 // ToonSavingsThreshold is the minimum fraction of bytes TOON must save versus plain rendering before it is preferred.
 const ToonSavingsThreshold = 0.15

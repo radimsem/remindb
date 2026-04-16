@@ -24,6 +24,8 @@ func Parse(path string, r io.Reader) ([]*ContextNode, error) {
 		return parseYaml(path, data)
 	case ".json":
 		return parseJson(path, data)
+	case ".toon":
+		return parseToon(path, data)
 	default:
 		return nil, fmt.Errorf("unsupported extension %q", ext)
 	}
