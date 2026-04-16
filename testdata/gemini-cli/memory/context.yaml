@@ -1,0 +1,47 @@
+project: infra-api
+team: platform-engineering
+oncall_rotation: weekly
+
+services:
+  - name: infra-api
+    language: go
+    repo: github.com/acme/infra-api
+    deploy_target: k8s-prod
+    monitoring: grafana.internal/d/infra-api
+
+  - name: auth-proxy
+    language: go
+    repo: github.com/acme/auth-proxy
+    deploy_target: k8s-prod
+    monitoring: grafana.internal/d/auth-proxy
+
+dependencies:
+  external:
+    - name: postgresql
+      version: "16"
+      connection: internal service DNS
+    - name: kubernetes
+      version: "1.30"
+      auth: service account
+    - name: vault
+      purpose: secret management
+      endpoint: vault.internal:8200
+
+  internal:
+    - name: auth-proxy
+      purpose: JWT validation and RBAC
+    - name: notification-service
+      purpose: alerting on resource changes
+
+recent_incidents:
+  - date: 2026-03-28
+    summary: namespace deletion cascade removed production workloads
+    root_cause: missing finalizer on namespace resources
+    fix: added finalizer check before namespace delete operations
+    ticket: PLAT-1847
+
+  - date: 2026-04-02
+    summary: API latency spike during cluster autoscale event
+    root_cause: kubernetes client retry storm on 429 responses
+    fix: added exponential backoff with jitter to k8s client
+    ticket: PLAT-1903
