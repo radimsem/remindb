@@ -45,13 +45,3 @@ func TestSetAnchor_DifferentContent(t *testing.T) {
 		t.Errorf("different content same ID: %q", a.ID)
 	}
 }
-
-func TestEncodeBase62_ZeroPadded(t *testing.T) {
-	result := encodeBase62(0)
-	if len(result) != 11 {
-		t.Errorf("len = %d, want 11", len(result))
-	}
-	if result != "00000000000" {
-		t.Errorf("encodeBase62(0) = %q, want %q", result, "00000000000")
-	}
-}

@@ -444,3 +444,57 @@ func TestGetDiffsSince(t *testing.T) {
 		t.Errorf("NodeID = %q, want node0002", diffs[0].NodeID)
 	}
 }
+
+func TestGetRootNodes(t *testing.T) {
+	st := openTestDB(t)
+	ctx := context.Background()
+
+	must(t, st.UpsertNode(ctx, testNode("rootroor", "")))
+	must(t, st.UpsertNode(ctx, testNode("root0002", "")))
+	must(t, st.UpsertNode(ctx, testNode("child001", "rootroor")))
+
+	roots, err := st.GetRootNodes(ctx)
+	if err != nil {
+		t.Fatalf("GetRootNodes: %v", err)
+	}
+	if len(roots) != 2 {
+		t.Errorf("len = %d, want 2", len(roots))
+	}
+}
+
+func TestGetDiffsForNode(t *testing.T) {
+	st := openTestDB(t)
+	ctx := context.Background()
+
+	err := st.Tx(ctx, func(tx *sql.Tx) error {
+		id, err := st.CreateSnapshotTx(ctx, tx, "hash1111", "v1")
+		if err != nil {
+			return err
+		}
+		if err := st.InsertDiffTx(ctx, tx, &DiffRecord{
+			SnapshotID: id, NodeID: "node0001", Op: "add",
+			NewHash: "h1", NewContent: "hello",
+		}); err != nil {
+			return err
+		}
+		if err := st.InsertDiffTx(ctx, tx, &DiffRecord{
+			SnapshotID: id, NodeID: "node0002", Op: "add",
+			NewHash: "h2", NewContent: "world",
+		}); err != nil {
+			return err
+		}
+		return st.AdvanceCursorTx(ctx, tx, id)
+	})
+	must(t, err)
+
+	diffs, err := st.GetDiffsForNode(ctx, "node0001")
+	if err != nil {
+		t.Fatalf("GetDiffsForNode: %v", err)
+	}
+	if len(diffs) != 1 {
+		t.Fatalf("len = %d, want 1", len(diffs))
+	}
+	if diffs[0].Op != "add" {
+		t.Errorf("Op = %q, want add", diffs[0].Op)
+	}
+}

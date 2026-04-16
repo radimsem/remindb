@@ -129,6 +129,19 @@ func (s *Store) GetDiffsSince(ctx context.Context, sinceSnapshotID int64) ([]*Di
 	return collectDiffRows(rows)
 }
 
+func (s *Store) GetDiffsForNode(ctx context.Context, nodeID string) ([]*DiffRecord, error) {
+	rows, err := s.db.QueryContext(ctx,
+		`SELECT snapshot_id, node_id, op, old_hash, new_hash, old_content, new_content
+		FROM diffs WHERE node_id = ?
+		ORDER BY snapshot_id`, nodeID)
+	if err != nil {
+		return nil, err
+	}
+
+	defer func() { _ = rows.Close() }()
+	return collectDiffRows(rows)
+}
+
 func collectDiffRows(rows *sql.Rows) ([]*DiffRecord, error) {
 	var out []*DiffRecord
 	for rows.Next() {

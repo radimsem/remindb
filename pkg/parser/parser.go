@@ -2,12 +2,15 @@ package parser
 
 import (
 	"bytes"
+	"errors"
 	"fmt"
 	"io"
 	"os"
 	"path/filepath"
 	"strings"
 )
+
+var ErrUnsupportedExt = errors.New("unsupported extension")
 
 // Read r and route it to a format-specific parser based on path's extension.
 func Parse(path string, r io.Reader) ([]*ContextNode, error) {
@@ -27,7 +30,7 @@ func Parse(path string, r io.Reader) ([]*ContextNode, error) {
 	case ".toon":
 		return parseToon(path, data)
 	default:
-		return nil, fmt.Errorf("unsupported extension %q", ext)
+		return nil, fmt.Errorf("%w: %q", ErrUnsupportedExt, ext)
 	}
 }
 

@@ -177,6 +177,17 @@ func (s *Store) GetSiblings(ctx context.Context, id string) ([]*Node, error) {
 	return collectRows(rows)
 }
 
+func (s *Store) GetRootNodes(ctx context.Context) ([]*Node, error) {
+	rows, err := s.db.QueryContext(ctx,
+		`SELECT `+nodeColumns+` FROM nodes WHERE parent_id IS NULL ORDER BY source_file, depth`)
+	if err != nil {
+		return nil, err
+	}
+
+	defer func() { _ = rows.Close() }()
+	return collectRows(rows)
+}
+
 func collectRows(rows *sql.Rows) ([]*Node, error) {
 	var out []*Node
 	for rows.Next() {
