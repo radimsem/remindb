@@ -20,3 +20,17 @@ func Format(result *Result) string {
 	}
 	return b.String()
 }
+
+func FormatCompact(result *Result) string {
+	if len(result.Nodes) == 0 {
+		return "no results"
+	}
+
+	var b strings.Builder
+	for _, sn := range result.Nodes {
+		n := sn.Node
+		fmt.Fprintf(&b, "[%s] %s (id=%s file=%s temp=%.2f tok=%d)\n",
+			n.NodeType, n.Label, n.ID, n.SourceFile, n.Temperature, n.TokenCount)
+	}
+	return b.String()
+}

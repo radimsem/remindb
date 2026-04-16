@@ -215,3 +215,35 @@ func TestFormat(t *testing.T) {
 		t.Errorf("Format =\n%q\nwant\n%q", out, expected)
 	}
 }
+
+func TestFormatCompact(t *testing.T) {
+	t.Run("with_results", func(t *testing.T) {
+		result := &Result{
+			Nodes: []ScoredNode{
+				{Node: &store.Node{
+					ID: "abc123", NodeType: "heading", Label: "Auth Config",
+					SourceFile: "docs/auth.md", Temperature: 0.75, TokenCount: 42,
+				}},
+				{Node: &store.Node{
+					ID: "def456", NodeType: "text", Label: "Rate limiting overview.",
+					SourceFile: "docs/api.md", Temperature: 0.30, TokenCount: 110,
+				}},
+			},
+		}
+
+		out := FormatCompact(result)
+		expected := "[heading] Auth Config (id=abc123 file=docs/auth.md temp=0.75 tok=42)\n" +
+			"[text] Rate limiting overview. (id=def456 file=docs/api.md temp=0.30 tok=110)\n"
+
+		if out != expected {
+			t.Errorf("FormatCompact =\n%q\nwant\n%q", out, expected)
+		}
+	})
+
+	t.Run("empty", func(t *testing.T) {
+		out := FormatCompact(&Result{})
+		if out != "no results" {
+			t.Errorf("FormatCompact empty = %q, want %q", out, "no results")
+		}
+	})
+}

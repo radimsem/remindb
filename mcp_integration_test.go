@@ -134,7 +134,7 @@ func TestMcp_ClaudeCodeAgent(t *testing.T) {
 		"budget": 1000,
 	})
 	prefText := env.TextContent(t, prefResult)
-	if !strings.Contains(prefText, "Zod") {
+	if !strings.Contains(prefText, "user_preferences.md") {
 		t.Fatal("search should find user Zod preference")
 	}
 
@@ -149,7 +149,7 @@ func TestMcp_ClaudeCodeAgent(t *testing.T) {
 		"budget": 1000,
 	})
 	hookText := env.TextContent(t, hookResult)
-	if !strings.Contains(hookText, "hooks") {
+	if !strings.Contains(hookText, "function components") {
 		t.Fatal("newly written memory should be searchable")
 	}
 
@@ -198,7 +198,7 @@ func TestMcp_GeminiCliAgent(t *testing.T) {
 		"budget": 2000,
 	})
 	archText := env.TextContent(t, archResult)
-	if !strings.Contains(archText, "idempotent") {
+	if !strings.Contains(strings.ToLower(archText), "idempotent") {
 		t.Fatal("search should find idempotent apply semantics decision")
 	}
 
@@ -208,7 +208,7 @@ func TestMcp_GeminiCliAgent(t *testing.T) {
 		"budget": 2000,
 	})
 	incidentText := env.TextContent(t, incidentResult)
-	if !strings.Contains(incidentText, "finalizer") {
+	if !strings.Contains(incidentText, "context.yaml") {
 		t.Fatal("search should find the finalizer incident")
 	}
 
