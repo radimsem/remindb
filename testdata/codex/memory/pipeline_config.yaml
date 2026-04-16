@@ -1,0 +1,48 @@
+project: dataflow
+environment: production
+
+airflow:
+  version: "2.9.1"
+  executor: CeleryExecutor
+  broker: redis://redis.internal:6379/0
+  result_backend: postgresql://airflow:airflow@pg.internal/airflow
+  dag_dir: /opt/airflow/dags
+  parallelism: 32
+  max_active_runs_per_dag: 3
+
+snowflake:
+  account: acme-prod.us-east-1
+  warehouse: ETL_WH
+  database: ANALYTICS
+  schema: RAW
+  role: ETL_LOADER
+  staging_bucket: s3://acme-data-staging/parquet
+
+vendors:
+  - name: vendor_a
+    base_url: https://api.vendor-a.com/v2
+    auth: oauth2_client_credentials
+    rate_limit: 100/minute
+    retry_codes: [429, 502, 503]
+
+  - name: vendor_b
+    base_url: https://metrics.vendor-b.io/api
+    auth: api_key_header
+    rate_limit: 500/minute
+    retry_codes: [429, 503]
+
+  - name: vendor_c
+    base_url: wss://stream.vendor-c.net/events
+    auth: bearer_token
+    protocol: websocket
+    reconnect_delay: 5s
+
+monitoring:
+  alerts:
+    dag_failure: pagerduty
+    sla_miss: slack_channel_data_alerts
+    dead_letter_threshold: 100
+  dashboards:
+    airflow_ui: https://airflow.internal.acme.com
+    snowflake_usage: https://app.snowflake.com/acme-prod/usage
+    pipeline_health: https://grafana.internal/d/etl-health

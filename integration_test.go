@@ -268,6 +268,108 @@ func TestGeminiCliMemoryWorkflow(t *testing.T) {
 	logSearchResult(t, "YAML dependencies", depResult)
 }
 
+// TestCodexAgentWorkflow simulates a Codex agent session: compile a Python
+// data pipeline project, search for architecture, typing feedback, ETL
+// migration state, and YAML pipeline configuration.
+func TestCodexAgentWorkflow(t *testing.T) {
+	st := testutil.OpenTestDB(t)
+	ctx := context.Background()
+
+	result, err := compiler.CompileDir(ctx, st, "testdata/codex", "codex-agent")
+	if err != nil {
+		t.Fatalf("CompileDir: %v", err)
+	}
+	if result.Added == 0 {
+		t.Fatal("expected nodes from Codex fixtures")
+	}
+	t.Logf("compiled: +%d ~%d -%d (%d total)", result.Added, result.Modified, result.Removed, result.Total)
+
+	testutil.LogTree(t, st)
+
+	// Roots from 5 files: 2 root .md + 3 memory/ files (2 .md + 1 .yaml).
+	roots, err := st.GetRootNodes(ctx)
+	if err != nil {
+		t.Fatalf("GetRootNodes: %v", err)
+	}
+	if len(roots) < 5 {
+		t.Errorf("roots = %d, want >= 5 (preambles + headings from 5 files)", len(roots))
+	}
+
+	eng := query.NewEngine(st)
+
+	// Search for project architecture — should find nodes from project.md.
+	archResult, err := eng.Search(ctx, "Airflow DAG Snowflake parquet transforms", 2000)
+	if err != nil {
+		t.Fatalf("Search arch: %v", err)
+	}
+	if len(archResult.Nodes) == 0 {
+		t.Fatal("expected search results for Airflow architecture")
+	}
+	logSearchResult(t, "architecture", archResult)
+
+	hasAirflow := false
+	for _, sn := range archResult.Nodes {
+		if strings.Contains(sn.Node.Content, "Airflow") {
+			hasAirflow = true
+			break
+		}
+	}
+	if !hasAirflow {
+		t.Error("search results should include project.md Airflow content")
+	}
+
+	// Search for typing feedback — should find Pydantic/Protocol guidance.
+	typingResult, err := eng.Search(ctx, "Pydantic Protocol typing annotations", 2000)
+	if err != nil {
+		t.Fatalf("Search typing: %v", err)
+	}
+	if len(typingResult.Nodes) == 0 {
+		t.Fatal("expected search results for typing feedback")
+	}
+	logSearchResult(t, "typing feedback", typingResult)
+
+	hasPydantic := false
+	for _, sn := range typingResult.Nodes {
+		if strings.Contains(sn.Node.Content, "Pydantic") {
+			hasPydantic = true
+			break
+		}
+	}
+	if !hasPydantic {
+		t.Error("search results should include Pydantic typing feedback")
+	}
+
+	// Search for migration state — should find ETL migration progress.
+	migrationResult, err := eng.Search(ctx, "ETL migration cron Airflow completed remaining", 2000)
+	if err != nil {
+		t.Fatalf("Search migration: %v", err)
+	}
+	if len(migrationResult.Nodes) == 0 {
+		t.Fatal("expected search results for ETL migration state")
+	}
+	logSearchResult(t, "ETL migration", migrationResult)
+
+	// Search for YAML pipeline config — should find Snowflake/vendor config.
+	yamlResult, err := eng.Search(ctx, "Snowflake warehouse vendor oauth2 redis", 2000)
+	if err != nil {
+		t.Fatalf("Search yaml: %v", err)
+	}
+	if len(yamlResult.Nodes) == 0 {
+		t.Fatal("expected search results for YAML pipeline config")
+	}
+	logSearchResult(t, "pipeline config", yamlResult)
+
+	// Fetch context around a node — verify cross-file context assembly.
+	fetchResult, err := eng.Fetch(ctx, archResult.Nodes[0].Node.ID, 4000)
+	if err != nil {
+		t.Fatalf("Fetch: %v", err)
+	}
+	if fetchResult.TokensUsed == 0 {
+		t.Error("expected non-zero token usage in fetch result")
+	}
+	t.Logf("fetch around %s: %d nodes, %d tokens", archResult.Nodes[0].Node.ID, len(fetchResult.Nodes), fetchResult.TokensUsed)
+}
+
 // TestRecompileWorkflow tests incremental recompilation: compile, modify a
 // file, recompile, verify snapshots and diffs accumulate.
 func TestRecompileWorkflow(t *testing.T) {

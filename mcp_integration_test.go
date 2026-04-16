@@ -254,6 +254,103 @@ func TestMcp_GeminiCliAgent(t *testing.T) {
 	}
 }
 
+// TestMcp_CodexAgent simulates a Codex agent session: compile Python pipeline
+// fixtures, search for typing feedback and migration state, write a new
+// decision, verify cross-format search hits YAML config.
+func TestMcp_CodexAgent(t *testing.T) {
+	env := mcptest.NewEnv(t)
+	dir, _ := filepath.Abs("testdata/codex")
+
+	// 1. Compile the data pipeline project context.
+	compileResult := env.CallTool(t, "memory_compile", map[string]any{
+		"path":    dir,
+		"message": "codex-init",
+	})
+	text := env.TextContent(t, compileResult)
+	if !strings.Contains(text, "compiled") {
+		t.Fatalf("unexpected compile result: %s", text)
+	}
+
+	// 2. Agent inspects the memory tree.
+	treeResult := env.CallTool(t, "memory_tree", map[string]any{})
+	treeText := env.TextContent(t, treeResult)
+	if !strings.Contains(treeText, "Codex") && !strings.Contains(treeText, "Project") {
+		t.Errorf("tree should contain Codex/Project headings, got: %s", treeText[:min(200, len(treeText))])
+	}
+
+	// 3. Agent searches for typing feedback before writing code.
+	typingResult := env.CallTool(t, "memory_search", map[string]any{
+		"query":  "Pydantic Protocol typing",
+		"budget": 2000,
+	})
+	typingText := env.TextContent(t, typingResult)
+	if typingText == "no results" {
+		t.Fatal("expected search results for typing feedback")
+	}
+	if !strings.Contains(typingText, "Pydantic") {
+		t.Error("typing search should surface Pydantic feedback")
+	}
+
+	// 4. Agent checks migration state before starting a new pipeline.
+	migrationResult := env.CallTool(t, "memory_search", map[string]any{
+		"query":  "ETL migration remaining blocked",
+		"budget": 2000,
+	})
+	migrationText := env.TextContent(t, migrationResult)
+	if migrationText == "no results" {
+		t.Fatal("expected search results for ETL migration state")
+	}
+
+	// 5. Agent searches YAML pipeline config for vendor details.
+	vendorResult := env.CallTool(t, "memory_search", map[string]any{
+		"query":  "vendor oauth2 websocket redis",
+		"budget": 1000,
+	})
+	vendorText := env.TextContent(t, vendorResult)
+	if vendorText == "no results" {
+		t.Fatal("expected search results for YAML vendor config")
+	}
+
+	// 6. Agent writes a new architecture decision.
+	writeResult := env.CallTool(t, "memory_write", map[string]any{
+		"payload": "Decision: use polars instead of pandas for new transforms. Rationale: 5x faster on large datasets, native lazy evaluation, better memory efficiency with Apache Arrow backend.",
+	})
+	writeText := env.TextContent(t, writeResult)
+	if !strings.Contains(writeText, "wrote node") {
+		t.Fatalf("unexpected write result: %s", writeText)
+	}
+	nodeID := extractNodeID(writeText)
+
+	// 7. Agent verifies the decision is searchable.
+	polarsResult := env.CallTool(t, "memory_search", map[string]any{
+		"query":  "polars",
+		"budget": 1000,
+	})
+	polarsText := env.TextContent(t, polarsResult)
+	if !strings.Contains(polarsText, "polars") {
+		t.Fatal("newly written decision should be searchable")
+	}
+
+	// 8. Agent fetches context around the new decision.
+	fetchResult := env.CallTool(t, "memory_fetch", map[string]any{
+		"anchor": nodeID,
+		"budget": 2000,
+	})
+	fetchText := env.TextContent(t, fetchResult)
+	if !strings.Contains(fetchText, "polars") {
+		t.Errorf("fetch should include the written content, got: %s", fetchText[:min(100, len(fetchText))])
+	}
+
+	// 9. Agent checks delta since compile.
+	deltaResult := env.CallTool(t, "memory_delta", map[string]any{
+		"since_snapshot": 1,
+	})
+	deltaText := env.TextContent(t, deltaResult)
+	if deltaText == "no changes" {
+		t.Error("expected delta changes after write")
+	}
+}
+
 // TestMcp_ToolDiscovery verifies that the client can list all available tools.
 func TestMcp_ToolDiscovery(t *testing.T) {
 	env := mcptest.NewEnv(t)
