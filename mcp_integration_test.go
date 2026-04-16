@@ -26,7 +26,7 @@ func TestMcp_OpenClawAgent(t *testing.T) {
 		t.Fatalf("unexpected compile result: %s", text)
 	}
 
-	// 2. Agent inspects its memory tree.
+	// 2. Agent inspects its memory tree — should include all workspace files.
 	treeResult := env.CallTool(t, "memory_tree", map[string]any{})
 	treeText := env.TextContent(t, treeResult)
 	if !strings.Contains(treeText, "Soul") && !strings.Contains(treeText, "Identity") {
@@ -43,7 +43,37 @@ func TestMcp_OpenClawAgent(t *testing.T) {
 		t.Fatal("expected search results for capabilities")
 	}
 
-	// 4. Agent writes a new memory from a conversation.
+	// 4. Agent checks user preferences before responding.
+	userResult := env.CallTool(t, "memory_search", map[string]any{
+		"query":  "terse responses error handling",
+		"budget": 1000,
+	})
+	userText := env.TextContent(t, userResult)
+	if userText == "no results" {
+		t.Fatal("expected search results for user preferences from USER.md")
+	}
+
+	// 5. Agent checks daily memory logs for recent session context.
+	dailyResult := env.CallTool(t, "memory_search", map[string]any{
+		"query":  "rate limiting token bucket",
+		"budget": 1000,
+	})
+	dailyText := env.TextContent(t, dailyResult)
+	if dailyText == "no results" {
+		t.Fatal("expected search results for daily memory log content")
+	}
+
+	// 6. Agent searches for JSON session data from memory/session_data.json.
+	jsonResult := env.CallTool(t, "memory_search", map[string]any{
+		"query":  "session tasks blocked WebSocket",
+		"budget": 1000,
+	})
+	jsonText := env.TextContent(t, jsonResult)
+	if jsonText == "no results" {
+		t.Fatal("expected search results for JSON session data")
+	}
+
+	// 7. Agent writes a new memory from a conversation.
 	writeResult := env.CallTool(t, "memory_write", map[string]any{
 		"payload": "User prefers verbose explanations when reviewing Go code. Confirmed after code review session.",
 	})
@@ -55,7 +85,7 @@ func TestMcp_OpenClawAgent(t *testing.T) {
 	// Extract the node ID from "wrote node XXXXXXXX (N tokens)".
 	nodeID := extractNodeID(writeText)
 
-	// 5. Agent fetches context around the new memory.
+	// 8. Agent fetches context around the new memory.
 	fetchResult := env.CallTool(t, "memory_fetch", map[string]any{
 		"anchor": nodeID,
 		"budget": 1000,
@@ -65,7 +95,7 @@ func TestMcp_OpenClawAgent(t *testing.T) {
 		t.Errorf("fetch should include the written content, got: %s", fetchText[:min(100, len(fetchText))])
 	}
 
-	// 6. Agent checks delta since the compile snapshot.
+	// 9. Agent checks delta since the compile snapshot.
 	deltaResult := env.CallTool(t, "memory_delta", map[string]any{
 		"since_snapshot": 1,
 	})

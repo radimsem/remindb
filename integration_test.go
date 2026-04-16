@@ -31,17 +31,18 @@ func TestOpenClawAgentWorkflow(t *testing.T) {
 
 	testutil.LogTree(t, st)
 
-	// Verify tree structure: should have roots from 3 files.
+	// Verify tree structure: roots from 14 files (10 root .md + 4 memory/).
 	roots, err := st.GetRootNodes(ctx)
 	if err != nil {
 		t.Fatalf("GetRootNodes: %v", err)
 	}
-	if len(roots) < 3 {
-		t.Errorf("roots = %d, want >= 3 (SOUL, IDENTITY, PROTOCOLS preambles + headings)", len(roots))
+	if len(roots) < 14 {
+		t.Errorf("roots = %d, want >= 14 (preambles + headings from 14 files)", len(roots))
 	}
 
-	// Search for agent capabilities — should find nodes from IDENTITY.md.
 	eng := query.NewEngine(st)
+
+	// Search for agent capabilities — should find nodes from IDENTITY.md.
 	searchResult, err := eng.Search(ctx, "code review refactoring security", 2000)
 	if err != nil {
 		t.Fatalf("Search: %v", err)
@@ -71,6 +72,67 @@ func TestOpenClawAgentWorkflow(t *testing.T) {
 		t.Fatal("expected search results for 'memory protocol feedback recall'")
 	}
 	logSearchResult(t, "memory protocol", memResult)
+
+	// Search for user preferences — should find nodes from USER.md.
+	userResult, err := eng.Search(ctx, "explicit error handling panics imports grouped", 2000)
+	if err != nil {
+		t.Fatalf("Search user: %v", err)
+	}
+	if len(userResult.Nodes) == 0 {
+		t.Fatal("expected search results for user preferences")
+	}
+	logSearchResult(t, "user preferences", userResult)
+
+	hasUserPref := false
+	for _, sn := range userResult.Nodes {
+		if strings.Contains(sn.Node.Content, "error handling") {
+			hasUserPref = true
+			break
+		}
+	}
+	if !hasUserPref {
+		t.Error("search results should include USER.md preferences content")
+	}
+
+	// Search for daily memory log content — should find nodes from memory/.
+	dailyResult, err := eng.Search(ctx, "rate limiting token bucket middleware", 2000)
+	if err != nil {
+		t.Fatalf("Search daily: %v", err)
+	}
+	if len(dailyResult.Nodes) == 0 {
+		t.Fatal("expected search results for daily memory log content")
+	}
+	logSearchResult(t, "daily memory", dailyResult)
+
+	// Search for agent operating instructions — should find nodes from AGENTS.md.
+	agentsResult, err := eng.Search(ctx, "heartbeat budget session memory", 2000)
+	if err != nil {
+		t.Fatalf("Search agents: %v", err)
+	}
+	if len(agentsResult.Nodes) == 0 {
+		t.Fatal("expected search results for agent operating instructions")
+	}
+	logSearchResult(t, "agent instructions", agentsResult)
+
+	// Search for bootstrap content — should find nodes from BOOTSTRAP.md.
+	bootResult, err := eng.Search(ctx, "bootstrap identity project discovery", 2000)
+	if err != nil {
+		t.Fatalf("Search bootstrap: %v", err)
+	}
+	if len(bootResult.Nodes) == 0 {
+		t.Fatal("expected search results for bootstrap ritual content")
+	}
+	logSearchResult(t, "bootstrap", bootResult)
+
+	// Search for JSON session data — should find nodes from memory/session_data.json.
+	jsonResult, err := eng.Search(ctx, "session tasks blocked WebSocket", 2000)
+	if err != nil {
+		t.Fatalf("Search json: %v", err)
+	}
+	if len(jsonResult.Nodes) == 0 {
+		t.Fatal("expected search results for JSON session data")
+	}
+	logSearchResult(t, "json session data", jsonResult)
 
 	// Fetch context around a specific node.
 	fetchResult, err := eng.Fetch(ctx, searchResult.Nodes[0].Node.ID, 4000)
