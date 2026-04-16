@@ -44,6 +44,9 @@ func NewEnv(t *testing.T) *Env {
 
 func (e *Env) CallTool(t *testing.T, name string, args map[string]any) *mcp.CallToolResult {
 	t.Helper()
+
+	t.Logf("→ %s %v", name, args)
+
 	result, err := e.Session.CallTool(context.Background(), &mcp.CallToolParams{
 		Name:      name,
 		Arguments: args,
@@ -60,6 +63,10 @@ func (e *Env) CallTool(t *testing.T, name string, args map[string]any) *mcp.Call
 		}
 		t.Fatalf("CallTool %s returned error: %s", name, msg)
 	}
+
+	text := e.textPreview(result)
+	t.Logf("← %s: %s", name, text)
+
 	return result
 }
 
@@ -73,4 +80,21 @@ func (e *Env) TextContent(t *testing.T, result *mcp.CallToolResult) string {
 		t.Fatalf("expected TextContent, got %T", result.Content[0])
 	}
 	return tc.Text
+}
+
+const maxPreview = 120
+
+func (e *Env) textPreview(result *mcp.CallToolResult) string {
+	if len(result.Content) == 0 {
+		return "(empty)"
+	}
+	tc, ok := result.Content[0].(*mcp.TextContent)
+	if !ok {
+		return "(non-text)"
+	}
+	s := tc.Text
+	if len(s) <= maxPreview {
+		return s
+	}
+	return s[:maxPreview] + "..."
 }

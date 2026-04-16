@@ -25,7 +25,6 @@ func TestMcp_OpenClawAgent(t *testing.T) {
 	if !strings.Contains(text, "compiled") {
 		t.Fatalf("unexpected compile result: %s", text)
 	}
-	t.Logf("compile: %s", text)
 
 	// 2. Agent inspects its memory tree.
 	treeResult := env.CallTool(t, "memory_tree", map[string]any{})

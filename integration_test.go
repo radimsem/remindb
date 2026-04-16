@@ -2,6 +2,7 @@ package remindb_test
 
 import (
 	"context"
+	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
@@ -28,6 +29,8 @@ func TestOpenClawAgentWorkflow(t *testing.T) {
 	}
 	t.Logf("compiled: +%d ~%d -%d (%d total)", result.Added, result.Modified, result.Removed, result.Total)
 
+	testutil.LogTree(t, st)
+
 	// Verify tree structure: should have roots from 3 files.
 	roots, err := st.GetRootNodes(ctx)
 	if err != nil {
@@ -46,6 +49,7 @@ func TestOpenClawAgentWorkflow(t *testing.T) {
 	if len(searchResult.Nodes) == 0 {
 		t.Fatal("expected search results for 'code review refactoring security'")
 	}
+	logSearchResult(t, "capabilities", searchResult)
 
 	found := false
 	for _, sn := range searchResult.Nodes {
@@ -66,6 +70,7 @@ func TestOpenClawAgentWorkflow(t *testing.T) {
 	if len(memResult.Nodes) == 0 {
 		t.Fatal("expected search results for 'memory protocol feedback recall'")
 	}
+	logSearchResult(t, "memory protocol", memResult)
 
 	// Fetch context around a specific node.
 	fetchResult, err := eng.Fetch(ctx, searchResult.Nodes[0].Node.ID, 4000)
@@ -75,7 +80,7 @@ func TestOpenClawAgentWorkflow(t *testing.T) {
 	if fetchResult.TokensUsed == 0 {
 		t.Error("expected non-zero token usage in fetch result")
 	}
-	t.Logf("fetch: %d nodes, %d tokens", len(fetchResult.Nodes), fetchResult.TokensUsed)
+	t.Logf("fetch around %s: %d nodes, %d tokens", searchResult.Nodes[0].Node.ID, len(fetchResult.Nodes), fetchResult.TokensUsed)
 }
 
 // TestClaudeCodeMemoryWorkflow simulates the memory workflow of a Claude Code
@@ -94,10 +99,11 @@ func TestClaudeCodeMemoryWorkflow(t *testing.T) {
 	}
 	t.Logf("compiled: +%d ~%d -%d (%d total)", result.Added, result.Modified, result.Removed, result.Total)
 
+	testutil.LogTree(t, st)
+
 	eng := query.NewEngine(st)
 
 	// Agent starts a task: "add a new page to the webshop".
-	// It should find the CLAUDE.md instructions about pages and components.
 	pageResult, err := eng.Search(ctx, "adding new page server components", 2000)
 	if err != nil {
 		t.Fatalf("Search: %v", err)
@@ -105,6 +111,7 @@ func TestClaudeCodeMemoryWorkflow(t *testing.T) {
 	if len(pageResult.Nodes) == 0 {
 		t.Fatal("expected results for 'adding new page server components'")
 	}
+	logSearchResult(t, "adding page", pageResult)
 
 	// Agent checks for testing feedback before writing tests.
 	testResult, err := eng.Search(ctx, "snapshot tests mock database", 2000)
@@ -114,6 +121,7 @@ func TestClaudeCodeMemoryWorkflow(t *testing.T) {
 	if len(testResult.Nodes) == 0 {
 		t.Fatal("expected results for testing feedback")
 	}
+	logSearchResult(t, "testing feedback", testResult)
 
 	hasSnapshotWarning := false
 	for _, sn := range testResult.Nodes {
@@ -134,6 +142,7 @@ func TestClaudeCodeMemoryWorkflow(t *testing.T) {
 	if len(sprintResult.Nodes) == 0 {
 		t.Fatal("expected results for current sprint context")
 	}
+	logSearchResult(t, "sprint context", sprintResult)
 
 	// Verify user preference was compiled.
 	userResult, err := eng.Search(ctx, "senior engineer Zod validation preferences", 2000)
@@ -143,6 +152,7 @@ func TestClaudeCodeMemoryWorkflow(t *testing.T) {
 	if len(userResult.Nodes) == 0 {
 		t.Fatal("expected results for user preferences")
 	}
+	logSearchResult(t, "user preferences", userResult)
 }
 
 // TestGeminiCliMemoryWorkflow simulates a Gemini CLI session working on the
@@ -161,6 +171,8 @@ func TestGeminiCliMemoryWorkflow(t *testing.T) {
 	}
 	t.Logf("compiled: +%d ~%d -%d (%d total)", result.Added, result.Modified, result.Removed, result.Total)
 
+	testutil.LogTree(t, st)
+
 	eng := query.NewEngine(st)
 
 	// Agent searches for architecture decisions before modifying the k8s layer.
@@ -171,6 +183,7 @@ func TestGeminiCliMemoryWorkflow(t *testing.T) {
 	if len(archResult.Nodes) == 0 {
 		t.Fatal("expected results for architecture decisions")
 	}
+	logSearchResult(t, "architecture decisions", archResult)
 
 	// Agent checks incident history before touching namespace operations.
 	incidentResult, err := eng.Search(ctx, "namespace deletion cascade finalizer", 2000)
@@ -180,6 +193,7 @@ func TestGeminiCliMemoryWorkflow(t *testing.T) {
 	if len(incidentResult.Nodes) == 0 {
 		t.Fatal("expected results for incident history")
 	}
+	logSearchResult(t, "incident history", incidentResult)
 
 	// Verify YAML context was parsed — should find service dependencies.
 	depResult, err := eng.Search(ctx, "postgresql vault kubernetes dependencies", 2000)
@@ -189,6 +203,7 @@ func TestGeminiCliMemoryWorkflow(t *testing.T) {
 	if len(depResult.Nodes) == 0 {
 		t.Fatal("expected results for YAML service dependencies")
 	}
+	logSearchResult(t, "YAML dependencies", depResult)
 }
 
 // TestRecompileWorkflow tests incremental recompilation: compile, modify a
@@ -215,6 +230,8 @@ func TestRecompileWorkflow(t *testing.T) {
 	}
 	t.Logf("v1: +%d ~%d -%d (%d total)", r1.Added, r1.Modified, r1.Removed, r1.Total)
 
+	testutil.LogTree(t, st)
+
 	snaps, _ := st.ListSnapshots(ctx, 10)
 	if len(snaps) != 1 {
 		t.Fatalf("snapshots = %d, want 1", len(snaps))
@@ -235,6 +252,8 @@ func TestRecompileWorkflow(t *testing.T) {
 	}
 	t.Logf("v2: +%d ~%d -%d (%d total)", r2.Added, r2.Modified, r2.Removed, r2.Total)
 
+	testutil.LogTree(t, st)
+
 	snaps, _ = st.ListSnapshots(ctx, 10)
 	if len(snaps) != 2 {
 		t.Fatalf("snapshots = %d, want 2", len(snaps))
@@ -249,7 +268,7 @@ func TestRecompileWorkflow(t *testing.T) {
 	if len(diffs) == 0 {
 		t.Error("expected diffs between v1 and v2")
 	}
-	t.Logf("delta: %d changes", len(diffs))
+	testutil.LogDiffs(t, diffs)
 }
 
 // TestTemperatureBoostOnAccess verifies that querying nodes boosts their
@@ -275,6 +294,7 @@ func TestTemperatureBoostOnAccess(t *testing.T) {
 	if len(result.Nodes) == 0 {
 		t.Fatal("expected search results")
 	}
+	logSearchResult(t, "precision", result)
 
 	nodeID := result.Nodes[0].Node.ID
 
@@ -301,7 +321,7 @@ func TestTemperatureBoostOnAccess(t *testing.T) {
 	if after.AccessCount != before.AccessCount+1 {
 		t.Errorf("access_count = %d, want %d", after.AccessCount, before.AccessCount+1)
 	}
-	t.Logf("temperature: %.3f -> %.3f", tempBefore, after.Temperature)
+	t.Logf("temperature boost: %.3f -> %.3f (access=%d)", tempBefore, after.Temperature, after.AccessCount)
 }
 
 // TestCrossFormatSearch verifies that search works across all fixture formats
@@ -319,6 +339,8 @@ func TestCrossFormatSearch(t *testing.T) {
 		t.Fatalf("Compile: %v", err)
 	}
 
+	testutil.LogTree(t, st)
+
 	eng := query.NewEngine(st)
 
 	// Search for content that exists in markdown.
@@ -329,6 +351,7 @@ func TestCrossFormatSearch(t *testing.T) {
 	if len(mdResult.Nodes) == 0 {
 		t.Error("expected markdown content in search results")
 	}
+	logSearchResult(t, "markdown paragraph", mdResult)
 
 	// Search for content across YAML and JSON (both have "remindb").
 	nameResult, err := eng.Search(ctx, "remindb", 2000)
@@ -338,6 +361,7 @@ func TestCrossFormatSearch(t *testing.T) {
 	if len(nameResult.Nodes) == 0 {
 		t.Error("expected results matching 'remindb' from YAML/JSON fixtures")
 	}
+	logSearchResult(t, "cross-format remindb", nameResult)
 
 	// Verify stats reflect all three formats.
 	stats, err := st.GetStats(ctx)
@@ -347,7 +371,27 @@ func TestCrossFormatSearch(t *testing.T) {
 	if stats.NodeCount < 3 {
 		t.Errorf("NodeCount = %d, want >= 3 (nodes from 3 files)", stats.NodeCount)
 	}
-	t.Logf("cross-format: %d nodes, %d snapshots", stats.NodeCount, stats.SnapshotCount)
+	t.Logf("stats: %d nodes, %d snapshots, avg_temp=%.3f, hot=%d, cold=%d",
+		stats.NodeCount, stats.SnapshotCount, stats.AvgTemp, stats.HotCount, stats.ColdCount)
+}
+
+func logSearchResult(t *testing.T, label string, result *query.Result) {
+	t.Helper()
+	if len(result.Nodes) == 0 {
+		t.Logf("search %q: no results", label)
+		return
+	}
+
+	var b strings.Builder
+	fmt.Fprintf(&b, "search %q: %d nodes, %d tokens\n", label, len(result.Nodes), result.TokensUsed)
+	for i, sn := range result.Nodes {
+		content := sn.Node.Content
+		if len(content) > 80 {
+			content = content[:80] + "..."
+		}
+		fmt.Fprintf(&b, "  [%d] score=%.4f [%s] %s\n", i, sn.Score, sn.Node.NodeType, content)
+	}
+	t.Logf("%s", b.String())
 }
 
 func abs(t *testing.T, path string) string {
