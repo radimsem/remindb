@@ -47,13 +47,15 @@ func splitPath(p string) []string {
 	if p == "." {
 		return nil
 	}
+
 	return strings.Split(p, string(filepath.Separator))
 }
 
 func commonParts(a, b []string) []string {
 	n := len(a)
-	if len(b) < n {
-		n = len(b)
+	m := len(b)
+	if m < n {
+		n = m
 	}
 
 	i := 0

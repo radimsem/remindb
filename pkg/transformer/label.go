@@ -45,6 +45,7 @@ func labelList(n *parser.ContextNode) string {
 		if !strings.HasPrefix(trimmed, "- ") {
 			continue
 		}
+
 		count++
 		if first == "" {
 			first = strings.TrimPrefix(trimmed, "- ")
@@ -78,7 +79,8 @@ func labelCode(n *parser.ContextNode) string {
 	}
 
 	first := strings.TrimSpace(lines[0])
-	isLang := len(first) > 0 && len(first) < 20 && !strings.Contains(first, " ")
+	isLang := len(first) > 0 && len(first) < maxLabelLen && !strings.Contains(first, " ")
+
 	if isLang && len(lines) > 1 {
 		codeLine := strings.TrimSpace(lines[1])
 		return truncate(fmt.Sprintf("Code (%s): %s", first, codeLine), maxLabelLen)
@@ -106,14 +108,17 @@ func labelPreamble(n *parser.ContextNode) string {
 func extractTopKeys(content string, limit int) []string {
 	lines := strings.Split(content, "\n")
 	var keys []string
+
 	for _, l := range lines {
 		if len(l) == 0 || l[0] == ' ' || l[0] == '\t' {
 			continue
 		}
+
 		idx := strings.IndexByte(l, ':')
 		if idx <= 0 {
 			continue
 		}
+
 		keys = append(keys, l[:idx])
 		if limit > 0 && len(keys) >= limit {
 			break
@@ -127,6 +132,7 @@ func firstSentence(s string, max int) string {
 		if c != '.' && c != '!' && c != '?' {
 			continue
 		}
+
 		end := i + 1
 		if end >= len(s) || s[end] == ' ' || s[end] == '\n' {
 			return truncate(s[:end], max)

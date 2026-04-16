@@ -6,7 +6,7 @@ import (
 	"github.com/radimsem/remindb/pkg/parser"
 )
 
-// Normalize whitespace: CRLF → LF, trim trailing spaces per line, collapse runs of blank lines, strip empty leading/trailing lines.
+// Normalize whitespace.
 func compress(n *parser.ContextNode) {
 	s := n.Content
 	s = strings.ReplaceAll(s, "\r\n", "\n")

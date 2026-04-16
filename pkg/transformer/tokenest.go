@@ -6,7 +6,7 @@ import (
 	"github.com/radimsem/remindb/pkg/parser"
 )
 
-// Conservative tokens-per-byte ratio for mixed content (English + structured data).
+// Conservative tokens-per-byte ratio for mixed content.
 const tokensPerByte = 0.75
 
 func setTokenCount(n *parser.ContextNode) {
