@@ -236,3 +236,63 @@ func TestTemperature(t *testing.T) {
 		t.Errorf("cold = %d, want 1", len(cold))
 	}
 }
+
+func TestBoostTemperature(t *testing.T) {
+	st := openTestDB(t)
+	ctx := context.Background()
+
+	must(t, st.UpsertNode(ctx, testNode("aaaaaaaa", "")))
+
+	must(t, st.BoostTemperature(ctx, "aaaaaaaa", 0.15))
+
+	got, err := st.GetNode(ctx, "aaaaaaaa")
+	if err != nil {
+		t.Fatalf("GetNode: %v", err)
+	}
+	if got.Temperature != 0.65 {
+		t.Errorf("Temperature = %f, want 0.65 (0.5 + 0.15)", got.Temperature)
+	}
+	if got.AccessCount != 1 {
+		t.Errorf("AccessCount = %d, want 1", got.AccessCount)
+	}
+	if !got.LastAccessed.Valid {
+		t.Error("LastAccessed should be set")
+	}
+
+	// Boost past 1.0 should cap at 1.0.
+	must(t, st.UpdateTemperature(ctx, "aaaaaaaa", 0.95))
+	must(t, st.BoostTemperature(ctx, "aaaaaaaa", 0.15))
+
+	got, _ = st.GetNode(ctx, "aaaaaaaa")
+	if got.Temperature != 1.0 {
+		t.Errorf("Temperature = %f, want 1.0 (capped)", got.Temperature)
+	}
+}
+
+func TestDecayTemperatures(t *testing.T) {
+	st := openTestDB(t)
+	ctx := context.Background()
+
+	must(t, st.UpsertNode(ctx, testNode("aaaaaaaa", "")))
+	must(t, st.UpsertNode(ctx, testNode("bbbbbbbb", "")))
+	must(t, st.UpdateTemperature(ctx, "aaaaaaaa", 1.0))
+	must(t, st.UpdateTemperature(ctx, "bbbbbbbb", 0.0))
+
+	affected, err := st.DecayTemperatures(ctx, 0.5)
+	if err != nil {
+		t.Fatalf("DecayTemperatures: %v", err)
+	}
+	if affected != 1 {
+		t.Errorf("affected = %d, want 1 (only non-zero)", affected)
+	}
+
+	a, _ := st.GetNode(ctx, "aaaaaaaa")
+	if a.Temperature != 0.5 {
+		t.Errorf("Temperature = %f, want 0.5 (1.0 * 0.5)", a.Temperature)
+	}
+
+	b, _ := st.GetNode(ctx, "bbbbbbbb")
+	if b.Temperature != 0.0 {
+		t.Errorf("Temperature = %f, want 0.0 (unchanged)", b.Temperature)
+	}
+}

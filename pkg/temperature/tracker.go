@@ -1,0 +1,55 @@
+package temperature
+
+import (
+	"context"
+	"fmt"
+	"time"
+
+	"github.com/radimsem/remindb/pkg/store"
+)
+
+type NodeStore interface {
+	BoostTemperature(ctx context.Context, id string, boost float64) error
+	DecayTemperatures(ctx context.Context, factor float64) (int64, error)
+	GetColdNodes(ctx context.Context, threshold float64) ([]*store.Node, error)
+}
+
+type TickResult struct {
+	Decayed int64
+	Cold    []*store.Node
+}
+
+type Tracker struct {
+	store NodeStore
+	cfg   Config
+}
+
+func NewTracker(s NodeStore, cfg Config) *Tracker {
+	return &Tracker{store: s, cfg: cfg}
+}
+
+func (t *Tracker) RecordAccess(ctx context.Context, ids []string) error {
+	for _, id := range ids {
+		if err := t.store.BoostTemperature(ctx, id, t.cfg.AccessBoost); err != nil {
+			return fmt.Errorf("failed to boost: %s: %w", id, err)
+		}
+	}
+	return nil
+}
+
+func (t *Tracker) Tick(ctx context.Context, elapsed time.Duration) (*TickResult, error) {
+	hours := elapsed.Hours()
+	factor := decayFactor(t.cfg.DecayRate, hours)
+
+	decayed, err := t.store.DecayTemperatures(ctx, factor)
+	if err != nil {
+		return nil, fmt.Errorf("failed to decay: %w", err)
+	}
+
+	cold, err := t.store.GetColdNodes(ctx, t.cfg.ColdThreshold)
+	if err != nil {
+		return nil, fmt.Errorf("failed to get cold nodes: %w", err)
+	}
+
+	return &TickResult{Decayed: decayed, Cold: cold}, nil
+}
