@@ -36,6 +36,10 @@ func (s *Server) Run(ctx context.Context) error {
 	return s.mcp.Run(ctx, &mcp.StdioTransport{})
 }
 
+func (s *Server) Connect(ctx context.Context, t mcp.Transport) (*mcp.ServerSession, error) {
+	return s.mcp.Connect(ctx, t, nil)
+}
+
 func registerTools(srv *mcp.Server, d *tools.Deps) {
 	mcp.AddTool(srv, &mcp.Tool{
 		Name:        "memory_fetch",

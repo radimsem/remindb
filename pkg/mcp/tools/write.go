@@ -13,7 +13,7 @@ import (
 )
 
 type WriteInput struct {
-	Anchor  string `json:"anchor" jsonschema:"Existing node ID to update (empty to create new)"`
+	Anchor  string `json:"anchor,omitempty" jsonschema:"Existing node ID to update (empty to create new)"`
 	Payload string `json:"payload" jsonschema:"Content to write"`
 }
 
