@@ -222,7 +222,7 @@ CREATE INDEX idx_diffs_node        ON diffs(node_id);
 
 ### Phase 1 — Parser Pipeline (Weeks 1–2)
 
-**Goal:** Parse `.md`, `.yaml`, `.json` files into a unified internal AST.
+**Goal:** Parse `.md`, `.yaml`, `.json`, `.toon` files into a unified internal AST.
 
 **Tasks:**
 1. Define the unified `ContextNode` struct that all parsers produce:
@@ -254,7 +254,8 @@ CREATE INDEX idx_diffs_node        ON diffs(node_id);
    - Share the split rule and renderer with the YAML parser (see `split.go`)
    - **TOON encoding at parse time**: when a promoted array/map is uniform and TOON beats plain by a savings threshold (≥15%), store its subtree as TOON in `Content` and set `Format: "toon"`. Otherwise `Format: "plain"`. The transformer never restructures `Content`.
 5. Preamble extraction (`preamble.go`): reuse the YAML parser on the front-matter block; relabel the produced root as `NodePreamble`.
-6. Write comprehensive parser tests against `testdata/` fixtures.
+6. Implement TOON parser: `toon.Decode` → shared `buildNode` path. Same split rule, TOON re-encoding, and promotion logic as JSON/YAML — source-format agnostic from `buildNode` down.
+7. Write comprehensive parser tests against `testdata/` fixtures.
 
 ### Phase 2 — Transformer (Weeks 2–3)
 
