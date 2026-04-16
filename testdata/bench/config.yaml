@@ -1,0 +1,64 @@
+service:
+  name: bench-gateway
+  version: "3.2.0"
+  environment: production
+
+server:
+  port: 8080
+  read_timeout: 30s
+  write_timeout: 30s
+  max_header_bytes: 1048576
+  tls:
+    cert_path: /etc/tls/server.crt
+    key_path: /etc/tls/server.key
+
+database:
+  primary:
+    driver: postgres
+    host: pg-primary.internal
+    port: 5432
+    name: gateway_prod
+    pool_size: 25
+    max_idle: 10
+    conn_lifetime: 300s
+  replica:
+    driver: postgres
+    host: pg-replica.internal
+    port: 5432
+    name: gateway_prod
+    pool_size: 50
+    max_idle: 20
+
+cache:
+  driver: redis
+  nodes:
+    - redis-1.internal:6379
+    - redis-2.internal:6379
+    - redis-3.internal:6379
+  pool_size: 100
+  default_ttl: 3600s
+
+rate_limiting:
+  tiers:
+    free:
+      requests_per_minute: 60
+      burst: 10
+    pro:
+      requests_per_minute: 600
+      burst: 100
+    enterprise:
+      requests_per_minute: 6000
+      burst: 1000
+
+observability:
+  metrics:
+    endpoint: /metrics
+    namespace: gateway
+  tracing:
+    provider: otlp
+    endpoint: otel-collector.internal:4317
+    sample_rate: 0.1
+  logging:
+    level: info
+    format: json
+    output: stdout

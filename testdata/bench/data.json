@@ -1,0 +1,33 @@
+{
+  "session_id": "bench-session-001",
+  "agent": "benchmark-agent",
+  "started_at": "2026-04-16T10:00:00Z",
+  "ended_at": "2026-04-16T11:30:00Z",
+  "tasks": {
+    "completed": [
+      {"id": "task-001", "title": "Refactor connection pool", "duration_minutes": 25},
+      {"id": "task-002", "title": "Add retry middleware", "duration_minutes": 18},
+      {"id": "task-003", "title": "Write integration tests for auth flow", "duration_minutes": 35}
+    ],
+    "blocked": [
+      {"id": "task-004", "title": "Deploy canary to staging", "blocker": "CI pipeline broken"},
+      {"id": "task-005", "title": "Migrate user sessions to Redis cluster", "blocker": "Waiting for ops approval"}
+    ]
+  },
+  "tool_usage": {
+    "memory_search": 12,
+    "memory_fetch": 8,
+    "memory_write": 3,
+    "memory_compile": 1,
+    "memory_tree": 2
+  },
+  "tokens_used": {
+    "input": 45200,
+    "output": 12800,
+    "cache_read": 31000
+  },
+  "stale_memories": ["feedback_old_linter", "project_sprint_22"],
+  "context_switches": 4,
+  "error_count": 1,
+  "notes": "Session focused on gateway resilience. User corrected retry backoff approach mid-session."
+}
