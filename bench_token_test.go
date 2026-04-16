@@ -113,59 +113,140 @@ func findDeepNode(ctx context.Context, st *store.Store) *store.Node {
 	return best
 }
 
-// Create snapshot 2 with 2 realistic changes after the compile (snapshot 1).
-func insertSmallDelta(b *testing.B, st *store.Store, ctx context.Context) int64 {
+// Simulate realistic file modifications: a section rewrite and an appended paragraph.
+// Returns the source file that was "modified" so callers can compute naive read cost.
+func insertDelta(b *testing.B, st *store.Store, ctx context.Context) string {
 	b.Helper()
-	var snapID int64
 
-	err := st.Tx(ctx, func(tx *sql.Tx) error {
+	// Pick a real source file from the compiled corpus.
+	roots, err := st.GetRootNodes(ctx)
+	if err != nil || len(roots) == 0 {
+		b.Fatal("no root nodes for delta")
+	}
+	sourceFile := roots[0].SourceFile
+
+	modifiedContent := "The rate limiting subsystem has been migrated from a fixed token bucket " +
+		"to a sliding window algorithm backed by Redis sorted sets. Each client request is " +
+		"logged with a millisecond timestamp, and the window slides forward continuously " +
+		"rather than resetting at fixed intervals. This eliminates the burst-at-boundary " +
+		"problem where clients could send double their allowed rate by timing requests at " +
+		"the edge of two consecutive windows. The migration required updating the Lua " +
+		"scripts that enforce atomicity in Redis, as the sorted set operations have " +
+		"different memory characteristics than the simple INCR/EXPIRE pattern used by " +
+		"the token bucket. Rollback plan: revert the Lua scripts and restart the gateway " +
+		"pods, which will re-initialize with the old token bucket counters."
+
+	appendedContent := "Post-migration analysis shows a 15% reduction in false-positive rate " +
+		"limit rejections during traffic spikes. The sliding window approach handles bursty " +
+		"traffic more gracefully because it considers the actual distribution of requests " +
+		"within the window rather than a simple count. Latency overhead is negligible at " +
+		"0.3ms per request at p99, compared to 0.1ms for the previous approach. Teams " +
+		"should update their Grafana dashboards to include the new " +
+		"gateway_ratelimit_window_utilization metric, which shows what percentage of each " +
+		"client's window is consumed at any given moment. The metric is already exported " +
+		"by the gateway and available in the Prometheus scrape targets."
+
+	err = st.Tx(ctx, func(tx *sql.Tx) error {
 		_ = st.UpsertNodeTx(ctx, tx, &store.Node{
-			ID:          "benchnew1",
-			SourceFile:  "session.md",
-			NodeType:    string(parser.NodeText),
-			Depth:       1,
-			Label:       "Session note: slog decision",
-			Content:     "Agent decided to use structured logging with slog instead of log package.",
-			Format:      parser.FormatPlain,
-			TokenCount:  53,
-			ContentHash: "a1b2c3d4e5f60001",
+			ID: "delta_mod1", SourceFile: sourceFile,
+			NodeType: string(parser.NodeText), Depth: 1,
+			Label:   "Rate limiting migration to sliding window algorithm.",
+			Content: modifiedContent, Format: parser.FormatPlain,
+			TokenCount:  tokens.Estimate(modifiedContent),
+			ContentHash: "delta_mod1_hash",
 		})
 		_ = st.UpsertNodeTx(ctx, tx, &store.Node{
-			ID:          "benchnew2",
-			SourceFile:  "session.md",
-			NodeType:    string(parser.NodeText),
-			Depth:       1,
-			Label:       "Session note: pool size",
-			Content:     "Increased connection pool from 25 to 50 after load test showed saturation at 30 concurrent.",
-			Format:      parser.FormatPlain,
-			TokenCount:  68,
-			ContentHash: "a1b2c3d4e5f60002",
+			ID: "delta_add1", SourceFile: sourceFile,
+			NodeType: string(parser.NodeText), Depth: 1,
+			Label:   "Post-migration analysis shows a 15% reduction in false-positive rejections.",
+			Content: appendedContent, Format: parser.FormatPlain,
+			TokenCount:  tokens.Estimate(appendedContent),
+			ContentHash: "delta_add1_hash",
 		})
 
-		var err error
-		snapID, err = st.CreateSnapshotTx(ctx, tx, "bench-delta", "bench-write")
+		snapID, err := st.CreateSnapshotTx(ctx, tx, "bench-delta", "bench-write")
 		if err != nil {
 			return err
 		}
 
 		for _, d := range []store.DiffRecord{
-			{SnapshotID: snapID, NodeID: "benchnew1", Op: "add", NewHash: "a1b2c3d4e5f60001", NewContent: "Agent decided to use structured logging with slog instead of log package."},
-			{SnapshotID: snapID, NodeID: "benchnew2", Op: "add", NewHash: "a1b2c3d4e5f60002", NewContent: "Increased connection pool from 25 to 50 after load test showed saturation at 30 concurrent."},
+			{SnapshotID: snapID, NodeID: "delta_mod1", Op: "modify", NewHash: "delta_mod1_hash", NewContent: modifiedContent},
+			{SnapshotID: snapID, NodeID: "delta_add1", Op: "add", NewHash: "delta_add1_hash", NewContent: appendedContent},
 		} {
 			if err := st.InsertDiffTx(ctx, tx, &d); err != nil {
 				return err
 			}
 		}
-
 		return st.AdvanceCursorTx(ctx, tx, snapID)
 	})
 	if err != nil {
 		b.Fatal(err)
 	}
-	return snapID
+	return sourceFile
 }
 
-// Naive: read all files. remindb: compact tree of labels + IDs.
+// Simulate an agent's Grep tool: find lines matching any term, return output and matching file paths.
+func grepDir(dir string, terms []string) (string, []string) {
+	var b strings.Builder
+	seen := make(map[string]bool)
+	var matched []string
+
+	_ = filepath.WalkDir(dir, func(path string, d os.DirEntry, err error) error {
+		if err != nil || d.IsDir() || !fileext.Supported(path) {
+			return err
+		}
+		data, err := os.ReadFile(path)
+		if err != nil {
+			return nil
+		}
+
+		rel, _ := filepath.Rel(dir, path)
+		for i, line := range strings.Split(string(data), "\n") {
+			lower := strings.ToLower(line)
+			for _, term := range terms {
+				if strings.Contains(lower, strings.ToLower(term)) {
+					fmt.Fprintf(&b, "%s:%d:%s\n", rel, i+1, line)
+					if !seen[path] {
+						seen[path] = true
+						matched = append(matched, path)
+					}
+					break
+				}
+			}
+		}
+		return nil
+	})
+
+	return b.String(), matched
+}
+
+func sumFileTokens(files []string) int {
+	total := 0
+	for _, f := range files {
+		data, err := os.ReadFile(f)
+		if err != nil {
+			continue
+		}
+		total += tokens.Estimate(string(data))
+	}
+	return total
+}
+
+// Simulate `find` output: one line per file with relative path.
+func listDirFiles(dir string) string {
+	var b strings.Builder
+	_ = filepath.WalkDir(dir, func(path string, d os.DirEntry, err error) error {
+		if err != nil || d.IsDir() || !fileext.Supported(path) {
+			return err
+		}
+		rel, _ := filepath.Rel(dir, path)
+		fmt.Fprintf(&b, "./%s\n", rel)
+		return nil
+	})
+	return b.String()
+}
+
+// Naive: list files + read all contents. remindb: compact tree with metadata.
 func BenchmarkTokens_TreeVsRawFiles(b *testing.B) {
 	dirs := []struct {
 		name string
@@ -185,7 +266,7 @@ func BenchmarkTokens_TreeVsRawFiles(b *testing.B) {
 			ctx := context.Background()
 			_, _ = compiler.CompileDir(ctx, st, dir, "init")
 
-			rawTok := countDirTokens(b, dir)
+			naiveTok := tokens.Estimate(listDirFiles(dir)) + countDirTokens(b, dir)
 			treeOut := renderTree(ctx, st)
 			treeTok := tokens.Estimate(treeOut)
 
@@ -195,22 +276,20 @@ func BenchmarkTokens_TreeVsRawFiles(b *testing.B) {
 			}
 			b.StopTimer()
 
-			b.ReportMetric(float64(rawTok), "raw-tok")
+			b.ReportMetric(float64(naiveTok), "naive-tok")
 			b.ReportMetric(float64(treeTok), "tree-tok")
-			b.ReportMetric(100*(1-float64(treeTok)/float64(rawTok)), "pct-saved")
+			b.ReportMetric(100*(1-float64(treeTok)/float64(naiveTok)), "pct-saved")
 		})
 	}
 }
 
-// Naive: all file tokens in context. remindb: budget-bounded FTS results.
-func BenchmarkTokens_SearchVsReadAll(b *testing.B) {
+// Naive: grep + read matching files. remindb: compact search + fetch top result.
+func BenchmarkTokens_SearchVsGrep(b *testing.B) {
 	st := openBenchStore(b)
 	ctx := context.Background()
 	dir, _ := filepath.Abs("testdata/bench")
 	_, _ = compiler.CompileDir(ctx, st, dir, "init")
 	eng := query.NewEngine(st)
-
-	rawTok := countDirTokens(b, dir)
 
 	queries := []struct {
 		name   string
@@ -224,11 +303,22 @@ func BenchmarkTokens_SearchVsReadAll(b *testing.B) {
 
 	for _, tc := range queries {
 		b.Run(tc.name, func(b *testing.B) {
-			result, err := eng.Search(ctx, tc.q, tc.budget)
+			// Naive: grep for terms, then read matching files.
+			grepOut, matchFiles := grepDir(dir, strings.Fields(tc.q))
+			naiveTok := tokens.Estimate(grepOut) + sumFileTokens(matchFiles)
+
+			// remindb: compact search results + fetch top result.
+			searchResult, err := eng.Search(ctx, tc.q, tc.budget)
 			if err != nil {
 				b.Fatal(err)
 			}
-			searchTok := tokens.Estimate(query.Format(result))
+			remindbTok := tokens.Estimate(query.FormatCompact(searchResult))
+			if len(searchResult.Nodes) > 0 {
+				fetchResult, err := eng.Fetch(ctx, searchResult.Nodes[0].Node.ID, tc.budget)
+				if err == nil {
+					remindbTok += tokens.Estimate(query.Format(fetchResult))
+				}
+			}
 
 			b.ResetTimer()
 			for i := 0; i < b.N; i++ {
@@ -236,9 +326,9 @@ func BenchmarkTokens_SearchVsReadAll(b *testing.B) {
 			}
 			b.StopTimer()
 
-			b.ReportMetric(float64(rawTok), "raw-tok")
-			b.ReportMetric(float64(searchTok), "search-tok")
-			b.ReportMetric(100*(1-float64(searchTok)/float64(rawTok)), "pct-saved")
+			b.ReportMetric(float64(naiveTok), "naive-tok")
+			b.ReportMetric(float64(remindbTok), "remindb-tok")
+			b.ReportMetric(100*(1-float64(remindbTok)/float64(naiveTok)), "pct-saved")
 		})
 	}
 }
@@ -285,20 +375,24 @@ func BenchmarkTokens_FetchVsReadFile(b *testing.B) {
 	}
 }
 
-// Naive: re-read all files. remindb: compact delta of changed nodes only.
-func BenchmarkTokens_DeltaVsReReadAll(b *testing.B) {
+// Naive: read the modified file. remindb: compact delta of changed nodes only.
+func BenchmarkTokens_DeltaVsReadFile(b *testing.B) {
 	st := openBenchStore(b)
 	ctx := context.Background()
 	dir, _ := filepath.Abs("testdata/bench")
 	_, _ = compiler.CompileDir(ctx, st, dir, "init") // snapshot 1
 	eng := query.NewEngine(st)
 
-	rawTok := countDirTokens(b, dir)
+	modifiedFile := insertDelta(b, st, ctx) // snapshot 2
 
-	// Simulate two small changes after the initial compile.
-	insertSmallDelta(b, st, ctx) // snapshot 2
+	// Naive: agent reads the full file that was modified.
+	data, err := os.ReadFile(filepath.Join(dir, modifiedFile))
+	if err != nil {
+		b.Fatalf("read modified file %s: %v", modifiedFile, err)
+	}
+	naiveTok := tokens.Estimate(string(data))
 
-	// Delta since snapshot 1: only the 2 new nodes, not the 221 initial ADDs.
+	// remindb: delta since snapshot 1.
 	diffs, err := eng.Delta(ctx, 1)
 	if err != nil {
 		b.Fatal(err)
@@ -311,12 +405,12 @@ func BenchmarkTokens_DeltaVsReReadAll(b *testing.B) {
 	}
 	b.StopTimer()
 
-	b.ReportMetric(float64(rawTok), "raw-tok")
+	b.ReportMetric(float64(naiveTok), "naive-tok")
 	b.ReportMetric(float64(deltaTok), "delta-tok")
-	b.ReportMetric(100*(1-float64(deltaTok)/float64(rawTok)), "pct-saved")
+	b.ReportMetric(100*(1-float64(deltaTok)/float64(naiveTok)), "pct-saved")
 }
 
-// Naive: read-all at startup + re-read for changes. remindb: tree + search + fetch + delta.
+// Phase-by-phase comparison: both naive and remindb costs computed from real operations.
 func BenchmarkTokens_AgentSession(b *testing.B) {
 	dirs := []struct {
 		name string
@@ -327,6 +421,12 @@ func BenchmarkTokens_AgentSession(b *testing.B) {
 		{"codex", "testdata/codex"},
 	}
 
+	searchQueries := []string{
+		"authentication security",
+		"configuration deployment",
+		"error handling retry",
+	}
+
 	for _, tc := range dirs {
 		dir, _ := filepath.Abs(tc.dir)
 		b.Run(tc.name, func(b *testing.B) {
@@ -335,49 +435,69 @@ func BenchmarkTokens_AgentSession(b *testing.B) {
 			_, _ = compiler.CompileDir(ctx, st, dir, "init")
 			eng := query.NewEngine(st)
 
-			rawTok := countDirTokens(b, dir)
+			var naiveTok, remindbTok int
 
-			// --- Naive session cost ---
-			// Read all files at startup + re-read all to detect changes.
-			naiveTok := rawTok * 2
+			// Phase 1: Orientation.
+			// Naive: read all files. remindb: tree.
+			naiveTok += countDirTokens(b, dir)
+			remindbTok += tokens.Estimate(renderTree(ctx, st))
 
-			// --- remindb session cost ---
-			// 1. Tree overview at startup.
-			treeOut := renderTree(ctx, st)
-			sessionTok := tokens.Estimate(treeOut)
+			// Phase 2: Search (3 queries).
+			// Naive: grep + read matching files. remindb: compact search + fetch top result.
+			for _, q := range searchQueries {
+				grepOut, matchFiles := grepDir(dir, strings.Fields(q))
+				naiveTok += tokens.Estimate(grepOut) + sumFileTokens(matchFiles)
 
-			// 2. Three targeted searches.
-			for _, q := range []string{
-				"authentication security",
-				"configuration deployment",
-				"error handling retry",
-			} {
-				result, err := eng.Search(ctx, q, 1000)
+				searchResult, err := eng.Search(ctx, q, 1000)
 				if err != nil {
 					continue
 				}
-				sessionTok += tokens.Estimate(query.Format(result))
+				remindbTok += tokens.Estimate(query.FormatCompact(searchResult))
+				if len(searchResult.Nodes) > 0 {
+					fetchResult, err := eng.Fetch(ctx, searchResult.Nodes[0].Node.ID, 1000)
+					if err == nil {
+						remindbTok += tokens.Estimate(query.Format(fetchResult))
+					}
+				}
 			}
 
-			// 3. Two context fetches.
+			// Phase 3: Deep read (2 fetches from different source files).
+			// Naive: read the source file. remindb: fetch with budget.
 			roots, _ := st.GetRootNodes(ctx)
+			readFiles := make(map[string]bool)
 			fetched := 0
 			for _, root := range roots {
 				if fetched >= 2 {
 					break
 				}
+
+				sourceFile := filepath.Join(dir, root.SourceFile)
+				if !readFiles[sourceFile] {
+					data, err := os.ReadFile(sourceFile)
+					if err != nil {
+						continue
+					}
+					naiveTok += tokens.Estimate(string(data))
+					readFiles[sourceFile] = true
+				}
+
 				result, err := eng.Fetch(ctx, root.ID, 1000)
 				if err != nil {
 					continue
 				}
-				sessionTok += tokens.Estimate(query.Format(result))
+				remindbTok += tokens.Estimate(query.Format(result))
 				fetched++
 			}
 
-			// 4. Small delta (2 changes since compile, not the full initial load).
-			insertSmallDelta(b, st, ctx)
+			// Phase 4: Delta.
+			// Naive: read the modified file. remindb: delta.
+			modifiedFile := insertDelta(b, st, ctx)
+			data, err := os.ReadFile(filepath.Join(dir, modifiedFile))
+			if err == nil {
+				naiveTok += tokens.Estimate(string(data))
+			}
 			diffs, _ := eng.Delta(ctx, 1)
-			sessionTok += tokens.Estimate(renderDelta(diffs))
+			remindbTok += tokens.Estimate(renderDelta(diffs))
 
 			b.ResetTimer()
 			for i := 0; i < b.N; i++ {
@@ -392,8 +512,8 @@ func BenchmarkTokens_AgentSession(b *testing.B) {
 			b.StopTimer()
 
 			b.ReportMetric(float64(naiveTok), "naive-tok")
-			b.ReportMetric(float64(sessionTok), "remindb-tok")
-			b.ReportMetric(100*(1-float64(sessionTok)/float64(naiveTok)), "pct-saved")
+			b.ReportMetric(float64(remindbTok), "remindb-tok")
+			b.ReportMetric(100*(1-float64(remindbTok)/float64(naiveTok)), "pct-saved")
 		})
 	}
 }

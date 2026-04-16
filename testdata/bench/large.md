@@ -118,6 +118,11 @@ replica in us-east-1b, async replica in us-west-2 for disaster recovery.
 
 Connection pooling via PgBouncer with 200 max connections per pool.
 Statement-level pooling for most services, transaction-level for long-running workers.
+The pool is monitored by a dedicated exporter that tracks active connections, queued
+requests, and average wait time. Alerts fire when queue depth exceeds 50 or average
+wait time exceeds 10ms, indicating either a connection leak or a capacity issue.
+During peak traffic, the pool temporarily expands to 300 connections via an auto-scaling
+policy that watches the queue depth metric over a 30-second window.
 
 #### Schema Management
 
@@ -132,8 +137,13 @@ Breaking schema changes follow expand-contract pattern:
 
 #### Query Performance
 
-Slow query threshold: 100ms. Queries exceeding threshold are logged and
-tracked in a Grafana dashboard. Weekly review of top 10 slow queries.
+Slow query threshold: 100ms. Queries exceeding threshold are logged with
+full query plan to a dedicated slow_queries table and tracked in a Grafana
+dashboard. Weekly review of top 10 slow queries by cumulative wall-clock time.
+The review process prioritizes queries that regressed since the last release
+over historically slow queries that have stable performance. Common remediations
+include adding covering indexes, rewriting correlated subqueries as joins,
+and adjusting work_mem for sorting-heavy queries.
 
 Index analysis runs monthly:
 
@@ -149,6 +159,12 @@ LIMIT 20;
 
 ClickHouse handles all analytical queries. Data flows from PostgreSQL
 via Debezium CDC into Kafka, then into ClickHouse via a custom consumer.
+The consumer runs as a Kubernetes deployment with 3 replicas, each processing
+a subset of Kafka partitions. Exactly-once semantics are achieved by storing
+Kafka offsets in ClickHouse alongside the data in the same transaction.
+Backfill jobs run on a separate consumer group that reads from the earliest
+offset and writes to a staging table, which is then swapped into production
+via EXCHANGE TABLES after validation.
 
 Materialized views pre-aggregate common metrics:
 
@@ -160,7 +176,13 @@ Materialized views pre-aggregate common metrics:
 #### Partition Strategy
 
 Tables are partitioned by month. Partitions older than 2 years are moved
-to S3-backed cold storage. TTL policies auto-expire raw event data after 90 days.
+to S3-backed cold storage via a nightly job that runs ALTER TABLE MOVE PARTITION
+and verifies row counts before dropping the local copy. TTL policies auto-expire
+raw event data after 90 days, while aggregated materialized view data is retained
+indefinitely. Partition pruning is critical for query performance — queries that
+do not include a date range filter are rejected by a query complexity guard that
+checks the estimated rows scanned before execution. The guard threshold is set
+to 10 billion rows, above which queries must be pre-approved by the data team.
 
 ## Cache Layer
 
