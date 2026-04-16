@@ -58,7 +58,7 @@ func (d *Deps) HandleTree(ctx context.Context, _ *gomcp.CallToolRequest, input T
 
 func writeTreeNode(b *strings.Builder, children map[string][]*store.Node, n *store.Node, depth, maxDepth int) {
 	indent := strings.Repeat("  ", depth)
-	fmt.Fprintf(b, "%s[%s] %s (%s)\n", indent, n.NodeType, n.Label, n.ID)
+	fmt.Fprintf(b, "%s[%s] %s (id=%s file=%s temp=%.2f tok=%d)\n", indent, n.NodeType, n.Label, n.ID, n.SourceFile, n.Temperature, n.TokenCount)
 
 	if depth >= maxDepth {
 		return
