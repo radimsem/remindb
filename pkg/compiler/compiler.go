@@ -8,6 +8,7 @@ import (
 	"os"
 	"path/filepath"
 
+	"github.com/radimsem/remindb/internal/fileext"
 	"github.com/radimsem/remindb/pkg/diff"
 	"github.com/radimsem/remindb/pkg/emitter"
 	"github.com/radimsem/remindb/pkg/parser"
@@ -20,10 +21,6 @@ type Result struct {
 	Modified int
 	Removed  int
 	Total    int
-}
-
-var supportedExts = map[string]bool{
-	".md": true, ".yaml": true, ".yml": true, ".json": true, ".toon": true,
 }
 
 func Compile(ctx context.Context, st *store.Store, paths []string, message string) (*Result, error) {
@@ -74,7 +71,7 @@ func CompileDir(ctx context.Context, st *store.Store, dir, message string) (*Res
 		if d.IsDir() {
 			return nil
 		}
-		if supportedExts[filepath.Ext(path)] {
+		if fileext.Supported(path) {
 			paths = append(paths, path)
 		}
 		return nil

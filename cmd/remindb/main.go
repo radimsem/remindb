@@ -1,8 +1,26 @@
-// Command remindb is the CLI entrypoint for the remindb memory database.
 package main
 
-import "fmt"
+import (
+	"fmt"
+	"os"
+
+	"github.com/spf13/cobra"
+)
+
+var dbPath string
+
+var rootCmd = &cobra.Command{
+	Use:   "remindb",
+	Short: "Token-efficient agentic memory database",
+}
+
+func init() {
+	rootCmd.PersistentFlags().StringVar(&dbPath, "db", "brain.db", "Path to the SQLite database")
+}
 
 func main() {
-	fmt.Println("Hello, remindb")
+	if err := rootCmd.Execute(); err != nil {
+		fmt.Fprintln(os.Stderr, err)
+		os.Exit(1)
+	}
 }

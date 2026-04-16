@@ -462,6 +462,40 @@ func TestGetRootNodes(t *testing.T) {
 	}
 }
 
+func TestGetStats(t *testing.T) {
+	st := openTestDB(t)
+	ctx := context.Background()
+
+	// Empty DB.
+	stats, err := st.GetStats(ctx)
+	if err != nil {
+		t.Fatalf("GetStats: %v", err)
+	}
+	if stats.NodeCount != 0 {
+		t.Errorf("NodeCount = %d, want 0", stats.NodeCount)
+	}
+
+	// Add nodes with varying temperature.
+	must(t, st.UpsertNode(ctx, testNode("aaaaaaaa", "")))
+	must(t, st.UpdateTemperature(ctx, "aaaaaaaa", 0.8))
+	must(t, st.UpsertNode(ctx, testNode("bbbbbbbb", "")))
+	must(t, st.UpdateTemperature(ctx, "bbbbbbbb", 0.05))
+
+	stats, err = st.GetStats(ctx)
+	if err != nil {
+		t.Fatalf("GetStats: %v", err)
+	}
+	if stats.NodeCount != 2 {
+		t.Errorf("NodeCount = %d, want 2", stats.NodeCount)
+	}
+	if stats.HotCount != 1 {
+		t.Errorf("HotCount = %d, want 1", stats.HotCount)
+	}
+	if stats.ColdCount != 1 {
+		t.Errorf("ColdCount = %d, want 1", stats.ColdCount)
+	}
+}
+
 func TestGetDiffsForNode(t *testing.T) {
 	st := openTestDB(t)
 	ctx := context.Background()
