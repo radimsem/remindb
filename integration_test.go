@@ -7,29 +7,16 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/radimsem/remindb/internal/testutil"
 	"github.com/radimsem/remindb/pkg/compiler"
 	"github.com/radimsem/remindb/pkg/query"
-	"github.com/radimsem/remindb/pkg/store"
 	"github.com/radimsem/remindb/pkg/temperature"
 )
-
-func openTestDB(t *testing.T) *store.Store {
-	t.Helper()
-	st, err := store.Open(":memory:")
-	if err != nil {
-		t.Fatalf("Open: %v", err)
-	}
-	if err := st.Migrate(context.Background()); err != nil {
-		t.Fatalf("Migrate: %v", err)
-	}
-	t.Cleanup(func() { _ = st.Close() })
-	return st
-}
 
 // Simulates compiling an OpenClaw agent definition,
 // then searching and fetching context as the agent would at runtime.
 func TestOpenClawAgentWorkflow(t *testing.T) {
-	st := openTestDB(t)
+	st := testutil.OpenTestDB(t)
 	ctx := context.Background()
 
 	result, err := compiler.CompileDir(ctx, st, "testdata/openclaw", "openclaw-agent")
@@ -95,7 +82,7 @@ func TestOpenClawAgentWorkflow(t *testing.T) {
 // session: compile project instructions and memory files, then search for
 // feedback and project context as the agent would when starting a task.
 func TestClaudeCodeMemoryWorkflow(t *testing.T) {
-	st := openTestDB(t)
+	st := testutil.OpenTestDB(t)
 	ctx := context.Background()
 
 	result, err := compiler.CompileDir(ctx, st, "testdata/claude-code", "claude-code-memory")
@@ -162,7 +149,7 @@ func TestClaudeCodeMemoryWorkflow(t *testing.T) {
 // infra-api project: compile mixed markdown+yaml fixtures, search for
 // architecture decisions and incident history.
 func TestGeminiCliMemoryWorkflow(t *testing.T) {
-	st := openTestDB(t)
+	st := testutil.OpenTestDB(t)
 	ctx := context.Background()
 
 	result, err := compiler.CompileDir(ctx, st, "testdata/gemini-cli", "gemini-cli-memory")
@@ -207,7 +194,7 @@ func TestGeminiCliMemoryWorkflow(t *testing.T) {
 // TestRecompileWorkflow tests incremental recompilation: compile, modify a
 // file, recompile, verify snapshots and diffs accumulate.
 func TestRecompileWorkflow(t *testing.T) {
-	st := openTestDB(t)
+	st := testutil.OpenTestDB(t)
 	ctx := context.Background()
 	dir := t.TempDir()
 
@@ -268,7 +255,7 @@ func TestRecompileWorkflow(t *testing.T) {
 // TestTemperatureBoostOnAccess verifies that querying nodes boosts their
 // temperature, simulating the "frequently accessed = hotter" behavior.
 func TestTemperatureBoostOnAccess(t *testing.T) {
-	st := openTestDB(t)
+	st := testutil.OpenTestDB(t)
 	ctx := context.Background()
 
 	_, err := compiler.CompileDir(ctx, st, "testdata/openclaw", "temp-test")
@@ -320,7 +307,7 @@ func TestTemperatureBoostOnAccess(t *testing.T) {
 // TestCrossFormatSearch verifies that search works across all fixture formats
 // (markdown, YAML, JSON) after compiling the original testdata samples.
 func TestCrossFormatSearch(t *testing.T) {
-	st := openTestDB(t)
+	st := testutil.OpenTestDB(t)
 	ctx := context.Background()
 
 	mdPath := abs(t, "testdata/sample.md")

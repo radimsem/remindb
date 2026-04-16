@@ -34,7 +34,7 @@ func NewRescanLoop(st *store.Store, dir string, interval time.Duration) *RescanL
 }
 
 func (r *RescanLoop) Run(ctx context.Context) {
-	// Seed modTimes on first run so we don't recompile everything.
+	// Avoid recompiling all files on the first tick.
 	r.seedMtimes()
 
 	ticker := time.NewTicker(r.interval)

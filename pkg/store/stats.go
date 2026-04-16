@@ -16,16 +16,10 @@ func (s *Store) GetStats(ctx context.Context) (*Stats, error) {
 	err := s.db.QueryRowContext(ctx,
 		`SELECT count(*), coalesce(avg(temperature), 0),
 			coalesce(sum(temperature >= 0.5), 0),
-			coalesce(sum(temperature < 0.1), 0)
+			coalesce(sum(temperature < 0.1), 0),
+			(SELECT count(*) FROM snapshots)
 		FROM nodes`).
-		Scan(&st.NodeCount, &st.AvgTemp, &st.HotCount, &st.ColdCount)
-	if err != nil {
-		return nil, err
-	}
-
-	err = s.db.QueryRowContext(ctx,
-		`SELECT count(*) FROM snapshots`).
-		Scan(&st.SnapshotCount)
+		Scan(&st.NodeCount, &st.AvgTemp, &st.HotCount, &st.ColdCount, &st.SnapshotCount)
 	if err != nil {
 		return nil, err
 	}

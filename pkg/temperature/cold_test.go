@@ -6,11 +6,12 @@ import (
 	"testing"
 	"time"
 
+	"github.com/radimsem/remindb/internal/testutil"
 	"github.com/radimsem/remindb/pkg/store"
 )
 
 func TestRun_CallsHandler(t *testing.T) {
-	st := openTestDB(t)
+	st := testutil.OpenTestDB(t)
 	ctx := context.Background()
 
 	seedNode(t, st, "cold0001", 0.05)
@@ -50,7 +51,7 @@ func TestRun_CallsHandler(t *testing.T) {
 }
 
 func TestRun_StopsOnCancel(t *testing.T) {
-	st := openTestDB(t)
+	st := testutil.OpenTestDB(t)
 
 	cfg := DefaultConfig()
 	cfg.TickInterval = 50 * time.Millisecond

@@ -6,21 +6,8 @@ import (
 	"path/filepath"
 	"testing"
 
-	"github.com/radimsem/remindb/pkg/store"
+	"github.com/radimsem/remindb/internal/testutil"
 )
-
-func openTestDB(t *testing.T) *store.Store {
-	t.Helper()
-	st, err := store.Open(":memory:")
-	if err != nil {
-		t.Fatalf("Open: %v", err)
-	}
-	if err := st.Migrate(context.Background()); err != nil {
-		t.Fatalf("Migrate: %v", err)
-	}
-	t.Cleanup(func() { _ = st.Close() })
-	return st
-}
 
 func writeFile(t *testing.T, dir, name, content string) string {
 	t.Helper()
@@ -32,7 +19,7 @@ func writeFile(t *testing.T, dir, name, content string) string {
 }
 
 func TestCompile(t *testing.T) {
-	st := openTestDB(t)
+	st := testutil.OpenTestDB(t)
 	ctx := context.Background()
 	dir := t.TempDir()
 
@@ -66,7 +53,7 @@ func TestCompile(t *testing.T) {
 }
 
 func TestCompileDir(t *testing.T) {
-	st := openTestDB(t)
+	st := testutil.OpenTestDB(t)
 	ctx := context.Background()
 	dir := t.TempDir()
 
@@ -84,7 +71,7 @@ func TestCompileDir(t *testing.T) {
 }
 
 func TestCompile_Recompile(t *testing.T) {
-	st := openTestDB(t)
+	st := testutil.OpenTestDB(t)
 	ctx := context.Background()
 	dir := t.TempDir()
 
@@ -115,7 +102,7 @@ func TestCompile_Recompile(t *testing.T) {
 }
 
 func TestCompile_SkipsUnsupported(t *testing.T) {
-	st := openTestDB(t)
+	st := testutil.OpenTestDB(t)
 	ctx := context.Background()
 	dir := t.TempDir()
 

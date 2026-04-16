@@ -32,6 +32,11 @@ const nodeColumns = `id, parent_id, source_file, node_type, depth,
 	temperature, access_count, last_accessed_at,
 	created_at, updated_at`
 
+const nodeColumnsAliased = `n.id, n.parent_id, n.source_file, n.node_type, n.depth,
+	n.label, n.content, n.format, n.token_count, n.content_hash,
+	n.temperature, n.access_count, n.last_accessed_at,
+	n.created_at, n.updated_at`
+
 func scanNode(r RowScanner) (*Node, error) {
 	var n Node
 	var parentID sql.NullString

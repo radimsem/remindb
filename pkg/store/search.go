@@ -29,10 +29,7 @@ func (s *Store) Search(ctx context.Context, query string, limit int) ([]*Node, e
 
 func (s *Store) SearchRanked(ctx context.Context, query string, limit int) ([]*RankedNode, error) {
 	rows, err := s.db.QueryContext(ctx, `
-		SELECT n.id, n.parent_id, n.source_file, n.node_type, n.depth,
-			n.label, n.content, n.format, n.token_count, n.content_hash,
-			n.temperature, n.access_count, n.last_accessed_at,
-			n.created_at, n.updated_at, nodes_fts.rank
+		SELECT `+nodeColumnsAliased+`, nodes_fts.rank
 		FROM nodes_fts
 		JOIN nodes n ON n.rowid = nodes_fts.rowid
 		WHERE nodes_fts MATCH ?
@@ -66,6 +63,8 @@ func (s *Store) SearchRanked(ctx context.Context, query string, limit int) ([]*R
 	return out, rows.Err()
 }
 
+var ftsOperators = []string{" OR ", " AND ", " NOT ", "NEAR(", "\"", ":", "*", "("}
+
 // Convert a natural-language query into FTS5 OR syntax.
 func rewriteQuery(q string) string {
 	q = strings.TrimSpace(q)
@@ -73,8 +72,7 @@ func rewriteQuery(q string) string {
 		return q
 	}
 
-	// Pass through if the query already uses FTS5 syntax.
-	for _, op := range []string{" OR ", " AND ", " NOT ", "NEAR(", "\"", ":", "*", "("} {
+	for _, op := range ftsOperators {
 		if strings.Contains(q, op) {
 			return q
 		}

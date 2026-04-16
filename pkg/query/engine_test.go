@@ -5,21 +5,9 @@ import (
 	"database/sql"
 	"testing"
 
+	"github.com/radimsem/remindb/internal/testutil"
 	"github.com/radimsem/remindb/pkg/store"
 )
-
-func openTestDB(t *testing.T) *store.Store {
-	t.Helper()
-	st, err := store.Open(":memory:")
-	if err != nil {
-		t.Fatalf("Open: %v", err)
-	}
-	if err := st.Migrate(context.Background()); err != nil {
-		t.Fatalf("Migrate: %v", err)
-	}
-	t.Cleanup(func() { _ = st.Close() })
-	return st
-}
 
 func seedTree(t *testing.T, st *store.Store) {
 	t.Helper()
@@ -62,7 +50,7 @@ func seedTree(t *testing.T, st *store.Store) {
 }
 
 func TestFetch_IncludesAnchor(t *testing.T) {
-	st := openTestDB(t)
+	st := testutil.OpenTestDB(t)
 	seedTree(t, st)
 
 	eng := NewEngine(st)
@@ -82,7 +70,7 @@ func TestFetch_IncludesAnchor(t *testing.T) {
 }
 
 func TestFetch_RespectsbudgetBudget(t *testing.T) {
-	st := openTestDB(t)
+	st := testutil.OpenTestDB(t)
 	seedTree(t, st)
 
 	eng := NewEngine(st)
@@ -100,7 +88,7 @@ func TestFetch_RespectsbudgetBudget(t *testing.T) {
 }
 
 func TestFetch_IncludesContext(t *testing.T) {
-	st := openTestDB(t)
+	st := testutil.OpenTestDB(t)
 	seedTree(t, st)
 
 	eng := NewEngine(st)
@@ -125,7 +113,7 @@ func TestFetch_IncludesContext(t *testing.T) {
 }
 
 func TestSearch_ReturnsRankedResults(t *testing.T) {
-	st := openTestDB(t)
+	st := testutil.OpenTestDB(t)
 	seedTree(t, st)
 
 	eng := NewEngine(st)
@@ -141,7 +129,7 @@ func TestSearch_ReturnsRankedResults(t *testing.T) {
 }
 
 func TestSearch_RespectsBudget(t *testing.T) {
-	st := openTestDB(t)
+	st := testutil.OpenTestDB(t)
 	seedTree(t, st)
 
 	eng := NewEngine(st)
@@ -157,7 +145,7 @@ func TestSearch_RespectsBudget(t *testing.T) {
 }
 
 func TestDelta(t *testing.T) {
-	st := openTestDB(t)
+	st := testutil.OpenTestDB(t)
 	ctx := context.Background()
 
 	// Create two snapshots with diffs.

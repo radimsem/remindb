@@ -7,21 +7,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/radimsem/remindb/pkg/store"
+	"github.com/radimsem/remindb/internal/testutil"
 )
-
-func openTestDB(t *testing.T) *store.Store {
-	t.Helper()
-	st, err := store.Open(":memory:")
-	if err != nil {
-		t.Fatalf("Open: %v", err)
-	}
-	if err := st.Migrate(context.Background()); err != nil {
-		t.Fatalf("Migrate: %v", err)
-	}
-	t.Cleanup(func() { _ = st.Close() })
-	return st
-}
 
 func TestRescanLoop_SeedMtimes(t *testing.T) {
 	dir := t.TempDir()
@@ -29,7 +16,7 @@ func TestRescanLoop_SeedMtimes(t *testing.T) {
 	writeFile(t, dir, "b.json", `{"key": "value"}`)
 	writeFile(t, dir, "skip.txt", "not supported")
 
-	st := openTestDB(t)
+	st := testutil.OpenTestDB(t)
 	r := NewRescanLoop(st, dir, time.Minute)
 	r.seedMtimes()
 
@@ -42,7 +29,7 @@ func TestRescanLoop_DetectsChanges(t *testing.T) {
 	dir := t.TempDir()
 	writeFile(t, dir, "doc.md", "# Original\n\nContent.\n")
 
-	st := openTestDB(t)
+	st := testutil.OpenTestDB(t)
 	r := NewRescanLoop(st, dir, time.Minute)
 	r.seedMtimes()
 
@@ -69,7 +56,7 @@ func TestRescanLoop_DetectsChanges(t *testing.T) {
 func TestRescanLoop_NewFile(t *testing.T) {
 	dir := t.TempDir()
 
-	st := openTestDB(t)
+	st := testutil.OpenTestDB(t)
 	r := NewRescanLoop(st, dir, time.Minute)
 	r.seedMtimes()
 

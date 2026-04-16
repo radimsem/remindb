@@ -6,21 +6,9 @@ import (
 	"testing"
 	"time"
 
+	"github.com/radimsem/remindb/internal/testutil"
 	"github.com/radimsem/remindb/pkg/store"
 )
-
-func openTestDB(t *testing.T) *store.Store {
-	t.Helper()
-	st, err := store.Open(":memory:")
-	if err != nil {
-		t.Fatalf("Open: %v", err)
-	}
-	if err := st.Migrate(context.Background()); err != nil {
-		t.Fatalf("Migrate: %v", err)
-	}
-	t.Cleanup(func() { _ = st.Close() })
-	return st
-}
 
 func seedNode(t *testing.T, st *store.Store, id string, temp float64) {
 	t.Helper()
@@ -39,7 +27,7 @@ func seedNode(t *testing.T, st *store.Store, id string, temp float64) {
 }
 
 func TestRecordAccess(t *testing.T) {
-	st := openTestDB(t)
+	st := testutil.OpenTestDB(t)
 	ctx := context.Background()
 
 	seedNode(t, st, "node0001", 0.5)
@@ -66,7 +54,7 @@ func TestRecordAccess(t *testing.T) {
 }
 
 func TestRecordAccess_Cap(t *testing.T) {
-	st := openTestDB(t)
+	st := testutil.OpenTestDB(t)
 	ctx := context.Background()
 
 	seedNode(t, st, "node0001", 0.95)
@@ -83,7 +71,7 @@ func TestRecordAccess_Cap(t *testing.T) {
 }
 
 func TestTick(t *testing.T) {
-	st := openTestDB(t)
+	st := testutil.OpenTestDB(t)
 	ctx := context.Background()
 
 	seedNode(t, st, "hot00001", 0.8)
@@ -124,7 +112,7 @@ func TestTick(t *testing.T) {
 }
 
 func TestTick_NoColdNodes(t *testing.T) {
-	st := openTestDB(t)
+	st := testutil.OpenTestDB(t)
 	ctx := context.Background()
 
 	seedNode(t, st, "hot00001", 0.9)
