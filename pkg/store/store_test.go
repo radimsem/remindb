@@ -496,6 +496,66 @@ func TestGetStats(t *testing.T) {
 	}
 }
 
+func TestRewriteQuery(t *testing.T) {
+	tests := []struct {
+		in   string
+		want string
+	}{
+		{"hello", "hello"},
+		{"", ""},
+		{"hello world", "hello OR world"},
+		{"snapshot tests mock", "snapshot OR tests OR mock"},
+		// FTS5 operators pass through unchanged.
+		{"snapshot OR tests", "snapshot OR tests"},
+		{"snapshot AND tests", "snapshot AND tests"},
+		{"snapshot NOT mock", "snapshot NOT mock"},
+		{`"exact phrase"`, `"exact phrase"`},
+		{"label:snapshot", "label:snapshot"},
+		{"snap*", "snap*"},
+		{"NEAR(a b)", "NEAR(a b)"},
+	}
+
+	for _, tt := range tests {
+		got := rewriteQuery(tt.in)
+		if got != tt.want {
+			t.Errorf("rewriteQuery(%q) = %q, want %q", tt.in, got, tt.want)
+		}
+	}
+}
+
+func TestSearchMultiWord(t *testing.T) {
+	st := openTestDB(t)
+	ctx := context.Background()
+
+	n1 := testNode("aaaaaaaa", "")
+	n1.Content = "the quick brown fox jumps over the lazy dog"
+	n1.Label = "fox sentence"
+	must(t, st.UpsertNode(ctx, n1))
+
+	n2 := testNode("bbbbbbbb", "")
+	n2.Content = "a cat sat on a mat near the window"
+	n2.Label = "cat sentence"
+	must(t, st.UpsertNode(ctx, n2))
+
+	// Multi-word query: "fox cat" should find both nodes via OR rewriting.
+	results, err := st.Search(ctx, "fox cat", 10)
+	if err != nil {
+		t.Fatalf("Search: %v", err)
+	}
+	if len(results) != 2 {
+		t.Errorf("len = %d, want 2 (both nodes match via OR)", len(results))
+	}
+
+	// Single-word query still works.
+	results, err = st.Search(ctx, "fox", 10)
+	if err != nil {
+		t.Fatalf("Search: %v", err)
+	}
+	if len(results) != 1 {
+		t.Errorf("len = %d, want 1", len(results))
+	}
+}
+
 func TestGetDiffsForNode(t *testing.T) {
 	st := openTestDB(t)
 	ctx := context.Background()

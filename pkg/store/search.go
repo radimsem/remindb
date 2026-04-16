@@ -3,6 +3,7 @@ package store
 import (
 	"context"
 	"database/sql"
+	"strings"
 )
 
 type RankedNode struct {
@@ -17,7 +18,7 @@ func (s *Store) Search(ctx context.Context, query string, limit int) ([]*Node, e
 			SELECT rowid FROM nodes_fts WHERE nodes_fts MATCH ?
 			ORDER BY rank
 			LIMIT ?
-		)`, query, limit)
+		)`, rewriteQuery(query), limit)
 	if err != nil {
 		return nil, err
 	}
@@ -36,7 +37,7 @@ func (s *Store) SearchRanked(ctx context.Context, query string, limit int) ([]*R
 		JOIN nodes n ON n.rowid = nodes_fts.rowid
 		WHERE nodes_fts MATCH ?
 		ORDER BY nodes_fts.rank
-		LIMIT ?`, query, limit)
+		LIMIT ?`, rewriteQuery(query), limit)
 	if err != nil {
 		return nil, err
 	}
@@ -63,4 +64,26 @@ func (s *Store) SearchRanked(ctx context.Context, query string, limit int) ([]*R
 		out = append(out, &RankedNode{Node: &n, Rank: rank})
 	}
 	return out, rows.Err()
+}
+
+// Convert a natural-language query into FTS5 OR syntax.
+func rewriteQuery(q string) string {
+	q = strings.TrimSpace(q)
+	if q == "" {
+		return q
+	}
+
+	// Pass through if the query already uses FTS5 syntax.
+	for _, op := range []string{" OR ", " AND ", " NOT ", "NEAR(", "\"", ":", "*", "("} {
+		if strings.Contains(q, op) {
+			return q
+		}
+	}
+
+	terms := strings.Fields(q)
+	if len(terms) <= 1 {
+		return q
+	}
+
+	return strings.Join(terms, " OR ")
 }

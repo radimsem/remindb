@@ -52,12 +52,12 @@ func TestOpenClawAgentWorkflow(t *testing.T) {
 
 	// Search for agent capabilities — should find nodes from IDENTITY.md.
 	eng := query.NewEngine(st)
-	searchResult, err := eng.Search(ctx, "refactoring", 2000)
+	searchResult, err := eng.Search(ctx, "code review refactoring security", 2000)
 	if err != nil {
 		t.Fatalf("Search: %v", err)
 	}
 	if len(searchResult.Nodes) == 0 {
-		t.Fatal("expected search results for 'refactoring'")
+		t.Fatal("expected search results for 'code review refactoring security'")
 	}
 
 	found := false
@@ -72,12 +72,12 @@ func TestOpenClawAgentWorkflow(t *testing.T) {
 	}
 
 	// Search for memory protocol — should find nodes from PROTOCOLS.md.
-	memResult, err := eng.Search(ctx, "feedback", 2000)
+	memResult, err := eng.Search(ctx, "memory protocol feedback recall", 2000)
 	if err != nil {
 		t.Fatalf("Search memory: %v", err)
 	}
 	if len(memResult.Nodes) == 0 {
-		t.Fatal("expected search results for 'feedback'")
+		t.Fatal("expected search results for 'memory protocol feedback recall'")
 	}
 
 	// Fetch context around a specific node.
@@ -110,17 +110,17 @@ func TestClaudeCodeMemoryWorkflow(t *testing.T) {
 	eng := query.NewEngine(st)
 
 	// Agent starts a task: "add a new page to the webshop".
-	// It should find the CLAUDE.md instructions for adding pages.
-	pageResult, err := eng.Search(ctx, "Vitest", 2000)
+	// It should find the CLAUDE.md instructions about pages and components.
+	pageResult, err := eng.Search(ctx, "adding new page server components", 2000)
 	if err != nil {
 		t.Fatalf("Search: %v", err)
 	}
 	if len(pageResult.Nodes) == 0 {
-		t.Fatal("expected results for 'Vitest'")
+		t.Fatal("expected results for 'adding new page server components'")
 	}
 
 	// Agent checks for testing feedback before writing tests.
-	testResult, err := eng.Search(ctx, "snapshot", 2000)
+	testResult, err := eng.Search(ctx, "snapshot tests mock database", 2000)
 	if err != nil {
 		t.Fatalf("Search testing: %v", err)
 	}
@@ -140,7 +140,7 @@ func TestClaudeCodeMemoryWorkflow(t *testing.T) {
 	}
 
 	// Agent checks project state for current sprint context.
-	sprintResult, err := eng.Search(ctx, "checkout", 2000)
+	sprintResult, err := eng.Search(ctx, "checkout Stripe sprint blockers", 2000)
 	if err != nil {
 		t.Fatalf("Search sprint: %v", err)
 	}
@@ -149,7 +149,7 @@ func TestClaudeCodeMemoryWorkflow(t *testing.T) {
 	}
 
 	// Verify user preference was compiled.
-	userResult, err := eng.Search(ctx, "Zod", 2000)
+	userResult, err := eng.Search(ctx, "senior engineer Zod validation preferences", 2000)
 	if err != nil {
 		t.Fatalf("Search user: %v", err)
 	}
@@ -177,7 +177,7 @@ func TestGeminiCliMemoryWorkflow(t *testing.T) {
 	eng := query.NewEngine(st)
 
 	// Agent searches for architecture decisions before modifying the k8s layer.
-	archResult, err := eng.Search(ctx, "idempotent", 2000)
+	archResult, err := eng.Search(ctx, "service layer kubernetes handler idempotent", 2000)
 	if err != nil {
 		t.Fatalf("Search: %v", err)
 	}
@@ -186,7 +186,7 @@ func TestGeminiCliMemoryWorkflow(t *testing.T) {
 	}
 
 	// Agent checks incident history before touching namespace operations.
-	incidentResult, err := eng.Search(ctx, "finalizer", 2000)
+	incidentResult, err := eng.Search(ctx, "namespace deletion cascade finalizer", 2000)
 	if err != nil {
 		t.Fatalf("Search incidents: %v", err)
 	}
@@ -195,7 +195,7 @@ func TestGeminiCliMemoryWorkflow(t *testing.T) {
 	}
 
 	// Verify YAML context was parsed — should find service dependencies.
-	depResult, err := eng.Search(ctx, "vault", 2000)
+	depResult, err := eng.Search(ctx, "postgresql vault kubernetes dependencies", 2000)
 	if err != nil {
 		t.Fatalf("Search deps: %v", err)
 	}
@@ -281,7 +281,7 @@ func TestTemperatureBoostOnAccess(t *testing.T) {
 
 	// Find a node via search.
 	eng := query.NewEngine(st)
-	result, err := eng.Search(ctx, "precision", 2000)
+	result, err := eng.Search(ctx, "precision speed verify", 2000)
 	if err != nil {
 		t.Fatalf("Search: %v", err)
 	}
