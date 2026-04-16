@@ -36,3 +36,24 @@ type ContextNode struct {
 	TokenCount  int
 	NodeType
 }
+
+func Flatten(roots []*ContextNode) []*ContextNode {
+	return collectNodes(nil, roots)
+}
+
+func FlattenMap(roots []*ContextNode) map[string]*ContextNode {
+	flat := Flatten(roots)
+	m := make(map[string]*ContextNode, len(flat))
+	for _, n := range flat {
+		m[n.ID] = n
+	}
+	return m
+}
+
+func collectNodes(out []*ContextNode, nodes []*ContextNode) []*ContextNode {
+	for _, n := range nodes {
+		out = append(out, n)
+		out = collectNodes(out, n.Children)
+	}
+	return out
+}

@@ -9,7 +9,7 @@ import (
 )
 
 type NodeStore interface {
-	BoostTemperature(ctx context.Context, id string, boost float64) error
+	BoostTemperatureBatch(ctx context.Context, ids []string, boost float64) error
 	DecayTemperatures(ctx context.Context, factor float64) (int64, error)
 	GetColdNodes(ctx context.Context, threshold float64) ([]*store.Node, error)
 }
@@ -29,10 +29,11 @@ func NewTracker(s NodeStore, cfg Config) *Tracker {
 }
 
 func (t *Tracker) RecordAccess(ctx context.Context, ids []string) error {
-	for _, id := range ids {
-		if err := t.store.BoostTemperature(ctx, id, t.cfg.AccessBoost); err != nil {
-			return fmt.Errorf("failed to boost: %s: %w", id, err)
-		}
+	if len(ids) == 0 {
+		return nil
+	}
+	if err := t.store.BoostTemperatureBatch(ctx, ids, t.cfg.AccessBoost); err != nil {
+		return fmt.Errorf("failed to boost: %w", err)
 	}
 	return nil
 }

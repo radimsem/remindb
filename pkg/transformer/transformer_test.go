@@ -106,7 +106,7 @@ func TestFlatten(t *testing.T) {
 		{Content: "e"},
 	}
 
-	flat := flatten(roots)
+	flat := parser.Flatten(roots)
 	if len(flat) != 5 {
 		t.Fatalf("len = %d, want 5", len(flat))
 	}

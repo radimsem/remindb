@@ -6,10 +6,6 @@ func decayFactor(rate, hours float64) float64 {
 	return math.Exp(-rate * hours)
 }
 
-func boost(current, amount float64) float64 {
-	return math.Min(1.0, current+amount)
-}
-
 const (
 	// Minimum relevance weight for coldest nodes (temperature = 0).
 	coldFloor = 0.3

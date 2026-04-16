@@ -12,7 +12,10 @@ import (
 // Compute a fingerprint of the entire node set by hashing sorted
 // content hashes.
 func CursorHash(roots []*parser.ContextNode) string {
-	flat := flatten(roots)
+	return CursorHashFlat(parser.Flatten(roots))
+}
+
+func CursorHashFlat(flat []*parser.ContextNode) string {
 	hashes := make([]string, len(flat))
 	for i, n := range flat {
 		hashes[i] = n.ContentHash

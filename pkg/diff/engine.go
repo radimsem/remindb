@@ -8,7 +8,10 @@ import (
 
 // Compare enriched nodes against the previous snapshot and returns one.
 func Diff(roots []*parser.ContextNode, prev map[string]NodeState) []Delta {
-	flat := flatten(roots)
+	return DiffFlat(parser.Flatten(roots), prev)
+}
+
+func DiffFlat(flat []*parser.ContextNode, prev map[string]NodeState) []Delta {
 	seen := make(map[string]bool, len(flat))
 	deltas := make([]Delta, 0, len(flat))
 
@@ -58,16 +61,4 @@ func Diff(roots []*parser.ContextNode, prev map[string]NodeState) []Delta {
 	}
 
 	return deltas
-}
-
-func flatten(roots []*parser.ContextNode) []*parser.ContextNode {
-	return collectNodes(nil, roots)
-}
-
-func collectNodes(out []*parser.ContextNode, nodes []*parser.ContextNode) []*parser.ContextNode {
-	for _, n := range nodes {
-		out = append(out, n)
-		out = collectNodes(out, n.Children)
-	}
-	return out
 }

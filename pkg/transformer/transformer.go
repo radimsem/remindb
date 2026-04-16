@@ -11,7 +11,7 @@ import (
 )
 
 func Transform(ctx context.Context, roots []*parser.ContextNode) error {
-	flat := flatten(roots)
+	flat := parser.Flatten(roots)
 	if len(flat) == 0 {
 		return nil
 	}
@@ -43,18 +43,6 @@ func Transform(ctx context.Context, roots []*parser.ContextNode) error {
 	compressPrefix(flat)
 
 	return nil
-}
-
-func flatten(roots []*parser.ContextNode) []*parser.ContextNode {
-	return collectNodes(nil, roots)
-}
-
-func collectNodes(out []*parser.ContextNode, nodes []*parser.ContextNode) []*parser.ContextNode {
-	for _, n := range nodes {
-		out = append(out, n)
-		out = collectNodes(out, n.Children)
-	}
-	return out
 }
 
 func wireParents(nodes []*parser.ContextNode, parentID string) {

@@ -55,7 +55,7 @@ func (d *Deps) HandleWrite(ctx context.Context, _ *gomcp.CallToolRequest, input 
 			Depth:       1,
 			Label:       label,
 			Content:     input.Payload,
-			Format:      "plain",
+			Format:      parser.FormatPlain,
 			TokenCount:  tokenCount,
 			ContentHash: contentHash,
 		}

@@ -46,19 +46,21 @@ func Compile(ctx context.Context, st *store.Store, paths []string, message strin
 		return nil, fmt.Errorf("failed to transform: %w", err)
 	}
 
-	prev, err := buildPrevState(ctx, st, roots)
+	flat := parser.Flatten(roots)
+
+	prev, err := buildPrevState(ctx, st, flat)
 	if err != nil {
 		return nil, err
 	}
 
-	deltas := diff.Diff(roots, prev)
-	cursorHash := diff.CursorHash(roots)
+	deltas := diff.DiffFlat(flat, prev)
+	cursorHash := diff.CursorHashFlat(flat)
 
 	if err := emitter.Emit(ctx, st, roots, deltas, cursorHash, message); err != nil {
 		return nil, fmt.Errorf("failed to emit: %w", err)
 	}
 
-	return countStats(roots, deltas), nil
+	return countResult(flat, deltas), nil
 }
 
 func CompileDir(ctx context.Context, st *store.Store, dir, message string) (*Result, error) {
@@ -86,42 +88,37 @@ func CompileDir(ctx context.Context, st *store.Store, dir, message string) (*Res
 	return Compile(ctx, st, paths, message)
 }
 
-func buildPrevState(ctx context.Context, st *store.Store, roots []*parser.ContextNode) (map[string]diff.NodeState, error) {
-	files := uniqueFiles(roots)
-	prev := make(map[string]diff.NodeState)
+func buildPrevState(ctx context.Context, st *store.Store, flat []*parser.ContextNode) (map[string]diff.NodeState, error) {
+	files := uniqueFilesFlat(flat)
 
-	for _, f := range files {
-		existing, err := st.GetNodesByFile(ctx, f)
-		if err != nil {
-			return nil, fmt.Errorf("failed to get nodes: %s: %w", f, err)
-		}
-		for _, n := range existing {
-			prev[n.ID] = diff.NodeState{Hash: n.ContentHash, Content: n.Content}
-		}
+	existing, err := st.GetNodesByFiles(ctx, files)
+	if err != nil {
+		return nil, fmt.Errorf("failed to get nodes: %w", err)
+	}
+
+	prev := make(map[string]diff.NodeState, len(existing))
+	for _, n := range existing {
+		prev[n.ID] = diff.NodeState{Hash: n.ContentHash, Content: n.Content}
 	}
 	return prev, nil
 }
 
-func uniqueFiles(roots []*parser.ContextNode) []string {
-	seen := make(map[string]bool)
-	var out []string
+func uniqueFilesFlat(flat []*parser.ContextNode) []string {
+	seen := make(map[string]bool, len(flat))
+	out := make([]string, 0, len(flat))
 
-	var walk func([]*parser.ContextNode)
-	walk = func(nodes []*parser.ContextNode) {
-		for _, n := range nodes {
-			if !seen[n.SourceFile] {
-				seen[n.SourceFile] = true
-				out = append(out, n.SourceFile)
-			}
-			walk(n.Children)
+	for _, n := range flat {
+		if !seen[n.SourceFile] {
+			seen[n.SourceFile] = true
+			out = append(out, n.SourceFile)
 		}
 	}
-	walk(roots)
 	return out
 }
 
-func countStats(roots []*parser.ContextNode, deltas []diff.Delta) *Result {
-	r := &Result{}
+func countResult(flat []*parser.ContextNode, deltas []diff.Delta) *Result {
+	r := &Result{Total: len(flat)}
+
 	for _, d := range deltas {
 		switch d.Op {
 		case diff.OpAdd:
@@ -132,14 +129,5 @@ func countStats(roots []*parser.ContextNode, deltas []diff.Delta) *Result {
 			r.Removed++
 		}
 	}
-
-	var count func([]*parser.ContextNode)
-	count = func(nodes []*parser.ContextNode) {
-		for _, n := range nodes {
-			r.Total++
-			count(n.Children)
-		}
-	}
-	count(roots)
 	return r
 }

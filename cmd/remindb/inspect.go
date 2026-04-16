@@ -4,7 +4,6 @@ import (
 	"context"
 	"fmt"
 	"os"
-	"strings"
 
 	"github.com/radimsem/remindb/pkg/store"
 	"github.com/spf13/cobra"
@@ -44,45 +43,39 @@ func runInspect(_ *cobra.Command, _ []string) error {
 	_, _ = fmt.Fprintf(os.Stdout, "Hot (≥0.5): %d\n", stats.HotCount)
 	_, _ = fmt.Fprintf(os.Stdout, "Cold (<0.1): %d\n\n", stats.ColdCount)
 
-	roots, err := st.GetRootNodes(ctx)
+	all, err := st.GetAllNodes(ctx)
 	if err != nil {
-		return fmt.Errorf("failed to get roots: %w", err)
+		return fmt.Errorf("failed to get nodes: %w", err)
 	}
 
-	if len(roots) == 0 {
+	if len(all) == 0 {
 		_, _ = fmt.Fprintln(os.Stdout, "No nodes in database.")
 		return nil
 	}
 
 	const maxTreeDepth = 10
+	roots, childMap := store.BuildTree(all)
 
 	_, _ = fmt.Fprintln(os.Stdout, "=== Node Tree ===")
 	for _, root := range roots {
-		if err := printTree(ctx, st, root, 0, maxTreeDepth); err != nil {
-			return err
-		}
+		printTree(childMap, root, 0, maxTreeDepth)
 	}
 	return nil
 }
 
-func printTree(ctx context.Context, st *store.Store, n *store.Node, depth, maxDepth int) error {
-	indent := strings.Repeat("  ", depth)
+func printTree(children map[string][]*store.Node, n *store.Node, depth, maxDepth int) {
+	indent := ""
+	for range depth {
+		indent += "  "
+	}
 	_, _ = fmt.Fprintf(os.Stdout, "%s[%s] %s (id=%s temp=%.2f tok=%d)\n",
 		indent, n.NodeType, n.Label, n.ID, n.Temperature, n.TokenCount)
 
 	if depth >= maxDepth {
-		return nil
+		return
 	}
 
-	children, err := st.GetChildren(ctx, n.ID)
-	if err != nil {
-		return fmt.Errorf("failed to get children: %s: %w", n.ID, err)
+	for _, child := range children[n.ID] {
+		printTree(children, child, depth+1, maxDepth)
 	}
-
-	for _, child := range children {
-		if err := printTree(ctx, st, child, depth+1, maxDepth); err != nil {
-			return err
-		}
-	}
-	return nil
 }

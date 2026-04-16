@@ -3,6 +3,7 @@ package store
 import (
 	"context"
 	"database/sql"
+	"strings"
 )
 
 type Node struct {
@@ -71,6 +72,28 @@ func (s *Store) GetNode(ctx context.Context, id string) (*Node, error) {
 func (s *Store) GetNodesByFile(ctx context.Context, path string) ([]*Node, error) {
 	rows, err := s.db.QueryContext(ctx,
 		`SELECT `+nodeColumns+` FROM nodes WHERE source_file = ?`, path)
+	if err != nil {
+		return nil, err
+	}
+
+	defer func() { _ = rows.Close() }()
+	return collectRows(rows)
+}
+
+func (s *Store) GetNodesByFiles(ctx context.Context, paths []string) ([]*Node, error) {
+	if len(paths) == 0 {
+		return nil, nil
+	}
+
+	placeholders := make([]string, len(paths))
+	args := make([]any, len(paths))
+	for i, p := range paths {
+		placeholders[i] = "?"
+		args[i] = p
+	}
+
+	query := `SELECT ` + nodeColumns + ` FROM nodes WHERE source_file IN (` + strings.Join(placeholders, ",") + `)`
+	rows, err := s.db.QueryContext(ctx, query, args...)
 	if err != nil {
 		return nil, err
 	}
@@ -191,6 +214,30 @@ func (s *Store) GetRootNodes(ctx context.Context) ([]*Node, error) {
 
 	defer func() { _ = rows.Close() }()
 	return collectRows(rows)
+}
+
+func (s *Store) GetAllNodes(ctx context.Context) ([]*Node, error) {
+	rows, err := s.db.QueryContext(ctx,
+		`SELECT `+nodeColumns+` FROM nodes ORDER BY source_file, depth`)
+	if err != nil {
+		return nil, err
+	}
+
+	defer func() { _ = rows.Close() }()
+	return collectRows(rows)
+}
+
+func BuildTree(nodes []*Node) (roots []*Node, children map[string][]*Node) {
+	children = make(map[string][]*Node, len(nodes))
+
+	for _, n := range nodes {
+		if n.ParentID == "" {
+			roots = append(roots, n)
+		} else {
+			children[n.ParentID] = append(children[n.ParentID], n)
+		}
+	}
+	return roots, children
 }
 
 func collectRows(rows *sql.Rows) ([]*Node, error) {

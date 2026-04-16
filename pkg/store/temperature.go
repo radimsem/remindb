@@ -2,6 +2,7 @@ package store
 
 import (
 	"context"
+	"strings"
 	"time"
 )
 
@@ -27,6 +28,29 @@ func (s *Store) BoostTemperature(ctx context.Context, id string, boost float64) 
 		access_count = access_count + 1, last_accessed_at = ?, updated_at = unixepoch()
 		WHERE id = ?`, boost, now, id)
 
+	return err
+}
+
+func (s *Store) BoostTemperatureBatch(ctx context.Context, ids []string, boost float64) error {
+	if len(ids) == 0 {
+		return nil
+	}
+
+	now := time.Now().Unix()
+	placeholders := make([]string, len(ids))
+	args := make([]any, 0, len(ids)+2)
+	args = append(args, boost, now)
+
+	for i, id := range ids {
+		placeholders[i] = "?"
+		args = append(args, id)
+	}
+
+	query := `UPDATE nodes SET temperature = min(1.0, temperature + ?),
+		access_count = access_count + 1, last_accessed_at = ?, updated_at = unixepoch()
+		WHERE id IN (` + strings.Join(placeholders, ",") + `)`
+
+	_, err := s.db.ExecContext(ctx, query, args...)
 	return err
 }
 

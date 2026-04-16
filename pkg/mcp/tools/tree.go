@@ -20,28 +20,30 @@ func (d *Deps) HandleTree(ctx context.Context, _ *gomcp.CallToolRequest, input T
 		maxDepth = 5
 	}
 
-	var roots []*store.Node
-	var err error
-
-	if input.Root == "" {
-		roots, err = d.Store.GetRootNodes(ctx)
-	} else {
-		node, e := d.Store.GetNode(ctx, input.Root)
-		if e != nil {
-			return nil, nil, fmt.Errorf("failed to get root: %w", e)
-		}
-
-		roots = []*store.Node{node}
-	}
+	all, err := d.Store.GetAllNodes(ctx)
 	if err != nil {
 		return nil, nil, fmt.Errorf("failed to get tree: %w", err)
 	}
 
+	roots, childMap := store.BuildTree(all)
+
+	if input.Root != "" {
+		var root *store.Node
+		for _, n := range all {
+			if n.ID == input.Root {
+				root = n
+				break
+			}
+		}
+		if root == nil {
+			return nil, nil, fmt.Errorf("failed to get root: node %s not found", input.Root)
+		}
+		roots = []*store.Node{root}
+	}
+
 	var b strings.Builder
 	for _, root := range roots {
-		if err := d.writeTreeNode(&b, ctx, root, 0, maxDepth); err != nil {
-			return nil, nil, fmt.Errorf("failed to traverse tree: %w", err)
-		}
+		writeTreeNode(&b, childMap, root, 0, maxDepth)
 	}
 
 	if b.Len() == 0 {
@@ -54,23 +56,15 @@ func (d *Deps) HandleTree(ctx context.Context, _ *gomcp.CallToolRequest, input T
 	}, nil, nil
 }
 
-func (d *Deps) writeTreeNode(b *strings.Builder, ctx context.Context, n *store.Node, depth, maxDepth int) error {
+func writeTreeNode(b *strings.Builder, children map[string][]*store.Node, n *store.Node, depth, maxDepth int) {
 	indent := strings.Repeat("  ", depth)
 	fmt.Fprintf(b, "%s[%s] %s (%s)\n", indent, n.NodeType, n.Label, n.ID)
 
 	if depth >= maxDepth {
-		return nil
+		return
 	}
 
-	children, err := d.Store.GetChildren(ctx, n.ID)
-	if err != nil {
-		return err
+	for _, child := range children[n.ID] {
+		writeTreeNode(b, children, child, depth+1, maxDepth)
 	}
-
-	for _, child := range children {
-		if err := d.writeTreeNode(b, ctx, child, depth+1, maxDepth); err != nil {
-			return err
-		}
-	}
-	return nil
 }

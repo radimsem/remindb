@@ -26,17 +26,6 @@ func TestDecayFactor(t *testing.T) {
 	}
 }
 
-func TestBoost(t *testing.T) {
-	if v := boost(0.5, 0.15); v != 0.65 {
-		t.Errorf("boost(0.5, 0.15) = %f, want 0.65", v)
-	}
-
-	// Capped at 1.0.
-	if v := boost(0.95, 0.15); v != 1.0 {
-		t.Errorf("boost(0.95, 0.15) = %f, want 1.0", v)
-	}
-}
-
 func TestScore(t *testing.T) {
 	tests := []struct {
 		relevance, temp, want float64

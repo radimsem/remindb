@@ -3,6 +3,7 @@ package transformer
 import (
 	"fmt"
 	"strings"
+	"unicode/utf8"
 
 	"github.com/radimsem/remindb/pkg/parser"
 )
@@ -145,5 +146,10 @@ func truncate(s string, max int) string {
 	if len(s) <= max {
 		return s
 	}
-	return s[:max-3] + "..."
+
+	end := max - 3
+	for end > 0 && !utf8.RuneStart(s[end]) {
+		end--
+	}
+	return s[:end] + "..."
 }

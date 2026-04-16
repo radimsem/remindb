@@ -66,16 +66,7 @@ func Emit(ctx context.Context, st *store.Store, roots []*parser.ContextNode, del
 }
 
 func buildNodeMap(roots []*parser.ContextNode) map[string]*parser.ContextNode {
-	m := make(map[string]*parser.ContextNode)
-	collectNodes(m, roots)
-	return m
-}
-
-func collectNodes(m map[string]*parser.ContextNode, nodes []*parser.ContextNode) {
-	for _, n := range nodes {
-		m[n.ID] = n
-		collectNodes(m, n.Children)
-	}
+	return parser.FlattenMap(roots)
 }
 
 func nodeFromContext(cn *parser.ContextNode) *store.Node {

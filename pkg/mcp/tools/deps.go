@@ -2,6 +2,7 @@ package tools
 
 import (
 	"context"
+	"unicode/utf8"
 
 	"github.com/radimsem/remindb/pkg/query"
 	"github.com/radimsem/remindb/pkg/store"
@@ -48,9 +49,8 @@ func truncate(s string, maxLen int) string {
 		return s
 	}
 
-	// Walk back to avoid splitting a multi-byte rune.
 	end := maxLen
-	for end > 0 && s[end]&0xC0 == 0x80 {
+	for end > 0 && !utf8.RuneStart(s[end]) {
 		end--
 	}
 	return s[:end] + "..."

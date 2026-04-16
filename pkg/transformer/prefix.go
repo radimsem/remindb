@@ -52,16 +52,9 @@ func splitPath(p string) []string {
 }
 
 func commonParts(a, b []string) []string {
-	n := len(a)
-	m := len(b)
-	if m < n {
-		n = m
-	}
-
 	i := 0
-	for i < n && a[i] == b[i] {
+	for i < min(len(a), len(b)) && a[i] == b[i] {
 		i++
 	}
-
 	return a[:i]
 }

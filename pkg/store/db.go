@@ -23,8 +23,15 @@ func Open(path string) (*Store, error) {
 		return nil, err
 	}
 
+	// In-memory databases are per-connection. Limit to one connection so
+	// concurrent goroutines share the same schema and data.
+	if path == ":memory:" {
+		db.SetMaxOpenConns(1)
+	}
+
 	for _, pragma := range []string{
 		"PRAGMA journal_mode=WAL",
+		"PRAGMA synchronous=NORMAL",
 		"PRAGMA busy_timeout=5000",
 		"PRAGMA foreign_keys=ON",
 	} {

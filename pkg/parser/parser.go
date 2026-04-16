@@ -1,7 +1,6 @@
 package parser
 
 import (
-	"bytes"
 	"errors"
 	"fmt"
 	"io"
@@ -18,7 +17,18 @@ func Parse(path string, r io.Reader) ([]*ContextNode, error) {
 	if err != nil {
 		return nil, fmt.Errorf("failed to read: %s: %w", path, err)
 	}
+	return ParseBytes(path, data)
+}
 
+func ParseFile(path string) ([]*ContextNode, error) {
+	data, err := os.ReadFile(path)
+	if err != nil {
+		return nil, fmt.Errorf("failed to read: %s: %w", path, err)
+	}
+	return ParseBytes(path, data)
+}
+
+func ParseBytes(path string, data []byte) ([]*ContextNode, error) {
 	ext := strings.ToLower(filepath.Ext(path))
 	switch ext {
 	case ".md", ".markdown":
@@ -32,18 +42,4 @@ func Parse(path string, r io.Reader) ([]*ContextNode, error) {
 	default:
 		return nil, fmt.Errorf("%w: %q", ErrUnsupportedExt, ext)
 	}
-}
-
-// Read path from disk and parse it.
-func ParseFile(path string) ([]*ContextNode, error) {
-	data, err := os.ReadFile(path)
-	if err != nil {
-		return nil, fmt.Errorf("failed to read: %s: %w", path, err)
-	}
-
-	return ParseBytes(path, data)
-}
-
-func ParseBytes(path string, data []byte) ([]*ContextNode, error) {
-	return Parse(path, bytes.NewReader(data))
 }
