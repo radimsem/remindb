@@ -3,23 +3,49 @@ package main
 import (
 	"context"
 	"fmt"
+	"io"
 	"os"
+	"strings"
+	"unicode/utf8"
 
 	"github.com/radimsem/remindb/pkg/store"
 	"github.com/spf13/cobra"
 )
 
+const (
+	ansiReset   = "\x1b[0m"
+	ansiBold    = "\x1b[1m"
+	ansiDim     = "\x1b[2m"
+	ansiYellow  = "\x1b[33m"
+	ansiCyan    = "\x1b[36m"
+	ansiBrightW = "\x1b[97m"
+)
+
+var (
+	inspectShowTree  bool
+	inspectTreeDepth int
+	inspectColorOn   bool
+)
+
 var inspectCmd = &cobra.Command{
 	Use:   "inspect",
-	Short: "Dump database stats, node tree, and temperature map",
+	Short: "Dump database stats and (optionally) the node tree",
 	RunE:  runInspect,
 }
 
 func init() {
+	inspectCmd.Flags().BoolVar(&inspectShowTree, "tree", false, "Render the node tree")
+	inspectCmd.Flags().IntVar(&inspectTreeDepth, "depth", 10, "Maximum tree depth (requires --tree)")
 	rootCmd.AddCommand(inspectCmd)
 }
 
-func runInspect(_ *cobra.Command, _ []string) error {
+func runInspect(cmd *cobra.Command, _ []string) error {
+	if !inspectShowTree && cmd.Flags().Changed("depth") {
+		return fmt.Errorf("--depth requires --tree")
+	}
+
+	inspectColorOn = isTerminal(os.Stdout) && os.Getenv("NO_COLOR") == ""
+
 	st, err := store.Open(dbPath)
 	if err != nil {
 		return fmt.Errorf("failed to open: %s: %w", dbPath, err)
@@ -36,46 +62,128 @@ func runInspect(_ *cobra.Command, _ []string) error {
 		return fmt.Errorf("failed to get stats: %w", err)
 	}
 
-	_, _ = fmt.Fprintf(os.Stdout, "=== Database: %s ===\n", dbPath)
-	_, _ = fmt.Fprintf(os.Stdout, "Nodes:     %d\n", stats.NodeCount)
-	_, _ = fmt.Fprintf(os.Stdout, "Snapshots: %d\n", stats.SnapshotCount)
-	_, _ = fmt.Fprintf(os.Stdout, "Avg temp:  %.3f\n", stats.AvgTemp)
-	_, _ = fmt.Fprintf(os.Stdout, "Hot (≥0.5): %d\n", stats.HotCount)
-	_, _ = fmt.Fprintf(os.Stdout, "Cold (<0.1): %d\n\n", stats.ColdCount)
+	w := os.Stdout
+	printStats(w, stats)
+
+	if !inspectShowTree {
+		return nil
+	}
 
 	all, err := st.GetAllNodes(ctx)
 	if err != nil {
 		return fmt.Errorf("failed to get nodes: %w", err)
 	}
-
 	if len(all) == 0 {
-		_, _ = fmt.Fprintln(os.Stdout, "No nodes in database.")
+		_, _ = fmt.Fprintln(w, "No nodes in database.")
 		return nil
 	}
 
-	const maxTreeDepth = 10
+	_, _ = fmt.Fprintln(w, paint(ansiBold+ansiCyan, "=== Node Tree ==="))
 	roots, childMap := store.BuildTree(all)
-
-	_, _ = fmt.Fprintln(os.Stdout, "=== Node Tree ===")
 	for _, root := range roots {
-		printTree(childMap, root, 0, maxTreeDepth)
+		printTree(w, childMap, root, 0, inspectTreeDepth)
 	}
 	return nil
 }
 
-func printTree(children map[string][]*store.Node, n *store.Node, depth, maxDepth int) {
-	indent := ""
-	for range depth {
-		indent += "  "
+func printStats(w io.Writer, s *store.Stats) {
+	header := "=== Database: " + dbPath
+	if fi, err := os.Stat(dbPath); err == nil {
+		header += " (" + humanSize(fi.Size()) + ")"
 	}
-	_, _ = fmt.Fprintf(os.Stdout, "%s[%s] %s (id=%s temp=%.2f tok=%d)\n",
-		indent, n.NodeType, n.Label, n.ID, n.Temperature, n.TokenCount)
+	header += " ==="
+	_, _ = fmt.Fprintln(w, paint(ansiBold+ansiCyan, header))
+
+	row := func(label, value string) {
+		padded := runePad(label, 14)
+		_, _ = fmt.Fprintf(w, "%s %s\n", paint(ansiDim, padded), value)
+	}
+	num := func(n int) string { return paint(ansiBrightW, fmt.Sprintf("%d", n)) }
+
+	row("Nodes:", num(s.NodeCount))
+	row("Snapshots:", num(s.SnapshotCount))
+	row("Avg temp:", tempPaint(s.AvgTemp))
+	row("Hot (≥0.5):", num(s.HotCount))
+	row("Cold (<0.1):", num(s.ColdCount))
+	_, _ = fmt.Fprintln(w)
+}
+
+func printTree(w io.Writer, children map[string][]*store.Node, n *store.Node, depth, maxDepth int) {
+	indent := strings.Repeat("  ", depth)
+
+	_, _ = fmt.Fprintf(w, "%s%s %s (%s %s %s %s)\n",
+		indent,
+		paint(ansiYellow, "["+n.NodeType+"]"),
+		paint(ansiBrightW, n.Label),
+		paint(ansiDim, "id="+n.ID),
+		paint(ansiDim, "file="+n.SourceFile),
+		"temp="+tempPaint(n.Temperature),
+		paint(ansiDim, fmt.Sprintf("tok=%d", n.TokenCount)),
+	)
 
 	if depth >= maxDepth {
 		return
 	}
 
 	for _, child := range children[n.ID] {
-		printTree(children, child, depth+1, maxDepth)
+		printTree(w, children, child, depth+1, maxDepth)
 	}
+}
+
+func paint(code, s string) string {
+	if !inspectColorOn {
+		return s
+	}
+	return code + s + ansiReset
+}
+
+// Gradient blue (cold) → red (hot) over t∈[0,1].
+func tempPaint(t float64) string {
+	s := fmt.Sprintf("%.2f", t)
+	if !inspectColorOn {
+		return s
+	}
+
+	c := t
+	if c < 0 {
+		c = 0
+	}
+	if c > 1 {
+		c = 1
+	}
+	r := int(255 * c)
+	g := 60
+	b := int(255 * (1 - c))
+
+	return fmt.Sprintf("\x1b[38;2;%d;%d;%dm%s%s", r, g, b, s, ansiReset)
+}
+
+func isTerminal(f *os.File) bool {
+	fi, err := f.Stat()
+	if err != nil {
+		return false
+	}
+	return fi.Mode()&os.ModeCharDevice != 0
+}
+
+func runePad(s string, width int) string {
+	n := utf8.RuneCountInString(s)
+	if n >= width {
+		return s
+	}
+	return s + strings.Repeat(" ", width-n)
+}
+
+func humanSize(n int64) string {
+	const unit = 1024
+	if n < unit {
+		return fmt.Sprintf("%d B", n)
+	}
+	div, exp := int64(unit), 0
+
+	for x := n / unit; x >= unit; x /= unit {
+		div *= unit
+		exp++
+	}
+	return fmt.Sprintf("%.1f %cB", float64(n)/float64(div), "KMGTPE"[exp])
 }
