@@ -17,7 +17,7 @@ func TestMcp_OpenClawAgent(t *testing.T) {
 	dir, _ := filepath.Abs("testdata/openclaw")
 
 	// 1. Agent compiles its identity files into the database.
-	compileResult := env.CallTool(t, "memory_compile", map[string]any{
+	compileResult := env.CallTool(t, "MemoryCompile", map[string]any{
 		"path":    dir,
 		"message": "openclaw-init",
 	})
@@ -27,14 +27,14 @@ func TestMcp_OpenClawAgent(t *testing.T) {
 	}
 
 	// 2. Agent inspects its memory tree — should include all workspace files.
-	treeResult := env.CallTool(t, "memory_tree", map[string]any{})
+	treeResult := env.CallTool(t, "MemoryTree", map[string]any{})
 	treeText := env.TextContent(t, treeResult)
 	if !strings.Contains(treeText, "Soul") && !strings.Contains(treeText, "Identity") {
 		t.Errorf("tree should contain Soul/Identity headings, got: %s", treeText[:min(200, len(treeText))])
 	}
 
 	// 3. Agent searches for its capabilities to self-describe.
-	searchResult := env.CallTool(t, "memory_search", map[string]any{
+	searchResult := env.CallTool(t, "MemorySearch", map[string]any{
 		"query":  "refactoring security vulnerabilities",
 		"budget": 2000,
 	})
@@ -44,7 +44,7 @@ func TestMcp_OpenClawAgent(t *testing.T) {
 	}
 
 	// 4. Agent checks user preferences before responding.
-	userResult := env.CallTool(t, "memory_search", map[string]any{
+	userResult := env.CallTool(t, "MemorySearch", map[string]any{
 		"query":  "terse responses error handling",
 		"budget": 1000,
 	})
@@ -54,7 +54,7 @@ func TestMcp_OpenClawAgent(t *testing.T) {
 	}
 
 	// 5. Agent checks daily memory logs for recent session context.
-	dailyResult := env.CallTool(t, "memory_search", map[string]any{
+	dailyResult := env.CallTool(t, "MemorySearch", map[string]any{
 		"query":  "rate limiting token bucket",
 		"budget": 1000,
 	})
@@ -64,7 +64,7 @@ func TestMcp_OpenClawAgent(t *testing.T) {
 	}
 
 	// 6. Agent searches for JSON session data from memory/session_data.json.
-	jsonResult := env.CallTool(t, "memory_search", map[string]any{
+	jsonResult := env.CallTool(t, "MemorySearch", map[string]any{
 		"query":  "session tasks blocked WebSocket",
 		"budget": 1000,
 	})
@@ -74,7 +74,7 @@ func TestMcp_OpenClawAgent(t *testing.T) {
 	}
 
 	// 7. Agent writes a new memory from a conversation.
-	writeResult := env.CallTool(t, "memory_write", map[string]any{
+	writeResult := env.CallTool(t, "MemoryWrite", map[string]any{
 		"payload": "User prefers verbose explanations when reviewing Go code. Confirmed after code review session.",
 	})
 	writeText := env.TextContent(t, writeResult)
@@ -86,7 +86,7 @@ func TestMcp_OpenClawAgent(t *testing.T) {
 	nodeID := extractNodeID(writeText)
 
 	// 8. Agent fetches context around the new memory.
-	fetchResult := env.CallTool(t, "memory_fetch", map[string]any{
+	fetchResult := env.CallTool(t, "MemoryFetch", map[string]any{
 		"anchor": nodeID,
 		"budget": 1000,
 	})
@@ -96,7 +96,7 @@ func TestMcp_OpenClawAgent(t *testing.T) {
 	}
 
 	// 9. Agent checks delta since the compile snapshot.
-	deltaResult := env.CallTool(t, "memory_delta", map[string]any{
+	deltaResult := env.CallTool(t, "MemoryDelta", map[string]any{
 		"since_snapshot": 1,
 	})
 	deltaText := env.TextContent(t, deltaResult)
@@ -113,13 +113,13 @@ func TestMcp_ClaudeCodeAgent(t *testing.T) {
 	dir, _ := filepath.Abs("testdata/claude-code")
 
 	// 1. Compile the project instructions and memory files.
-	env.CallTool(t, "memory_compile", map[string]any{
+	env.CallTool(t, "MemoryCompile", map[string]any{
 		"path":    dir,
 		"message": "claude-code-init",
 	})
 
 	// 2. Agent starts a task and searches for relevant testing guidance.
-	searchResult := env.CallTool(t, "memory_search", map[string]any{
+	searchResult := env.CallTool(t, "MemorySearch", map[string]any{
 		"query":  "snapshot",
 		"budget": 2000,
 	})
@@ -129,7 +129,7 @@ func TestMcp_ClaudeCodeAgent(t *testing.T) {
 	}
 
 	// 3. Agent searches for user preferences before responding.
-	prefResult := env.CallTool(t, "memory_search", map[string]any{
+	prefResult := env.CallTool(t, "MemorySearch", map[string]any{
 		"query":  "Zod",
 		"budget": 1000,
 	})
@@ -139,12 +139,12 @@ func TestMcp_ClaudeCodeAgent(t *testing.T) {
 	}
 
 	// 4. Agent writes a new feedback memory after user correction.
-	env.CallTool(t, "memory_write", map[string]any{
+	env.CallTool(t, "MemoryWrite", map[string]any{
 		"payload": "User prefers function components over class components. Always use hooks for state management.",
 	})
 
 	// 5. Agent searches for the newly written memory to verify persistence.
-	hookResult := env.CallTool(t, "memory_search", map[string]any{
+	hookResult := env.CallTool(t, "MemorySearch", map[string]any{
 		"query":  "hooks",
 		"budget": 1000,
 	})
@@ -154,7 +154,7 @@ func TestMcp_ClaudeCodeAgent(t *testing.T) {
 	}
 
 	// 6. Agent finds a verbose node and summarizes it.
-	treeResult := env.CallTool(t, "memory_tree", map[string]any{})
+	treeResult := env.CallTool(t, "MemoryTree", map[string]any{})
 	treeText := env.TextContent(t, treeResult)
 
 	// Find a node ID from the tree output to summarize.
@@ -163,13 +163,13 @@ func TestMcp_ClaudeCodeAgent(t *testing.T) {
 		t.Fatal("could not find a node ID in tree output")
 	}
 
-	env.CallTool(t, "memory_summarize", map[string]any{
+	env.CallTool(t, "MemorySummarize", map[string]any{
 		"node_id": nodeID,
 		"summary": "Summarized: webshop project uses Next.js 15 with App Router.",
 	})
 
 	// Verify the summarization took effect.
-	fetchResult := env.CallTool(t, "memory_fetch", map[string]any{
+	fetchResult := env.CallTool(t, "MemoryFetch", map[string]any{
 		"anchor": nodeID,
 		"budget": 1000,
 	})
@@ -187,13 +187,13 @@ func TestMcp_GeminiCliAgent(t *testing.T) {
 	dir, _ := filepath.Abs("testdata/gemini-cli")
 
 	// 1. Compile the infra-api project context.
-	env.CallTool(t, "memory_compile", map[string]any{
+	env.CallTool(t, "MemoryCompile", map[string]any{
 		"path":    dir,
 		"message": "gemini-cli-init",
 	})
 
 	// 2. Agent searches for architecture decisions before modifying code.
-	archResult := env.CallTool(t, "memory_search", map[string]any{
+	archResult := env.CallTool(t, "MemorySearch", map[string]any{
 		"query":  "idempotent",
 		"budget": 2000,
 	})
@@ -203,7 +203,7 @@ func TestMcp_GeminiCliAgent(t *testing.T) {
 	}
 
 	// 3. Agent checks for incident history before touching namespace code.
-	incidentResult := env.CallTool(t, "memory_search", map[string]any{
+	incidentResult := env.CallTool(t, "MemorySearch", map[string]any{
 		"query":  "finalizer",
 		"budget": 2000,
 	})
@@ -213,14 +213,14 @@ func TestMcp_GeminiCliAgent(t *testing.T) {
 	}
 
 	// 4. Agent writes a new architecture decision.
-	writeResult := env.CallTool(t, "memory_write", map[string]any{
+	writeResult := env.CallTool(t, "MemoryWrite", map[string]any{
 		"payload": "Decision: use structured logging with slog instead of log package. Rationale: better observability in Kubernetes, JSON output for log aggregation.",
 	})
 	writeText := env.TextContent(t, writeResult)
 	nodeID := extractNodeID(writeText)
 
 	// 5. Agent verifies the decision is searchable.
-	slogResult := env.CallTool(t, "memory_search", map[string]any{
+	slogResult := env.CallTool(t, "MemorySearch", map[string]any{
 		"query":  "slog",
 		"budget": 1000,
 	})
@@ -230,7 +230,7 @@ func TestMcp_GeminiCliAgent(t *testing.T) {
 	}
 
 	// 6. Agent checks history of the newly written node.
-	histResult := env.CallTool(t, "memory_history", map[string]any{
+	histResult := env.CallTool(t, "MemoryHistory", map[string]any{
 		"anchor": nodeID,
 	})
 	histText := env.TextContent(t, histResult)
@@ -239,13 +239,13 @@ func TestMcp_GeminiCliAgent(t *testing.T) {
 	}
 
 	// 7. Agent updates the decision node.
-	env.CallTool(t, "memory_write", map[string]any{
+	env.CallTool(t, "MemoryWrite", map[string]any{
 		"anchor":  nodeID,
 		"payload": "Decision: use structured logging with slog instead of log package. Rationale: better observability. Approved by team on 2026-04-16.",
 	})
 
 	// 8. Check delta to see both writes.
-	deltaResult := env.CallTool(t, "memory_delta", map[string]any{
+	deltaResult := env.CallTool(t, "MemoryDelta", map[string]any{
 		"since_snapshot": 1,
 	})
 	deltaText := env.TextContent(t, deltaResult)
@@ -262,7 +262,7 @@ func TestMcp_CodexAgent(t *testing.T) {
 	dir, _ := filepath.Abs("testdata/codex")
 
 	// 1. Compile the data pipeline project context.
-	compileResult := env.CallTool(t, "memory_compile", map[string]any{
+	compileResult := env.CallTool(t, "MemoryCompile", map[string]any{
 		"path":    dir,
 		"message": "codex-init",
 	})
@@ -272,14 +272,14 @@ func TestMcp_CodexAgent(t *testing.T) {
 	}
 
 	// 2. Agent inspects the memory tree.
-	treeResult := env.CallTool(t, "memory_tree", map[string]any{})
+	treeResult := env.CallTool(t, "MemoryTree", map[string]any{})
 	treeText := env.TextContent(t, treeResult)
 	if !strings.Contains(treeText, "Codex") && !strings.Contains(treeText, "Project") {
 		t.Errorf("tree should contain Codex/Project headings, got: %s", treeText[:min(200, len(treeText))])
 	}
 
 	// 3. Agent searches for typing feedback before writing code.
-	typingResult := env.CallTool(t, "memory_search", map[string]any{
+	typingResult := env.CallTool(t, "MemorySearch", map[string]any{
 		"query":  "Pydantic Protocol typing",
 		"budget": 2000,
 	})
@@ -292,7 +292,7 @@ func TestMcp_CodexAgent(t *testing.T) {
 	}
 
 	// 4. Agent checks migration state before starting a new pipeline.
-	migrationResult := env.CallTool(t, "memory_search", map[string]any{
+	migrationResult := env.CallTool(t, "MemorySearch", map[string]any{
 		"query":  "ETL migration remaining blocked",
 		"budget": 2000,
 	})
@@ -302,7 +302,7 @@ func TestMcp_CodexAgent(t *testing.T) {
 	}
 
 	// 5. Agent searches YAML pipeline config for vendor details.
-	vendorResult := env.CallTool(t, "memory_search", map[string]any{
+	vendorResult := env.CallTool(t, "MemorySearch", map[string]any{
 		"query":  "vendor oauth2 websocket redis",
 		"budget": 1000,
 	})
@@ -312,7 +312,7 @@ func TestMcp_CodexAgent(t *testing.T) {
 	}
 
 	// 6. Agent writes a new architecture decision.
-	writeResult := env.CallTool(t, "memory_write", map[string]any{
+	writeResult := env.CallTool(t, "MemoryWrite", map[string]any{
 		"payload": "Decision: use polars instead of pandas for new transforms. Rationale: 5x faster on large datasets, native lazy evaluation, better memory efficiency with Apache Arrow backend.",
 	})
 	writeText := env.TextContent(t, writeResult)
@@ -322,7 +322,7 @@ func TestMcp_CodexAgent(t *testing.T) {
 	nodeID := extractNodeID(writeText)
 
 	// 7. Agent verifies the decision is searchable.
-	polarsResult := env.CallTool(t, "memory_search", map[string]any{
+	polarsResult := env.CallTool(t, "MemorySearch", map[string]any{
 		"query":  "polars",
 		"budget": 1000,
 	})
@@ -332,7 +332,7 @@ func TestMcp_CodexAgent(t *testing.T) {
 	}
 
 	// 8. Agent fetches context around the new decision.
-	fetchResult := env.CallTool(t, "memory_fetch", map[string]any{
+	fetchResult := env.CallTool(t, "MemoryFetch", map[string]any{
 		"anchor": nodeID,
 		"budget": 2000,
 	})
@@ -342,7 +342,7 @@ func TestMcp_CodexAgent(t *testing.T) {
 	}
 
 	// 9. Agent checks delta since compile.
-	deltaResult := env.CallTool(t, "memory_delta", map[string]any{
+	deltaResult := env.CallTool(t, "MemoryDelta", map[string]any{
 		"since_snapshot": 1,
 	})
 	deltaText := env.TextContent(t, deltaResult)
@@ -361,14 +361,14 @@ func TestMcp_ToolDiscovery(t *testing.T) {
 	}
 
 	expected := map[string]bool{
-		"memory_fetch":     false,
-		"memory_search":    false,
-		"memory_write":     false,
-		"memory_compile":   false,
-		"memory_delta":     false,
-		"memory_summarize": false,
-		"memory_history":   false,
-		"memory_tree":      false,
+		"MemoryFetch":     false,
+		"MemorySearch":    false,
+		"MemoryWrite":     false,
+		"MemoryCompile":   false,
+		"MemoryDelta":     false,
+		"MemorySummarize": false,
+		"MemoryHistory":   false,
+		"MemoryTree":      false,
 	}
 
 	for _, tool := range tools.Tools {

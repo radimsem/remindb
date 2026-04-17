@@ -43,7 +43,7 @@ func countDirTokens(b *testing.B, dir string) int {
 	return total
 }
 
-// renderTree produces the same output as the memory_tree MCP tool.
+// renderTree produces the same output as the MemoryTree MCP tool.
 func renderTree(ctx context.Context, st *store.Store) string {
 	all, err := st.GetAllNodes(ctx)
 	if err != nil || len(all) == 0 {
@@ -71,7 +71,7 @@ func renderTreeNode(b *strings.Builder, children map[string][]*store.Node, n *st
 	}
 }
 
-// renderDelta produces the same output as the memory_delta MCP tool.
+// renderDelta produces the same output as the MemoryDelta MCP tool.
 func renderDelta(diffs []*store.DiffRecord) string {
 	var b strings.Builder
 	for _, dr := range diffs {

@@ -24,11 +24,11 @@
     }
   ],
   "tool_usage": {
-    "memory_search": 3,
-    "memory_fetch": 1,
-    "memory_write": 2,
-    "memory_compile": 1,
-    "memory_tree": 1
+    "MemorySearch": 3,
+    "MemoryFetch": 1,
+    "MemoryWrite": 2,
+    "MemoryCompile": 1,
+    "MemoryTree": 1
   },
   "tokens_used": 2847,
   "tokens_budget": 4000,

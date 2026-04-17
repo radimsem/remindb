@@ -42,42 +42,42 @@ func (s *Server) Connect(ctx context.Context, t mcp.Transport) (*mcp.ServerSessi
 
 func registerTools(srv *mcp.Server, d *tools.Deps) {
 	mcp.AddTool(srv, &mcp.Tool{
-		Name:        "memory_fetch",
+		Name:        "MemoryFetch",
 		Description: "Retrieve context around an anchor node within a token budget",
 	}, d.HandleFetch)
 
 	mcp.AddTool(srv, &mcp.Tool{
-		Name:        "memory_search",
+		Name:        "MemorySearch",
 		Description: "Full-text search for nodes within a token budget",
 	}, d.HandleSearch)
 
 	mcp.AddTool(srv, &mcp.Tool{
-		Name:        "memory_write",
+		Name:        "MemoryWrite",
 		Description: "Write or update content at an anchor node, creating a snapshot",
 	}, d.HandleWrite)
 
 	mcp.AddTool(srv, &mcp.Tool{
-		Name:        "memory_compile",
+		Name:        "MemoryCompile",
 		Description: "Compile source files or a directory into the memory database",
 	}, d.HandleCompile)
 
 	mcp.AddTool(srv, &mcp.Tool{
-		Name:        "memory_delta",
+		Name:        "MemoryDelta",
 		Description: "Return changes since a given snapshot",
 	}, d.HandleDelta)
 
 	mcp.AddTool(srv, &mcp.Tool{
-		Name:        "memory_summarize",
+		Name:        "MemorySummarize",
 		Description: "Replace a node's content with a provided summary",
 	}, d.HandleSummarize)
 
 	mcp.AddTool(srv, &mcp.Tool{
-		Name:        "memory_history",
+		Name:        "MemoryHistory",
 		Description: "Browse version history for a specific node",
 	}, d.HandleHistory)
 
 	mcp.AddTool(srv, &mcp.Tool{
-		Name:        "memory_tree",
+		Name:        "MemoryTree",
 		Description: "Return the node tree structure with labels",
 	}, d.HandleTree)
 }

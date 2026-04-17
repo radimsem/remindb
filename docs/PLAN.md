@@ -83,13 +83,13 @@ remindb/
 │   │
 │   ├── mcp/                  # MCP RUNTIME — Server + Tools
 │   │   ├── server.go         # MCP server setup (modelcontextprotocol/go-sdk)
-│   │   ├── tools.go          # Tool registration (memory_fetch, memory_write, etc.)
-│   │   ├── tool_fetch.go     # memory_fetch(anchor, budget) implementation
-│   │   ├── tool_delta.go     # memory_delta(agent_id, node) implementation
-│   │   ├── tool_write.go     # memory_write(anchor, payload) implementation
-│   │   ├── tool_summarize.go # memory_summarize(node_id) implementation
-│   │   ├── tool_search.go    # memory_search(query, budget) — FTS5 tool
-│   │   ├── tool_history.go   # memory_history(anchor, depth) — version browsing
+│   │   ├── tools.go          # Tool registration (MemoryFetch, MemoryWrite, etc.)
+│   │   ├── tool_fetch.go     # MemoryFetch(anchor, budget) implementation
+│   │   ├── tool_delta.go     # MemoryDelta(agent_id, node) implementation
+│   │   ├── tool_write.go     # MemoryWrite(anchor, payload) implementation
+│   │   ├── tool_summarize.go # MemorySummarize(node_id) implementation
+│   │   ├── tool_search.go    # MemorySearch(query, budget) — FTS5 tool
+│   │   ├── tool_history.go   # MemoryHistory(anchor, depth) — version browsing
 │   │   ├── notifications.go  # Cold-node summarization notifications to client
 │   │   ├── rescan.go         # Background goroutine: receives file-change signals via chan, triggers incremental recompile
 │   │   └── middleware.go      # Logging, temperature tracking on every tool call
@@ -330,7 +330,7 @@ CREATE INDEX idx_diffs_node        ON diffs(node_id);
 
 **Tasks:**
 1. Implement exponential decay: `T(t) = T₀ × e^(-λ × Δt)` where `λ` is the configurable decay rate and `Δt` is time since last access in hours
-2. On every `memory_fetch` or `memory_search` that returns a node, increment its `access_count` and boost its temperature: `T_new = min(1.0, T_old + α)` where `α` is the access boost (e.g., 0.15)
+2. On every `MemoryFetch` or `MemorySearch` that returns a node, increment its `access_count` and boost its temperature: `T_new = min(1.0, T_old + α)` where `α` is the access boost (e.g., 0.15)
 3. Run a background goroutine (configurable interval, default 10 minutes) that:
    - Applies decay to all node temperatures
    - Identifies nodes below the cold threshold (default: 0.1)
@@ -363,13 +363,13 @@ CREATE INDEX idx_diffs_node        ON diffs(node_id);
 
 | Tool | Input | Behavior |
 |---|---|---|
-| `memory_fetch` | `anchor: string, budget: int` | Retrieve context around an anchor within token budget |
-| `memory_search` | `query: string, budget: int` | FTS5 search, return ranked nodes within budget |
-| `memory_write` | `anchor: string, payload: string` | Write/update content at anchor, trigger diff + snapshot |
-| `memory_delta` | `since_snapshot?: int` | Return changes since a snapshot |
-| `memory_summarize` | `node_id: string` | Trigger summarization of a node (replace content with summary) |
-| `memory_history` | `anchor: string, depth: int` | Browse version history for a specific node |
-| `memory_tree` | `root?: string, depth: int` | Return the node tree structure (labels only, minimal tokens) |
+| `MemoryFetch` | `anchor: string, budget: int` | Retrieve context around an anchor within token budget |
+| `MemorySearch` | `query: string, budget: int` | FTS5 search, return ranked nodes within budget |
+| `MemoryWrite` | `anchor: string, payload: string` | Write/update content at anchor, trigger diff + snapshot |
+| `MemoryDelta` | `since_snapshot?: int` | Return changes since a snapshot |
+| `MemorySummarize` | `node_id: string` | Trigger summarization of a node (replace content with summary) |
+| `MemoryHistory` | `anchor: string, depth: int` | Browse version history for a specific node |
+| `MemoryTree` | `root?: string, depth: int` | Return the node tree structure (labels only, minimal tokens) |
 
 **MCP Notifications:**
 
@@ -386,7 +386,7 @@ server := mcp.NewServer(&mcp.Implementation{
 }, &mcp.ServerOptions{})
 
 mcp.AddTool(server, &mcp.Tool{
-    Name:        "memory_fetch",
+    Name:        "MemoryFetch",
     Description: "Retrieve context around an anchor within a token budget",
 }, handleMemoryFetch)
 
@@ -407,7 +407,7 @@ server.Run(ctx, transport)
 2. Rescan goroutine inside `pkg/mcp/rescan.go`:
    ```go
    // RescanLoop runs inside the MCP server goroutine pool.
-   // It receives signals on the channel (from CLI, from memory_write,
+   // It receives signals on the channel (from CLI, from MemoryWrite,
    // or from a periodic ticker) and triggers incremental recompile
    // on only the changed files.
    func RescanLoop(ctx context.Context, signals <-chan RescanSignal, store Store, compiler Compiler, session *mcp.ServerSession) {
@@ -438,7 +438,7 @@ server.Run(ctx, transport)
 
 ### Consider a hybrid approach to label generation
 
-Rather than purely heuristic labels, consider using the LLM itself for label generation during `memory_write`. When the agent writes new content, the MCP server can request back a 1-line summary. This makes labels significantly higher quality. The heuristic approach remains as the fallback for bulk compilation.
+Rather than purely heuristic labels, consider using the LLM itself for label generation during `MemoryWrite`. When the agent writes new content, the MCP server can request back a 1-line summary. This makes labels significantly higher quality. The heuristic approach remains as the fallback for bulk compilation.
 
 ### Add a "context window" abstraction
 

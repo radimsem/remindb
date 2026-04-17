@@ -43,6 +43,6 @@ When multiple agents work on the same workspace, coordinate through memory:
 
 Each tool call costs tokens. Atlas should:
 
-- Use `memory_search` with specific queries, not broad keyword sweeps
-- Prefer `memory_tree` for orientation, then targeted fetches
+- Use `MemorySearch` with specific queries, not broad keyword sweeps
+- Prefer `MemoryTree` for orientation, then targeted fetches
 - Stay within the configured `memory_budget` per session

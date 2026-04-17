@@ -15,11 +15,11 @@
     ]
   },
   "tool_usage": {
-    "memory_search": 12,
-    "memory_fetch": 8,
-    "memory_write": 3,
-    "memory_compile": 1,
-    "memory_tree": 2
+    "MemorySearch": 12,
+    "MemoryFetch": 8,
+    "MemoryWrite": 3,
+    "MemoryCompile": 1,
+    "MemoryTree": 2
   },
   "tokens_used": {
     "input": 45200,
