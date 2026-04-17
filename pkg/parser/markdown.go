@@ -48,7 +48,7 @@ func parseMarkdown(path string, data []byte) ([]*ContextNode, error) {
 		}
 	}
 
-	exts := mdparser.CommonExtensions | mdparser.Tables | mdparser.FencedCode
+	exts := mdparser.CommonExtensions &^ (mdparser.MathJax | mdparser.Strikethrough)
 	p := mdparser.NewWithExtensions(exts)
 	doc := p.Parse(body)
 
