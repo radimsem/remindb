@@ -12,6 +12,10 @@ import (
 )
 
 func Emit(ctx context.Context, st *store.Store, roots []*parser.ContextNode, deltas []diff.Delta, cursorHash, message string) error {
+	if len(deltas) == 0 {
+		return nil
+	}
+
 	nodeMap := buildNodeMap(roots)
 
 	return st.Tx(ctx, func(tx *sql.Tx) error {
