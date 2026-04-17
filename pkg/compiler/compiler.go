@@ -9,6 +9,7 @@ import (
 	"path/filepath"
 
 	"github.com/radimsem/remindb/internal/fileext"
+	"github.com/radimsem/remindb/internal/tempfile"
 	"github.com/radimsem/remindb/pkg/diff"
 	"github.com/radimsem/remindb/pkg/emitter"
 	"github.com/radimsem/remindb/pkg/parser"
@@ -23,7 +24,7 @@ type Result struct {
 	Total    int
 }
 
-func Compile(ctx context.Context, st *store.Store, paths []string, message string) (*Result, error) {
+func Compile(ctx context.Context, st *store.Store, paths []string, message string, temps map[string]*float64) (*Result, error) {
 	var roots []*parser.ContextNode
 	for _, p := range paths {
 		data, err := os.ReadFile(p)
@@ -39,6 +40,11 @@ func Compile(ctx context.Context, st *store.Store, paths []string, message strin
 			}
 			return nil, fmt.Errorf("failed to parse: %s: %w", p, err)
 		}
+
+		if t := temps[p]; t != nil {
+			seedTemp(nodes, t)
+		}
+
 		roots = append(roots, nodes...)
 	}
 
@@ -63,6 +69,13 @@ func Compile(ctx context.Context, st *store.Store, paths []string, message strin
 	return countResult(flat, deltas), nil
 }
 
+func seedTemp(nodes []*parser.ContextNode, t *float64) {
+	for _, n := range nodes {
+		n.Temperature = t
+		seedTemp(n.Children, t)
+	}
+}
+
 func CompileDir(ctx context.Context, st *store.Store, dir, message string) (*Result, error) {
 	var paths []string
 
@@ -85,7 +98,36 @@ func CompileDir(ctx context.Context, st *store.Store, dir, message string) (*Res
 	if len(paths) == 0 {
 		return &Result{}, nil
 	}
-	return Compile(ctx, st, paths, message)
+
+	temps, err := resolveTemps(dir, paths)
+	if err != nil {
+		return nil, err
+	}
+
+	return Compile(ctx, st, paths, message, temps)
+}
+
+func resolveTemps(dir string, paths []string) (map[string]*float64, error) {
+	resolver, err := tempfile.Load(dir)
+	if err != nil {
+		return nil, fmt.Errorf("failed to load: %s: %w", tempfile.FileName, err)
+	}
+	if resolver == nil {
+		return nil, nil
+	}
+
+	temps := make(map[string]*float64, len(paths))
+	for _, p := range paths {
+		rel, err := filepath.Rel(dir, p)
+		if err != nil {
+			return nil, fmt.Errorf("failed to resolve: relative path for %s: %w", p, err)
+		}
+
+		if t, ok := resolver.Resolve(rel); ok {
+			temps[p] = &t
+		}
+	}
+	return temps, nil
 }
 
 func buildPrevState(ctx context.Context, st *store.Store, flat []*parser.ContextNode) (map[string]diff.NodeState, error) {

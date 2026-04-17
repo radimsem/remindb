@@ -52,7 +52,7 @@ func runCompile(cmd *cobra.Command, args []string) error {
 	if fi.IsDir() {
 		result, err = compiler.CompileDir(ctx, st, path, msg)
 	} else {
-		result, err = compiler.Compile(ctx, st, []string{path}, msg)
+		result, err = compiler.Compile(ctx, st, []string{path}, msg, nil)
 	}
 	if err != nil {
 		return fmt.Errorf("failed to compile: %s: %w", path, err)

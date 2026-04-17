@@ -22,6 +22,7 @@ type Node struct {
 	LastAccessed sql.NullInt64
 	CreatedAt    int64
 	UpdatedAt    int64
+	SeedTemp     *float64
 }
 
 type RowScanner interface {
@@ -133,8 +134,8 @@ func (s *Store) GetAncestors(ctx context.Context, id string) ([]*Node, error) {
 
 const upsertSQL = `
 INSERT INTO nodes (id, parent_id, source_file, node_type, depth,
-		label, content, format, token_count, content_hash)
-VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+		label, content, format, token_count, content_hash, temperature)
+VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, COALESCE(?11, 0.5))
 ON CONFLICT(id) DO UPDATE SET
 	parent_id = excluded.parent_id,
 	source_file = excluded.source_file,
@@ -145,12 +146,17 @@ ON CONFLICT(id) DO UPDATE SET
 	format = excluded.format,
 	token_count = excluded.token_count,
 	content_hash = excluded.content_hash,
+	temperature = CASE WHEN ?11 IS NOT NULL THEN excluded.temperature ELSE temperature END,
 	updated_at = unixepoch()`
 
 func upsertArgs(n *Node) []any {
+	var seedTemp any
+	if n.SeedTemp != nil {
+		seedTemp = *n.SeedTemp
+	}
 	return []any{
 		n.ID, parentIDParam(n.ParentID), n.SourceFile, n.NodeType, n.Depth,
-		n.Label, n.Content, n.Format, n.TokenCount, n.ContentHash,
+		n.Label, n.Content, n.Format, n.TokenCount, n.ContentHash, seedTemp,
 	}
 }
 

@@ -32,6 +32,7 @@ type ContextNode struct {
 	Content     string
 	ContentHash string
 	Format      string
+	Temperature *float64
 	Depth       int
 	TokenCount  int
 	NodeType

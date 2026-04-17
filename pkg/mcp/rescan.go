@@ -107,7 +107,7 @@ func (r *RescanLoop) scan(ctx context.Context) {
 		return
 	}
 
-	result, err := compiler.Compile(ctx, r.store, changed, "rescan")
+	result, err := compiler.Compile(ctx, r.store, changed, "rescan", nil)
 	if err != nil {
 		log.Printf("rescan: compile error: %v", err)
 		return

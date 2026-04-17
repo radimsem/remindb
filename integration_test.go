@@ -388,7 +388,7 @@ func TestRecompileWorkflow(t *testing.T) {
 	}
 
 	// First compile.
-	r1, err := compiler.Compile(ctx, st, []string{p}, "v1")
+	r1, err := compiler.Compile(ctx, st, []string{p}, "v1", nil)
 	if err != nil {
 		t.Fatalf("Compile v1: %v", err)
 	}
@@ -410,7 +410,7 @@ func TestRecompileWorkflow(t *testing.T) {
 	}
 
 	// Recompile.
-	r2, err := compiler.Compile(ctx, st, []string{p}, "v2")
+	r2, err := compiler.Compile(ctx, st, []string{p}, "v2", nil)
 	if err != nil {
 		t.Fatalf("Compile v2: %v", err)
 	}
@@ -498,7 +498,7 @@ func TestCrossFormatSearch(t *testing.T) {
 	yamlPath := abs(t, "testdata/sample.yaml")
 	jsonPath := abs(t, "testdata/sample.json")
 
-	_, err := compiler.Compile(ctx, st, []string{mdPath, yamlPath, jsonPath}, "cross-format")
+	_, err := compiler.Compile(ctx, st, []string{mdPath, yamlPath, jsonPath}, "cross-format", nil)
 	if err != nil {
 		t.Fatalf("Compile: %v", err)
 	}
