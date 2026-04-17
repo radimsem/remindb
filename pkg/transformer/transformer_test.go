@@ -43,9 +43,9 @@ func TestTransform_Integration(t *testing.T) {
 		t.Errorf("root.Content = %q", root.Content)
 	}
 
-	// Anchor: 8-char ID, 16-char hex hash
-	if len(root.ID) != 8 {
-		t.Errorf("root.ID = %q, want 8-char", root.ID)
+	// Anchor: 11-char ID, 16-char hex hash
+	if len(root.ID) != 11 {
+		t.Errorf("root.ID = %q, want 11-char", root.ID)
 	}
 	if len(root.ContentHash) != 16 {
 		t.Errorf("root.ContentHash = %q, want 16-char hex", root.ContentHash)
@@ -119,19 +119,26 @@ func TestFlatten(t *testing.T) {
 	}
 }
 
-func TestWireParents(t *testing.T) {
-	child := &parser.ContextNode{ID: "child001"}
+func TestWireIdentity(t *testing.T) {
+	child := &parser.ContextNode{SourceFile: "f.md", Content: "child"}
 	root := &parser.ContextNode{
-		ID:       "root0001",
-		Children: []*parser.ContextNode{child},
+		SourceFile: "f.md",
+		Content:    "root",
+		Children:   []*parser.ContextNode{child},
 	}
 
-	wireParents([]*parser.ContextNode{root}, "")
+	wireIdentity([]*parser.ContextNode{root}, "")
 
+	if root.ID == "" {
+		t.Fatal("root.ID empty")
+	}
 	if root.ParentID != "" {
 		t.Errorf("root.ParentID = %q", root.ParentID)
 	}
-	if child.ParentID != "root0001" {
-		t.Errorf("child.ParentID = %q, want %q", child.ParentID, "root0001")
+	if child.ParentID != root.ID {
+		t.Errorf("child.ParentID = %q, want %q", child.ParentID, root.ID)
+	}
+	if child.ID == root.ID {
+		t.Errorf("child.ID == root.ID = %q", root.ID)
 	}
 }

@@ -21,11 +21,14 @@ func Transform(ctx context.Context, roots []*parser.ContextNode) error {
 		compress(n)
 	}
 
-	// Per-node enrichment — independent
+	// Strip common directory prefix from source file.
+	compressPrefix(flat)
+
+	// Per-node enrichment — independent, content-only
 	var g errgroup.Group
 	for _, n := range flat {
 		g.Go(func() error {
-			setAnchor(n)
+			setContentHash(n)
 			setLabel(n)
 			setTokenCount(n)
 			return nil
@@ -36,18 +39,15 @@ func Transform(ctx context.Context, roots []*parser.ContextNode) error {
 		return err
 	}
 
-	// Wire parent IDs
-	wireParents(roots, "")
-
-	// Strip common directory prefix from source file
-	compressPrefix(flat)
+	// Wire IDs and parent IDs in a parent-first walk.
+	wireIdentity(roots, "")
 
 	return nil
 }
 
-func wireParents(nodes []*parser.ContextNode, parentID string) {
+func wireIdentity(nodes []*parser.ContextNode, parentID string) {
 	for _, n := range nodes {
-		n.ParentID = parentID
-		wireParents(n.Children, n.ID)
+		setIdentity(n, parentID)
+		wireIdentity(n.Children, n.ID)
 	}
 }

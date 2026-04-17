@@ -18,10 +18,10 @@ type WriteInput struct {
 }
 
 func (d *Deps) HandleWrite(ctx context.Context, _ *gomcp.CallToolRequest, input WriteInput) (*gomcp.CallToolResult, any, error) {
-	contentHash, generatedID := contentid.Hash(input.Payload)
+	contentHash := contentid.ContentHash(input.Payload)
 	nodeID := input.Anchor
 	if nodeID == "" {
-		nodeID = generatedID
+		nodeID = contentid.Identify("mcp:write", "", input.Payload)
 	}
 
 	tokenCount := tokens.Estimate(input.Payload)

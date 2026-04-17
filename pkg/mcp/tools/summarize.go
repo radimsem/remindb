@@ -20,7 +20,7 @@ func (d *Deps) HandleSummarize(ctx context.Context, _ *gomcp.CallToolRequest, in
 		return nil, nil, fmt.Errorf("failed to get node: %s: %w", input.NodeID, err)
 	}
 
-	contentHash, _ := contentid.Hash(input.Summary)
+	contentHash := contentid.ContentHash(input.Summary)
 
 	oldTokens := node.TokenCount
 	node.Content = input.Summary

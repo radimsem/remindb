@@ -7,18 +7,28 @@ import (
 	"github.com/cespare/xxhash/v2"
 )
 
-const base62Alphabet = "0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz"
+const (
+	base62Alphabet = "0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz"
+	idLen          = 11
+	sep            = "\x00"
+)
 
-// Hash returns a 16-char hex content hash and an 8-char base62 node ID.
-func Hash(content string) (contentHash, id string) {
+// Return a 16-char hex content hash used for change detection.
+func ContentHash(content string) string {
 	h := xxhash.Sum64String(content)
 
 	var buf [8]byte
 	binary.BigEndian.PutUint64(buf[:], h)
 
-	contentHash = hex.EncodeToString(buf[:])
-	id = encodeBase62(h)[:8]
-	return contentHash, id
+	return hex.EncodeToString(buf[:])
+}
+
+// Return an 11-char base62 node ID derived from structural context.
+func Identify(source, parent, content string) string {
+	input := source + sep + parent + sep + content
+	h := xxhash.Sum64String(input)
+
+	return encodeBase62(h)[:idLen]
 }
 
 func encodeBase62(v uint64) string {

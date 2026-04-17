@@ -5,7 +5,7 @@ import (
 	"testing"
 )
 
-func BenchmarkHash(b *testing.B) {
+func BenchmarkContentHash(b *testing.B) {
 	short := "User prefers verbose explanations."
 	medium := strings.Repeat("The quick brown fox jumps over the lazy dog. ", 25)
 	long := strings.Repeat("Lorem ipsum dolor sit amet, consectetur adipiscing elit. ", 200)
@@ -22,8 +22,20 @@ func BenchmarkHash(b *testing.B) {
 			b.SetBytes(int64(len(tc.content)))
 			b.ReportAllocs()
 			for i := 0; i < b.N; i++ {
-				Hash(tc.content)
+				ContentHash(tc.content)
 			}
 		})
+	}
+}
+
+func BenchmarkIdentify(b *testing.B) {
+	source := "vault/notes/example.md"
+	parent := "AbCdEf12345"
+	content := strings.Repeat("The quick brown fox jumps over the lazy dog. ", 25)
+
+	b.SetBytes(int64(len(source) + len(parent) + len(content)))
+	b.ReportAllocs()
+	for i := 0; i < b.N; i++ {
+		Identify(source, parent, content)
 	}
 }

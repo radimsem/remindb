@@ -1,12 +1,12 @@
 CREATE TABLE IF NOT EXISTS nodes (
-    id               CHAR(8) PRIMARY KEY,
-    parent_id        CHAR(8) REFERENCES nodes(id) ON DELETE CASCADE,
+    id               CHAR(11) PRIMARY KEY,
+    parent_id        CHAR(11) REFERENCES nodes(id) ON DELETE CASCADE,
     source_file      TEXT NOT NULL,
     node_type        VARCHAR(16) NOT NULL,
     depth            INTEGER NOT NULL,
     label            VARCHAR(120) NOT NULL,
     content          TEXT NOT NULL,
-    format           VARCHAR(8) NOT NULL DEFAULT 'plain',
+    format           VARCHAR(11) NOT NULL DEFAULT 'plain',
     token_count      INTEGER NOT NULL,
     content_hash     CHAR(16) NOT NULL,
     temperature      REAL NOT NULL DEFAULT 0.5,
@@ -27,7 +27,7 @@ CREATE TABLE IF NOT EXISTS snapshots (
 CREATE TABLE IF NOT EXISTS diffs (
     id          INTEGER PRIMARY KEY AUTOINCREMENT,
     snapshot_id INTEGER NOT NULL REFERENCES snapshots(id),
-    node_id     CHAR(8) NOT NULL,
+    node_id     CHAR(11) NOT NULL,
     op          CHAR(3) NOT NULL,
     old_hash    CHAR(16),
     new_hash    CHAR(16),
@@ -36,7 +36,7 @@ CREATE TABLE IF NOT EXISTS diffs (
 );
 
 CREATE TABLE IF NOT EXISTS cursors (
-    id          VARCHAR(8) PRIMARY KEY DEFAULT 'HEAD',
+    id          VARCHAR(11) PRIMARY KEY DEFAULT 'HEAD',
     snapshot_id INTEGER NOT NULL REFERENCES snapshots(id),
     updated_at  INTEGER DEFAULT (unixepoch())
 );

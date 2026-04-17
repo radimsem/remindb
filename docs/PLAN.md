@@ -129,8 +129,8 @@ PRAGMA busy_timeout=5000;
 
 -- Core content nodes (the "brain cells")
 CREATE TABLE nodes (
-    id           CHAR(12) PRIMARY KEY,      -- base62-encoded xxhash, fixed 12 chars
-    parent_id    CHAR(12) REFERENCES nodes(id) ON DELETE CASCADE,
+    id           CHAR(11) PRIMARY KEY,      -- base62-encoded xxhash64, fixed 11 chars
+    parent_id    CHAR(11) REFERENCES nodes(id) ON DELETE CASCADE,
     source_file  VARCHAR(512) NOT NULL,     -- origin file path (max realistic path)
     node_type    VARCHAR(16) NOT NULL,      -- heading|list|table|code|text|preamble|kv
     depth        TINYINT NOT NULL,          -- nesting depth in source (0-15 is plenty)
@@ -159,7 +159,7 @@ CREATE TABLE snapshots (
 CREATE TABLE diffs (
     id          INTEGER PRIMARY KEY AUTOINCREMENT,
     snapshot_id INTEGER NOT NULL REFERENCES snapshots(id),
-    node_id     CHAR(12) NOT NULL,          -- which node changed
+    node_id     CHAR(11) NOT NULL,          -- which node changed
     op          CHAR(3) NOT NULL,           -- add|mod|rem (fixed 3-char codes)
     old_hash    CHAR(16),                   -- previous content_hash (NULL for add)
     new_hash    CHAR(16),                   -- new content_hash (NULL for rem)
@@ -192,7 +192,7 @@ CREATE INDEX idx_diffs_node        ON diffs(node_id);
 ```
 
 **Type sizing rationale:**
-- `CHAR(12)` for node IDs: base62-encoded xxhash64 truncated to 12 chars gives 62¹² ≈ 3.2×10²¹ possible values — zero collision risk at any practical scale
+- `CHAR(11)` for node IDs: base62-encoded xxhash64 of `source_file + parent_id + content` — 11 chars fits the full 64-bit hash (~1.8×10¹⁹ values). Structural hash input means identical content at distinct tree positions gets distinct IDs, eliminating the dominant collision source
 - `CHAR(16)` for content hashes: xxhash64 produces 8 bytes → 16 hex chars, always fixed length
 - `CHAR(3)` for diff ops: `add`, `mod`, `rem` — fixed 3-char enum avoids string overhead
 - `VARCHAR(16)` for node_type: longest value is `preamble` (8 chars), 16 gives headroom
@@ -263,7 +263,7 @@ CREATE INDEX idx_diffs_node        ON diffs(node_id);
 
 **Tasks:**
 1. **Whitespace trimming:** Strip redundant whitespace, normalize line endings, collapse blank lines
-2. **Anchor minimization:** Generate short, stable anchors from content hashes (base62-encoded xxhash, truncated to 8 chars). Ensure uniqueness within the DB
+2. **Anchor minimization:** Generate short, stable anchors from `source_file + parent_id + content` (base62-encoded xxhash64, 11 chars). Structural hash input eliminates same-content collisions across tree positions
 3. **Context label generation:** Auto-generate 1-line summaries per node:
    - Headings: use the heading text itself
    - Lists: "N-item list about {first item topic}"
