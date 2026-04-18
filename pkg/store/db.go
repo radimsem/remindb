@@ -6,6 +6,9 @@ import (
 	"context"
 	"database/sql"
 	_ "embed"
+	"strings"
+	"sync"
+	"time"
 
 	_ "modernc.org/sqlite"
 )
@@ -14,7 +17,8 @@ import (
 var schema string
 
 type Store struct {
-	db *sql.DB
+	db   *sql.DB
+	txMu sync.Mutex
 }
 
 func Open(path string) (*Store, error) {
@@ -55,6 +59,26 @@ func (s *Store) Close() error {
 
 // Tx runs fn inside a transaction. Commits on nil error, rolls back otherwise.
 func (s *Store) Tx(ctx context.Context, fn func(tx *sql.Tx) error) error {
+	s.txMu.Lock()
+	defer s.txMu.Unlock()
+
+	const maxAttempts = 6
+	for attempt := 0; ; attempt++ {
+		err := s.runTx(ctx, fn)
+		if err == nil {
+			return nil
+		}
+
+		if attempt >= maxAttempts-1 || !isBusy(err) {
+			return err
+		}
+		if !backoffSleep(ctx, attempt) {
+			return ctx.Err()
+		}
+	}
+}
+
+func (s *Store) runTx(ctx context.Context, fn func(tx *sql.Tx) error) error {
 	tx, err := s.db.BeginTx(ctx, nil)
 	if err != nil {
 		return err
@@ -66,4 +90,39 @@ func (s *Store) Tx(ctx context.Context, fn func(tx *sql.Tx) error) error {
 	}
 
 	return tx.Commit()
+}
+
+func isBusy(err error) bool {
+	if err == nil {
+		return false
+	}
+
+	msg := err.Error()
+	return strings.Contains(msg, "SQLITE_BUSY") || strings.Contains(msg, "database is locked")
+}
+
+var backoffSteps = []time.Duration{
+	10 * time.Millisecond,
+	20 * time.Millisecond,
+	40 * time.Millisecond,
+	80 * time.Millisecond,
+	160 * time.Millisecond,
+	320 * time.Millisecond,
+}
+
+func backoffSleep(ctx context.Context, attempt int) bool {
+	d := backoffSteps[len(backoffSteps)-1]
+	if attempt < len(backoffSteps) {
+		d = backoffSteps[attempt]
+	}
+
+	t := time.NewTimer(d)
+	defer t.Stop()
+
+	select {
+	case <-t.C:
+		return true
+	case <-ctx.Done():
+		return false
+	}
 }
