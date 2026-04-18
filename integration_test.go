@@ -135,7 +135,7 @@ func TestOpenClawAgentWorkflow(t *testing.T) {
 	logSearchResult(t, "json session data", jsonResult)
 
 	// Fetch context around a specific node.
-	fetchResult, err := eng.Fetch(ctx, searchResult.Nodes[0].Node.ID, 4000)
+	fetchResult, err := eng.Fetch(ctx, searchResult.Nodes[0].Node.ID, 4000, 0)
 	if err != nil {
 		t.Fatalf("Fetch: %v", err)
 	}
@@ -360,7 +360,7 @@ func TestCodexAgentWorkflow(t *testing.T) {
 	logSearchResult(t, "pipeline config", yamlResult)
 
 	// Fetch context around a node — verify cross-file context assembly.
-	fetchResult, err := eng.Fetch(ctx, archResult.Nodes[0].Node.ID, 4000)
+	fetchResult, err := eng.Fetch(ctx, archResult.Nodes[0].Node.ID, 4000, 0)
 	if err != nil {
 		t.Fatalf("Fetch: %v", err)
 	}

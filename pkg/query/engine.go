@@ -22,16 +22,17 @@ type QueryStore interface {
 }
 
 type Engine struct {
-	store QueryStore
+	store    QueryStore
+	maxDepth int
 }
 
 func NewEngine(s QueryStore) *Engine {
-	return &Engine{store: s}
+	return &Engine{store: s, maxDepth: DefaultMaxDepth}
 }
 
 const searchLimit = 50
 
-func (e *Engine) Fetch(ctx context.Context, anchor string, budget int) (*Result, error) {
+func (e *Engine) Fetch(ctx context.Context, anchor string, budget, depth int) (*Result, error) {
 	node, err := e.store.GetNode(ctx, anchor)
 	if err != nil {
 		return nil, err
@@ -42,7 +43,12 @@ func (e *Engine) Fetch(ctx context.Context, anchor string, budget int) (*Result,
 		remaining = 0
 	}
 
-	context, err := e.collectContext(ctx, node)
+	d := e.maxDepth
+	if depth > 0 {
+		d = clampDepth(depth)
+	}
+
+	context, err := e.collectContext(ctx, node, d)
 	if err != nil {
 		return nil, err
 	}

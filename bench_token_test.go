@@ -349,7 +349,7 @@ func BenchmarkTokens_SearchVsGrep(b *testing.B) {
 			}
 			remindbTok := tokens.Estimate(query.FormatCompact(searchResult))
 			if len(searchResult.Nodes) > 0 {
-				fetchResult, err := eng.Fetch(ctx, searchResult.Nodes[0].Node.ID, tc.budget)
+				fetchResult, err := eng.Fetch(ctx, searchResult.Nodes[0].Node.ID, tc.budget, 0)
 				if err == nil {
 					remindbTok += tokens.Estimate(query.Format(fetchResult))
 				}
@@ -391,7 +391,7 @@ func BenchmarkTokens_FetchVsReadFile(b *testing.B) {
 
 	for _, budget := range []int{500, 1000, 2000, 4000} {
 		b.Run(fmt.Sprintf("budget/%d", budget), func(b *testing.B) {
-			result, err := eng.Fetch(ctx, anchor.ID, budget)
+			result, err := eng.Fetch(ctx, anchor.ID, budget, 0)
 			if err != nil {
 				b.Fatal(err)
 			}
@@ -399,7 +399,7 @@ func BenchmarkTokens_FetchVsReadFile(b *testing.B) {
 
 			b.ResetTimer()
 			for i := 0; i < b.N; i++ {
-				_, _ = eng.Fetch(ctx, anchor.ID, budget)
+				_, _ = eng.Fetch(ctx, anchor.ID, budget, 0)
 			}
 			b.StopTimer()
 
@@ -473,7 +473,7 @@ func (c *sessionCost) search(ctx context.Context, eng *query.Engine, dir string,
 		c.remindb += tokens.Estimate(query.FormatCompact(result))
 
 		if len(result.Nodes) > 0 && result.Nodes[0].Node.TokenCount >= minFetchTok {
-			fr, err := eng.Fetch(ctx, result.Nodes[0].Node.ID, budget)
+			fr, err := eng.Fetch(ctx, result.Nodes[0].Node.ID, budget, 0)
 			if err == nil {
 				c.remindb += tokens.Estimate(query.Format(fr))
 			}
@@ -503,7 +503,7 @@ func (c *sessionCost) deepRead(ctx context.Context, eng *query.Engine, st *store
 			seen[path] = true
 		}
 
-		result, err := eng.Fetch(ctx, root.ID, budget)
+		result, err := eng.Fetch(ctx, root.ID, budget, 0)
 		if err != nil {
 			continue
 		}
@@ -586,7 +586,7 @@ func BenchmarkTokens_AgentSession(b *testing.B) {
 				if err == nil {
 					c.naive += tokens.Estimate(string(data))
 				}
-				result, err := eng.Fetch(ctx, deep.ID, 1000)
+				result, err := eng.Fetch(ctx, deep.ID, 1000, 0)
 				if err == nil {
 					c.remindb += tokens.Estimate(query.Format(result))
 				}
@@ -600,7 +600,7 @@ func BenchmarkTokens_AgentSession(b *testing.B) {
 				_, _ = eng.Search(ctx, "monitoring", 1000)
 				roots, _ := st.GetRootNodes(ctx)
 				if len(roots) > 0 {
-					_, _ = eng.Fetch(ctx, roots[0].ID, 1000)
+					_, _ = eng.Fetch(ctx, roots[0].ID, 1000, 0)
 				}
 				_, _ = eng.Delta(ctx, 1)
 			}

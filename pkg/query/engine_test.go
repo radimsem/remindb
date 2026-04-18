@@ -56,7 +56,7 @@ func TestFetch_IncludesAnchor(t *testing.T) {
 	eng := NewEngine(st)
 	ctx := context.Background()
 
-	result, err := eng.Fetch(ctx, "child001", 1000)
+	result, err := eng.Fetch(ctx, "child001", 1000, 0)
 	if err != nil {
 		t.Fatalf("Fetch: %v", err)
 	}
@@ -77,7 +77,7 @@ func TestFetch_RespectsbudgetBudget(t *testing.T) {
 	ctx := context.Background()
 
 	// Budget of 50: anchor (30) + maybe one small context node.
-	result, err := eng.Fetch(ctx, "child001", 50)
+	result, err := eng.Fetch(ctx, "child001", 50, 0)
 	if err != nil {
 		t.Fatalf("Fetch: %v", err)
 	}
@@ -94,7 +94,7 @@ func TestFetch_IncludesContext(t *testing.T) {
 	eng := NewEngine(st)
 	ctx := context.Background()
 
-	result, err := eng.Fetch(ctx, "child001", 1000)
+	result, err := eng.Fetch(ctx, "child001", 1000, 0)
 	if err != nil {
 		t.Fatalf("Fetch: %v", err)
 	}
@@ -108,6 +108,88 @@ func TestFetch_IncludesContext(t *testing.T) {
 	for _, want := range []string{"rootroor", "grand001", "child002"} {
 		if !ids[want] {
 			t.Errorf("missing context node %s", want)
+		}
+	}
+}
+
+func TestFetch_DepthBoundary(t *testing.T) {
+	st := testutil.OpenTestDB(t)
+	ctx := context.Background()
+
+	// Build a linear chain: root -> d1 -> d2 -> d3 -> d4.
+	chain := []*store.Node{
+		{ID: "rootroor", SourceFile: "doc.md", NodeType: "heading", Depth: 1,
+			Label: "root", Content: "root", Format: "plain", TokenCount: 5, ContentHash: "hr"},
+		{ID: "d1000000", ParentID: "rootroor", SourceFile: "doc.md", NodeType: "text", Depth: 2,
+			Label: "d1", Content: "d1", Format: "plain", TokenCount: 5, ContentHash: "h1"},
+		{ID: "d2000000", ParentID: "d1000000", SourceFile: "doc.md", NodeType: "text", Depth: 3,
+			Label: "d2", Content: "d2", Format: "plain", TokenCount: 5, ContentHash: "h2"},
+		{ID: "d3000000", ParentID: "d2000000", SourceFile: "doc.md", NodeType: "text", Depth: 4,
+			Label: "d3", Content: "d3", Format: "plain", TokenCount: 5, ContentHash: "h3"},
+		{ID: "d4000000", ParentID: "d3000000", SourceFile: "doc.md", NodeType: "text", Depth: 5,
+			Label: "d4", Content: "d4", Format: "plain", TokenCount: 5, ContentHash: "h4"},
+	}
+	for _, n := range chain {
+		if err := st.UpsertNode(ctx, n); err != nil {
+			t.Fatalf("UpsertNode %s: %v", n.ID, err)
+		}
+	}
+
+	eng := NewEngine(st)
+
+	tests := []struct {
+		name          string
+		depth         int
+		wantDescs     []string
+		dontWantDescs []string
+	}{
+		{"depth_2", 2, []string{"d1000000", "d2000000"}, []string{"d3000000", "d4000000"}},
+		{"depth_3", 3, []string{"d1000000", "d2000000", "d3000000"}, []string{"d4000000"}},
+		{"depth_4", 4, []string{"d1000000", "d2000000", "d3000000", "d4000000"}, nil},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			result, err := eng.Fetch(ctx, "rootroor", 10000, tt.depth)
+			if err != nil {
+				t.Fatalf("Fetch: %v", err)
+			}
+
+			ids := make(map[string]bool)
+			for _, sn := range result.Nodes {
+				ids[sn.Node.ID] = true
+			}
+
+			for _, want := range tt.wantDescs {
+				if !ids[want] {
+					t.Errorf("depth=%d: missing %s", tt.depth, want)
+				}
+			}
+
+			for _, skip := range tt.dontWantDescs {
+				if ids[skip] {
+					t.Errorf("depth=%d: unexpected %s", tt.depth, skip)
+				}
+			}
+		})
+	}
+}
+
+func TestClampDepth(t *testing.T) {
+	tests := []struct {
+		in, want int
+	}{
+		{0, DefaultMaxDepth},
+		{-5, DefaultMaxDepth},
+		{1, 1},
+		{50, 50},
+		{MaxDepthCap, MaxDepthCap},
+		{MaxDepthCap + 1, MaxDepthCap},
+		{10000, MaxDepthCap},
+	}
+
+	for _, tt := range tests {
+		if got := clampDepth(tt.in); got != tt.want {
+			t.Errorf("clampDepth(%d) = %d, want %d", tt.in, got, tt.want)
 		}
 	}
 }

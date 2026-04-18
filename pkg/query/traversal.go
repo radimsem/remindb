@@ -8,9 +8,23 @@ import (
 	"github.com/radimsem/remindb/pkg/store"
 )
 
-const maxTraversalDepth = 10
+const (
+	DefaultMaxDepth = 32
+	MaxDepthCap     = 128
+)
 
-func (e *Engine) collectContext(ctx context.Context, anchor *store.Node) ([]*store.Node, error) {
+func clampDepth(d int) int {
+	if d <= 0 {
+		return DefaultMaxDepth
+	}
+	if d > MaxDepthCap {
+		return MaxDepthCap
+	}
+
+	return d
+}
+
+func (e *Engine) collectContext(ctx context.Context, anchor *store.Node, depth int) ([]*store.Node, error) {
 	var ancestors, descendants, siblings []*store.Node
 
 	g, ctx := errgroup.WithContext(ctx)
@@ -21,7 +35,7 @@ func (e *Engine) collectContext(ctx context.Context, anchor *store.Node) ([]*sto
 	})
 	g.Go(func() error {
 		var err error
-		descendants, err = e.store.GetDescendants(ctx, anchor.ID, maxTraversalDepth)
+		descendants, err = e.store.GetDescendants(ctx, anchor.ID, depth)
 		return err
 	})
 	g.Go(func() error {

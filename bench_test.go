@@ -98,7 +98,7 @@ func BenchmarkFetchWorkflow(b *testing.B) {
 		b.Run(fmt.Sprintf("budget/%d", budget), func(b *testing.B) {
 			b.ReportAllocs()
 			for i := 0; i < b.N; i++ {
-				_, _ = eng.Fetch(ctx, anchor, budget)
+				_, _ = eng.Fetch(ctx, anchor, budget, 0)
 			}
 		})
 	}
