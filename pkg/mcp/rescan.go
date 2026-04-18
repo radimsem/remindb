@@ -12,12 +12,17 @@ import (
 	"github.com/radimsem/remindb/pkg/store"
 )
 
-const defaultRescanInterval = 30 * time.Second
+const (
+	defaultRescanInterval = 30 * time.Second
+	defaultSettleTime     = 500 * time.Millisecond
+)
 
 type RescanLoop struct {
 	store    *store.Store
 	dir      string
 	interval time.Duration
+	settle   time.Duration
+	now      func() time.Time
 	modTimes map[string]time.Time
 }
 
@@ -29,6 +34,8 @@ func NewRescanLoop(st *store.Store, dir string, interval time.Duration) *RescanL
 		store:    st,
 		dir:      dir,
 		interval: interval,
+		settle:   defaultSettleTime,
+		now:      time.Now,
 		modTimes: make(map[string]time.Time),
 	}
 }
@@ -72,6 +79,7 @@ func (r *RescanLoop) seedMtimes() {
 func (r *RescanLoop) scan(ctx context.Context) {
 	var changed []string
 	seen := make(map[string]bool, len(r.modTimes))
+	now := r.now()
 
 	_ = filepath.WalkDir(r.dir, func(path string, d os.DirEntry, err error) error {
 		if err != nil || d.IsDir() {
@@ -88,10 +96,17 @@ func (r *RescanLoop) scan(ctx context.Context) {
 			return nil
 		}
 
+		mtime := info.ModTime()
+
+		// Skip files still settling.
+		if now.Sub(mtime) < r.settle {
+			return nil
+		}
+
 		prev, ok := r.modTimes[path]
-		if !ok || info.ModTime().After(prev) {
+		if !ok || mtime.After(prev) {
 			changed = append(changed, path)
-			r.modTimes[path] = info.ModTime()
+			r.modTimes[path] = mtime
 		}
 		return nil
 	})

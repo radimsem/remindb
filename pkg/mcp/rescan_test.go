@@ -31,6 +31,9 @@ func TestRescanLoop_DetectsChanges(t *testing.T) {
 
 	st := testutil.OpenTestDB(t)
 	r := NewRescanLoop(st, dir, time.Minute)
+
+	// Pin the clock past the settle window so writes count as settled.
+	r.now = func() time.Time { return time.Now().Add(time.Hour) }
 	r.seedMtimes()
 
 	ctx := context.Background()
@@ -53,11 +56,40 @@ func TestRescanLoop_DetectsChanges(t *testing.T) {
 	}
 }
 
+func TestRescanLoop_DebouncesMidSave(t *testing.T) {
+	dir := t.TempDir()
+
+	st := testutil.OpenTestDB(t)
+	r := NewRescanLoop(st, dir, time.Minute)
+	r.seedMtimes()
+
+	// Freeze "now" so the file's mtime is always inside the settle window.
+	frozen := time.Now()
+	r.now = func() time.Time { return frozen }
+	writeFile(t, dir, "doc.md", "# Fresh\n\nContent.\n")
+
+	ctx := context.Background()
+	r.scan(ctx)
+	roots, _ := st.GetRootNodes(ctx)
+	if len(roots) != 0 {
+		t.Errorf("expected no nodes — file is still settling, got %d", len(roots))
+	}
+
+	// Advance past the settle window; now the file should be compiled.
+	r.now = func() time.Time { return frozen.Add(r.settle + time.Second) }
+	r.scan(ctx)
+	roots, _ = st.GetRootNodes(ctx)
+	if len(roots) == 0 {
+		t.Error("expected nodes after file has settled")
+	}
+}
+
 func TestRescanLoop_NewFile(t *testing.T) {
 	dir := t.TempDir()
 
 	st := testutil.OpenTestDB(t)
 	r := NewRescanLoop(st, dir, time.Minute)
+	r.now = func() time.Time { return time.Now().Add(time.Hour) }
 	r.seedMtimes()
 
 	// Add a new file after seed.
