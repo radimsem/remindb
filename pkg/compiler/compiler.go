@@ -24,7 +24,7 @@ type Result struct {
 	Total    int
 }
 
-func Compile(ctx context.Context, st *store.Store, paths []string, message string, temps map[string]*float64) (*Result, error) {
+func Compile(ctx context.Context, st *store.Store, paths []string, message, compileRoot string, temps map[string]*float64) (*Result, error) {
 	var roots []*parser.ContextNode
 	for _, p := range paths {
 		data, err := os.ReadFile(p)
@@ -62,7 +62,7 @@ func Compile(ctx context.Context, st *store.Store, paths []string, message strin
 	deltas := diff.DiffFlat(flat, prev)
 	cursorHash := diff.CursorHashFlat(flat)
 
-	if err := emitter.Emit(ctx, st, roots, deltas, cursorHash, message); err != nil {
+	if err := emitter.Emit(ctx, st, roots, deltas, cursorHash, message, compileRoot); err != nil {
 		return nil, fmt.Errorf("failed to emit: %w", err)
 	}
 
@@ -104,7 +104,11 @@ func CompileDir(ctx context.Context, st *store.Store, dir, message string) (*Res
 		return nil, err
 	}
 
-	return Compile(ctx, st, paths, message, temps)
+	absDir, err := filepath.Abs(dir)
+	if err != nil {
+		return nil, fmt.Errorf("failed to resolve: %s: %w", dir, err)
+	}
+	return Compile(ctx, st, paths, message, absDir, temps)
 }
 
 func resolveTemps(dir string, paths []string) (map[string]*float64, error) {

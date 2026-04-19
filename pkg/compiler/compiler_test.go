@@ -25,7 +25,7 @@ func TestCompile(t *testing.T) {
 
 	p := writeFile(t, dir, "doc.md", "# Hello\n\nSome content here.\n")
 
-	result, err := Compile(ctx, st, []string{p}, "initial", nil)
+	result, err := Compile(ctx, st, []string{p}, "initial", "", nil)
 	if err != nil {
 		t.Fatalf("Compile: %v", err)
 	}
@@ -77,7 +77,7 @@ func TestCompile_Recompile(t *testing.T) {
 
 	p := writeFile(t, dir, "doc.md", "# Hello\n\nOriginal content.\n")
 
-	_, err := Compile(ctx, st, []string{p}, "v1", nil)
+	_, err := Compile(ctx, st, []string{p}, "v1", "", nil)
 	if err != nil {
 		t.Fatalf("Compile v1: %v", err)
 	}
@@ -85,7 +85,7 @@ func TestCompile_Recompile(t *testing.T) {
 	// Modify and recompile.
 	writeFile(t, dir, "doc.md", "# Hello\n\nUpdated content.\n")
 
-	result, err := Compile(ctx, st, []string{p}, "v2", nil)
+	result, err := Compile(ctx, st, []string{p}, "v2", "", nil)
 	if err != nil {
 		t.Fatalf("Compile v2: %v", err)
 	}
@@ -109,7 +109,7 @@ func TestCompile_SkipsUnsupported(t *testing.T) {
 	mdPath := writeFile(t, dir, "doc.md", "# Hello\n\nContent.\n")
 	txtPath := writeFile(t, dir, "notes.txt", "plain text not supported")
 
-	result, err := Compile(ctx, st, []string{mdPath, txtPath}, "mixed", nil)
+	result, err := Compile(ctx, st, []string{mdPath, txtPath}, "mixed", "", nil)
 	if err != nil {
 		t.Fatalf("Compile should not fail on unsupported files: %v", err)
 	}

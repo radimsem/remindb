@@ -166,7 +166,7 @@ func TestSnapshotAndCursor(t *testing.T) {
 	}
 
 	err = st.Tx(ctx, func(tx *sql.Tx) error {
-		snapID, err := st.CreateSnapshotTx(ctx, tx, "abcdef0123456789", "first")
+		snapID, err := st.CreateSnapshotTx(ctx, tx, "abcdef0123456789", "first", "")
 		if err != nil {
 			return err
 		}
@@ -371,7 +371,7 @@ func TestGetDiffsBySnapshot(t *testing.T) {
 	ctx := context.Background()
 
 	err := st.Tx(ctx, func(tx *sql.Tx) error {
-		snapID, err := st.CreateSnapshotTx(ctx, tx, "hash1111", "v1")
+		snapID, err := st.CreateSnapshotTx(ctx, tx, "hash1111", "v1", "")
 		if err != nil {
 			return err
 		}
@@ -403,7 +403,7 @@ func TestGetDiffsSince(t *testing.T) {
 
 	// Create two snapshots.
 	err := st.Tx(ctx, func(tx *sql.Tx) error {
-		id, err := st.CreateSnapshotTx(ctx, tx, "hash1111", "v1")
+		id, err := st.CreateSnapshotTx(ctx, tx, "hash1111", "v1", "")
 		if err != nil {
 			return err
 		}
@@ -418,7 +418,7 @@ func TestGetDiffsSince(t *testing.T) {
 	must(t, err)
 
 	err = st.Tx(ctx, func(tx *sql.Tx) error {
-		id, err := st.CreateSnapshotTx(ctx, tx, "hash2222", "v2")
+		id, err := st.CreateSnapshotTx(ctx, tx, "hash2222", "v2", "")
 		if err != nil {
 			return err
 		}
@@ -561,7 +561,7 @@ func TestGetDiffsForNode(t *testing.T) {
 	ctx := context.Background()
 
 	err := st.Tx(ctx, func(tx *sql.Tx) error {
-		id, err := st.CreateSnapshotTx(ctx, tx, "hash1111", "v1")
+		id, err := st.CreateSnapshotTx(ctx, tx, "hash1111", "v1", "")
 		if err != nil {
 			return err
 		}

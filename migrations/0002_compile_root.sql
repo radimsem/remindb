@@ -1,0 +1,1 @@
+ALTER TABLE snapshots ADD COLUMN compile_root TEXT NOT NULL DEFAULT '';

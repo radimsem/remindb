@@ -12,33 +12,20 @@ type RankedNode struct {
 }
 
 func (s *Store) Search(ctx context.Context, query string, limit int) ([]*Node, error) {
-	rows, err := s.db.QueryContext(ctx, `
-		SELECT `+nodeColumns+` FROM nodes
-		WHERE rowid IN (
-			SELECT rowid FROM nodes_fts WHERE nodes_fts MATCH ?
-			ORDER BY rank
-			LIMIT ?
-		)`, rewriteQuery(query), limit)
+	rows, err := s.db.QueryContext(ctx, qSearchFTS, rewriteQuery(query), limit)
 	if err != nil {
 		return nil, err
 	}
-
 	defer func() { _ = rows.Close() }()
+
 	return collectRows(rows)
 }
 
 func (s *Store) SearchRanked(ctx context.Context, query string, limit int) ([]*RankedNode, error) {
-	rows, err := s.db.QueryContext(ctx, `
-		SELECT `+nodeColumnsAliased+`, nodes_fts.rank
-		FROM nodes_fts
-		JOIN nodes n ON n.rowid = nodes_fts.rowid
-		WHERE nodes_fts MATCH ?
-		ORDER BY nodes_fts.rank
-		LIMIT ?`, rewriteQuery(query), limit)
+	rows, err := s.db.QueryContext(ctx, qSearchRanked, rewriteQuery(query), limit)
 	if err != nil {
 		return nil, err
 	}
-
 	defer func() { _ = rows.Close() }()
 
 	var out []*RankedNode

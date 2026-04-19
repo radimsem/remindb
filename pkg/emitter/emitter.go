@@ -11,7 +11,7 @@ import (
 	"github.com/radimsem/remindb/pkg/store"
 )
 
-func Emit(ctx context.Context, st *store.Store, roots []*parser.ContextNode, deltas []diff.Delta, cursorHash, message string) error {
+func Emit(ctx context.Context, st *store.Store, roots []*parser.ContextNode, deltas []diff.Delta, cursorHash, message, compileRoot string) error {
 	if len(deltas) == 0 {
 		return nil
 	}
@@ -40,7 +40,7 @@ func Emit(ctx context.Context, st *store.Store, roots []*parser.ContextNode, del
 			}
 		}
 
-		snapID, err := st.CreateSnapshotTx(ctx, tx, cursorHash, message)
+		snapID, err := st.CreateSnapshotTx(ctx, tx, cursorHash, message, compileRoot)
 		if err != nil {
 			return fmt.Errorf("failed to create: snapshot: %w", err)
 		}

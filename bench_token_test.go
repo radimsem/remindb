@@ -200,7 +200,7 @@ func insertDelta(b *testing.B, st *store.Store, ctx context.Context, round int) 
 		})
 
 		cursorHash := fmt.Sprintf("bench-delta-%d", round)
-		snapID, err := st.CreateSnapshotTx(ctx, tx, cursorHash, "bench-write")
+		snapID, err := st.CreateSnapshotTx(ctx, tx, cursorHash, "bench-write", "")
 		if err != nil {
 			return err
 		}

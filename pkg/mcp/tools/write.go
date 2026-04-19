@@ -65,7 +65,7 @@ func (d *Deps) HandleWrite(ctx context.Context, _ *gomcp.CallToolRequest, input 
 	deltas := diff.Diff(roots, prev)
 	cursorHash := diff.CursorHash(roots)
 
-	if err := emitter.Emit(ctx, d.Store, roots, deltas, cursorHash, "write:"+nodeID); err != nil {
+	if err := emitter.Emit(ctx, d.Store, roots, deltas, cursorHash, "write:"+nodeID, ""); err != nil {
 		return nil, nil, fmt.Errorf("failed to write: %w", err)
 	}
 

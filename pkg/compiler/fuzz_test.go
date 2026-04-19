@@ -10,9 +10,6 @@ import (
 	"github.com/radimsem/remindb/internal/testutil"
 )
 
-// FuzzCompile drives random file contents through the parse → transform → diff
-// → emit pipeline. The pipeline must never panic, and if Compile returns an
-// error the store must be left untouched (no orphan snapshot, no orphan nodes).
 func FuzzCompile(f *testing.F) {
 	f.Add("doc.md", []byte("# Hello\n\nContent.\n"))
 	f.Add("data.yaml", []byte("key: value\nnested:\n  a: 1\n"))
@@ -48,7 +45,7 @@ func FuzzCompile(f *testing.F) {
 		rootsBefore, _ := st.GetRootNodes(ctx)
 
 		// Must never panic regardless of input.
-		_, err := Compile(ctx, st, []string{p}, "fuzz", nil)
+		_, err := Compile(ctx, st, []string{p}, "fuzz", "", nil)
 
 		// Atomicity: on error, the store must be unchanged.
 		if err != nil {
@@ -57,6 +54,7 @@ func FuzzCompile(f *testing.F) {
 				t.Errorf("Compile errored but snapshots changed: before=%d after=%d err=%v",
 					len(snapsBefore), len(snapsAfter), err)
 			}
+
 			rootsAfter, _ := st.GetRootNodes(ctx)
 			if len(rootsAfter) != len(rootsBefore) {
 				t.Errorf("Compile errored but root nodes changed: before=%d after=%d err=%v",
@@ -66,8 +64,6 @@ func FuzzCompile(f *testing.F) {
 	})
 }
 
-// FuzzCompileDir drives random multi-file directory contents through
-// CompileDir. Covers the walk + mixed-format + skip-unsupported path.
 func FuzzCompileDir(f *testing.F) {
 	f.Add([]byte("# A\n"), []byte("key: val\n"), []byte(`{"k":1}`))
 	f.Add([]byte(""), []byte(""), []byte(""))
