@@ -1,20 +1,15 @@
-// Package store provides SQLite-backed persistence for nodes, snapshots, and
-// diffs.
+// Package store provides SQLite-backed persistence.
 package store
 
 import (
 	"context"
 	"database/sql"
-	_ "embed"
 	"strings"
 	"sync"
 	"time"
 
 	_ "modernc.org/sqlite"
 )
-
-//go:embed schema.sql
-var schema string
 
 type Store struct {
 	db   *sql.DB
@@ -46,11 +41,6 @@ func Open(path string) (*Store, error) {
 	}
 
 	return &Store{db: db}, nil
-}
-
-func (s *Store) Migrate(ctx context.Context) error {
-	_, err := s.db.ExecContext(ctx, schema)
-	return err
 }
 
 func (s *Store) Close() error {
