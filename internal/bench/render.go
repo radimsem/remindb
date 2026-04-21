@@ -14,16 +14,16 @@ func renderResults(w io.Writer, results []scenarioResult) error {
 	}
 
 	tw := tabwriter.NewWriter(w, 0, 0, 2, ' ', 0)
-	if _, err := fmt.Fprintln(tw, "scenario\tnaive\tremindb\tsaved"); err != nil {
+	if _, err := fmt.Fprintln(tw, "scenario\tnaive (tok)\tremindb (tok)\tsaved"); err != nil {
 		return err
 	}
-	if _, err := fmt.Fprintln(tw, strings.Repeat("-", 8)+"\t"+strings.Repeat("-", 5)+"\t"+strings.Repeat("-", 7)+"\t"+strings.Repeat("-", 5)); err != nil {
+	if _, err := fmt.Fprintln(tw, strings.Repeat("-", 8)+"\t"+strings.Repeat("-", 11)+"\t"+strings.Repeat("-", 13)+"\t"+strings.Repeat("-", 5)); err != nil {
 		return err
 	}
 
 	var totalNaive, totalRemindb int
 	for _, r := range results {
-		if _, err := fmt.Fprintf(tw, "%s\t%d\t%d\t%s\n", r.name, r.naiveTok, r.remindbTok, savedPct(r.naiveTok, r.remindbTok)); err != nil {
+		if _, err := fmt.Fprintf(tw, "%s\t~%d\t~%d\t%s\n", r.name, r.naiveTok, r.remindbTok, savedPct(r.naiveTok, r.remindbTok)); err != nil {
 			return err
 		}
 
@@ -32,7 +32,7 @@ func renderResults(w io.Writer, results []scenarioResult) error {
 	}
 
 	if len(results) > 1 {
-		if _, err := fmt.Fprintf(tw, "total\t%d\t%d\t%s\n", totalNaive, totalRemindb, savedPct(totalNaive, totalRemindb)); err != nil {
+		if _, err := fmt.Fprintf(tw, "total\t~%d\t~%d\t%s\n", totalNaive, totalRemindb, savedPct(totalNaive, totalRemindb)); err != nil {
 			return err
 		}
 	}
