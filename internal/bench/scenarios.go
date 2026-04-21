@@ -6,6 +6,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"sort"
 	"strings"
 
 	gomcp "github.com/modelcontextprotocol/go-sdk/mcp"
@@ -63,9 +64,9 @@ func benchSearch(ctx context.Context, s *gomcp.ClientSession, srcDir string, que
 	return out, nil
 }
 
-// Fetch: budget-bounded context around a deep anchor, vs reading the whole source file that contains it.
+// Fetch: budget-bounded context around a mid-sized anchor, vs reading the whole source file that contains it.
 func benchFetch(ctx context.Context, s *gomcp.ClientSession, srcDir, dbPath string, budget int) (scenarioResult, error) {
-	anchor, err := pickDeepNode(ctx, dbPath)
+	anchor, err := pickMidsizeNode(ctx, dbPath)
 	if err != nil {
 		return scenarioResult{}, fmt.Errorf("failed to pick: fetch anchor: %w", err)
 	}
@@ -251,8 +252,8 @@ func parseTopNodeID(text string) string {
 	return ""
 }
 
-// Return the node with the richest available surrounding context.
-func pickDeepNode(ctx context.Context, dbPath string) (*store.Node, error) {
+// Pick a depth >= 2 node from the 25-50th percentile band of TokenCount
+func pickMidsizeNode(ctx context.Context, dbPath string) (*store.Node, error) {
 	st, err := store.Open(dbPath)
 	if err != nil {
 		return nil, err
@@ -264,43 +265,29 @@ func pickDeepNode(ctx context.Context, dbPath string) (*store.Node, error) {
 		return nil, err
 	}
 
-	var best *store.Node
-	bestCtx := 0
+	candidates := make([]*store.Node, 0, len(all))
 	for _, n := range all {
-		if n.Depth < 2 {
+		if n.Depth < 2 || n.TokenCount == 0 {
 			continue
 		}
-
-		total := contextBudget(ctx, st, n.ID)
-		if total > bestCtx {
-			bestCtx = total
-			best = n
-		}
+		candidates = append(candidates, n)
 	}
 
-	if best == nil {
-		return nil, fmt.Errorf("no deep node found (need depth >= 2); compile more content first")
-	}
-	return best, nil
-}
-
-func contextBudget(ctx context.Context, st *store.Store, id string) int {
-	total := 0
-	desc, _ := st.GetDescendants(ctx, id, 10)
-	sib, _ := st.GetSiblings(ctx, id)
-	anc, _ := st.GetAncestors(ctx, id)
-
-	for _, n := range desc {
-		total += n.TokenCount
-	}
-	for _, n := range sib {
-		total += n.TokenCount
-	}
-	for _, n := range anc {
-		total += n.TokenCount
+	if len(candidates) == 0 {
+		return nil, fmt.Errorf("no depth >= 2 nodes with content found; compile more content first")
 	}
 
-	return total
+	sort.Slice(candidates, func(i, j int) bool {
+		return candidates[i].TokenCount < candidates[j].TokenCount
+	})
+
+	lo := len(candidates) / 4
+	hi := len(candidates) / 2
+	if hi <= lo {
+		hi = lo + 1
+	}
+
+	return candidates[(lo+hi)/2], nil
 }
 
 func pickFirstMarkdownFile(dir string) (string, error) {
