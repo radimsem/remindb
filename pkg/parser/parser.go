@@ -45,6 +45,8 @@ func ParseBytes(path string, data []byte) ([]*ContextNode, error) {
 		return parseYaml(path, data)
 	case ".json":
 		return parseJson(path, data)
+	case ".jsonl", ".ndjson":
+		return parseJsonLines(path, data)
 	case ".toon":
 		return parseToon(path, data)
 	default:

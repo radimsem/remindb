@@ -142,6 +142,68 @@ func TestJsonParser_LargeObjectPromoted(t *testing.T) {
 	}
 }
 
+func TestJsonParser_Lines_EmptyReturnsNoNodes(t *testing.T) {
+	nodes, err := parseJsonLines("t.jsonl", []byte(""))
+	if err != nil {
+		t.Fatalf("parseJsonLines: %v", err)
+	}
+	if len(nodes) != 0 {
+		t.Errorf("len = %d, want 0", len(nodes))
+	}
+}
+
+func TestJsonParser_Lines_UniformRecordsToon(t *testing.T) {
+	data := []byte(
+		`{"id":1,"name":"alice"}` + "\n" +
+			`{"id":2,"name":"bob"}` + "\n" +
+			`{"id":3,"name":"carol"}` + "\n" +
+			`{"id":4,"name":"dave"}` + "\n" +
+			`{"id":5,"name":"eve"}` + "\n",
+	)
+	nodes, err := parseJsonLines("t.jsonl", data)
+	if err != nil {
+		t.Fatalf("parseJsonLines: %v", err)
+	}
+
+	if len(nodes) != 1 {
+		t.Fatalf("len = %d, want 1 root", len(nodes))
+	}
+
+	root := nodes[0]
+	if root.NodeType != NodeList {
+		t.Errorf("NodeType = %v, want NodeList", root.NodeType)
+	}
+	if root.Format != FormatToon {
+		t.Errorf("Format = %q, want %q", root.Format, FormatToon)
+	}
+
+	const want = "[5]{id,name}:\n  1,alice\n  2,bob\n  3,carol\n  4,dave\n  5,eve"
+	if root.Content != want {
+		t.Errorf("Content = %q, want %q", root.Content, want)
+	}
+}
+
+func TestJsonParser_Lines_WhitespaceAndBlankLinesIgnored(t *testing.T) {
+	data := []byte("\n{\"a\":1}\n\n  {\"a\":2}\n\n")
+	nodes, err := parseJsonLines("t.jsonl", data)
+
+	if err != nil {
+		t.Fatalf("parseJsonLines: %v", err)
+	}
+	if len(nodes) != 1 {
+		t.Fatalf("len = %d, want 1 root", len(nodes))
+	}
+}
+
+func TestJsonParser_Lines_MalformedRecord(t *testing.T) {
+	data := []byte("{\"a\":1}\n{not json}\n")
+	_, err := parseJsonLines("t.jsonl", data)
+
+	if err == nil {
+		t.Fatal("expected parse error for malformed record")
+	}
+}
+
 func TestJsonParser_NumberPrecision(t *testing.T) {
 	// 2^53 + 1 cannot be represented exactly as float64; json.Number keeps it.
 	data := []byte(`{"id": 9007199254740993}`)

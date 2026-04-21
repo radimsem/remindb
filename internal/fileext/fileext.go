@@ -8,8 +8,10 @@ import (
 var supported = map[string]bool{
 	".md": true, ".markdown": true,
 	".yaml": true, ".yml": true,
-	".json": true,
-	".toon": true,
+	".json":   true,
+	".jsonl":  true,
+	".ndjson": true,
+	".toon":   true,
 }
 
 func Supported(path string) bool {

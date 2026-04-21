@@ -16,6 +16,8 @@ func TestParse_DispatchByExtension(t *testing.T) {
 		{"yaml", "t.yaml", "a: 1\n"},
 		{"yml", "t.yml", "a: 1\n"},
 		{"json", "t.json", `{"a": 1}`},
+		{"jsonl", "t.jsonl", "{\"a\":1}\n{\"a\":2}\n"},
+		{"ndjson", "t.ndjson", "{\"a\":1}\n{\"a\":2}\n"},
 	}
 
 	for _, tt := range tests {
