@@ -91,7 +91,7 @@ func benchFetch(ctx context.Context, s *gomcp.ClientSession, srcDir, dbPath stri
 
 // Delta: MemoryDelta vs `diff -u` + read the context around the change over the modified file.
 func benchDelta(ctx context.Context, s *gomcp.ClientSession, srcDir, dbPath string) (scenarioResult, error) {
-	target, err := pickFirstSupportedFile(srcDir)
+	target, err := pickFirstMarkdownFile(srcDir)
 	if err != nil {
 		return scenarioResult{}, err
 	}
@@ -303,11 +303,16 @@ func contextBudget(ctx context.Context, st *store.Store, id string) int {
 	return total
 }
 
-func pickFirstSupportedFile(dir string) (string, error) {
+func pickFirstMarkdownFile(dir string) (string, error) {
 	var hit string
 	err := filepath.WalkDir(dir, func(path string, d os.DirEntry, err error) error {
-		if err != nil || d.IsDir() || !fileext.Supported(path) {
+		if err != nil || d.IsDir() {
 			return err
+		}
+
+		ext := strings.ToLower(filepath.Ext(path))
+		if ext != ".md" && ext != ".markdown" {
+			return nil
 		}
 		hit = path
 		return filepath.SkipAll
@@ -317,7 +322,7 @@ func pickFirstSupportedFile(dir string) (string, error) {
 		return "", fmt.Errorf("failed to walk: %s: %w", dir, err)
 	}
 	if hit == "" {
-		return "", fmt.Errorf("no supported files under %s for delta scenario", dir)
+		return "", fmt.Errorf("no markdown files under %s for delta scenario", dir)
 	}
 
 	return hit, nil
