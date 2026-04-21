@@ -39,7 +39,7 @@ func stageBench(ctx context.Context, userDBPath, overrideDir string) (*benchStag
 	stage := &benchStage{
 		tmpRoot: tmpRoot,
 		userDir: userDir,
-		dbPath:  filepath.Join(tmpRoot, "brain.db"),
+		dbPath:  filepath.Join(tmpRoot, "memory.db"),
 		srcDir:  filepath.Join(tmpRoot, "src"),
 	}
 

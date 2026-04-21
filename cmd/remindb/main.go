@@ -25,7 +25,7 @@ var rootCmd = &cobra.Command{
 }
 
 func init() {
-	rootCmd.PersistentFlags().StringVar(&dbPath, "db", "brain.db", "Path to the SQLite database")
+	rootCmd.PersistentFlags().StringVar(&dbPath, "db", "memory.db", "Path to the SQLite database")
 }
 
 func main() {
