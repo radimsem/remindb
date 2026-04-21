@@ -29,7 +29,11 @@ func init() {
 	rootCmd.AddCommand(benchCmd)
 }
 
-func runBench(_ *cobra.Command, _ []string) error {
+func runBench(cmd *cobra.Command, _ []string) error {
+	if err := deriveDefaultDBPath(cmd, benchDir); err != nil {
+		return err
+	}
+
 	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
 	defer stop()
 

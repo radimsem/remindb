@@ -27,6 +27,10 @@ func init() {
 func runCompile(cmd *cobra.Command, args []string) error {
 	path := args[0]
 
+	if err := deriveDefaultDBPath(cmd, path); err != nil {
+		return err
+	}
+
 	st, err := store.Open(dbPath)
 	if err != nil {
 		return fmt.Errorf("failed to open: %s: %w", dbPath, err)
