@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"log"
+	"os"
 	"os/signal"
 	"syscall"
 
@@ -23,11 +24,15 @@ var serveCmd = &cobra.Command{
 }
 
 func init() {
-	serveCmd.Flags().StringVar(&sourceDir, "source", "", "Source directory to watch for changes")
+	serveCmd.Flags().StringVar(&sourceDir, "source", "", "Source directory to watch for changes (falls back to REMINDB_SOURCE)")
 	rootCmd.AddCommand(serveCmd)
 }
 
 func runServe(cmd *cobra.Command, _ []string) error {
+	if err := applyServeEnv(cmd); err != nil {
+		return err
+	}
+
 	st, err := store.Open(dbPath)
 	if err != nil {
 		return fmt.Errorf("failed to open: %s: %w", dbPath, err)
@@ -68,4 +73,20 @@ func runServe(cmd *cobra.Command, _ []string) error {
 	}
 
 	return g.Wait()
+}
+
+func applyServeEnv(cmd *cobra.Command) error {
+	if !cmd.Flags().Changed("db") {
+		if v := os.Getenv("REMINDB_DB"); v != "" {
+			dbPath = v
+			if err := absolutizeDBPath(); err != nil {
+				return err
+			}
+		}
+	}
+
+	if sourceDir == "" {
+		sourceDir = os.Getenv("REMINDB_SOURCE")
+	}
+	return nil
 }
