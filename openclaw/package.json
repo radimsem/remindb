@@ -1,0 +1,30 @@
+{
+    "name": "@radimsem/remindb-openclaw",
+    "version": "0.1.0",
+    "description": "OpenClaw plugin that mounts the remindb MCP server as a workspace memory backend",
+    "main": "index.ts",
+    "license": "MIT",
+    "repository": {
+        "type": "git",
+        "url": "https://github.com/radimsem/remindb",
+        "directory": "openclaw"
+    },
+    "homepage": "https://github.com/radimsem/remindb",
+    "keywords": [
+        "remindb",
+        "openclaw",
+        "openclaw-plugin",
+        "mcp",
+        "memory",
+        "agentic"
+    ],
+    "files": [
+        "index.ts",
+        "openclaw.plugin.json",
+        ".mcp.json",
+        "README.md"
+    ],
+    "peerDependencies": {
+        "remindb": ">=0.1.0"
+    }
+}

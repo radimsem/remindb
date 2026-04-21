@@ -1,0 +1,12 @@
+{
+    "mcp": {
+        "servers": {
+            "remindb": {
+                "command": "remindb",
+                "args": [
+                    "serve"
+                ]
+            }
+        }
+    }
+}
