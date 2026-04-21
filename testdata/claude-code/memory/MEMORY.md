@@ -1,0 +1,5 @@
+- [Webshop project state](project_state.md) — current sprint goals, Stripe checkout blockers, cart-persistence decision
+- [Testing approach feedback](feedback_testing.md) — no snapshot tests, integration over mocks for DB-touching flows
+- [User preferences](user_preferences.md) — tone and working-style preferences for this project
+- [External service references](reference_external_services.md) — Stripe, CloudFront, Sentry, PostgreSQL, Resend lookup pointers
+- [Commit style feedback](feedback_commit_style.md) — conventional lowercase imperative, no ticket IDs in subjects, one logical change per commit

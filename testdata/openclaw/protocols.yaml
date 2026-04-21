@@ -1,0 +1,73 @@
+agent: atlas
+version: 2.1
+
+protocols:
+  - name: pre-edit-verify
+    trigger: before any Edit tool call
+    steps:
+      - read the file fully, never patch blind
+      - re-read any memory whose description matches the file's domain
+      - if the edit touches authentication, logging, or payments, require explicit confirmation
+    on_violation: abort the tool call and surface the missing step to the user
+
+  - name: post-edit-test
+    trigger: after any Edit that changed a .go or .ts file under pkg/ or src/
+    steps:
+      - infer the nearest test file
+      - if found, run it with the project's test command (go test / pnpm test)
+      - if tests fail, revert not the code, but the claim that the work is done
+    on_violation: mark the task as in-progress, not completed
+
+  - name: memory-hygiene
+    trigger: session-end
+    steps:
+      - scan memory/ for entries whose last-modified date is older than 90 days
+      - for each, check if the referenced resource still exists (file path, URL, ticket)
+      - flag stale entries with a `flagged_at` timestamp, do not auto-delete
+      - log the scan summary to heartbeat.ndjson
+
+  - name: pii-guard
+    trigger: before any log emission
+    fields_forbidden:
+      - email
+      - jwt_claim_value
+      - password
+      - api_key
+      - session_token
+      - stripe_pan
+    fields_allowed:
+      - user_id (when hashed)
+      - request_id (truncated to 8 chars)
+      - action_outcome
+    on_violation: block the log line, raise an error with the offending field name
+
+external_connections:
+  required:
+    - name: github
+      purpose: code repo access
+      auth_method: personal_access_token
+      env_var: GITHUB_TOKEN
+    - name: sentry
+      purpose: error telemetry
+      auth_method: dsn
+      env_var: SENTRY_DSN
+  optional:
+    - name: linear
+      purpose: task tracking
+      auth_method: api_key
+      env_var: LINEAR_API_KEY
+    - name: pagerduty
+      purpose: incident alerting
+      auth_method: api_token
+      env_var: PAGERDUTY_TOKEN
+
+budgets:
+  tokens_per_session: 4000
+  tokens_per_task: 1500
+  memory_writes_per_session: 5
+  tool_calls_per_session: 40
+
+on_budget_exhausted:
+  tokens: summarize-and-compact
+  memory_writes: warn and require explicit confirmation for further writes
+  tool_calls: halt, report completion status, wait for user direction

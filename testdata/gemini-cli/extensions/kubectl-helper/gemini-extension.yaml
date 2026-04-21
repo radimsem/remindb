@@ -1,0 +1,43 @@
+name: kubectl-helper
+version: 0.4.2
+description: Gemini CLI extension that wraps common kubectl workflows and surfaces cluster context in the footer
+
+contextFileName: KUBECTL.md
+
+mcpServers:
+  kubectl:
+    command: kubectl-mcp
+    args:
+      - --context
+      - ${KUBE_CONTEXT:-prod}
+      - --namespace
+      - ${KUBE_NAMESPACE:-default}
+    trust: false
+    timeout: 30000
+
+excludeTools:
+  - kubectl.delete_namespace
+  - kubectl.drain_node
+
+commands:
+  - name: ctx
+    description: Switch kubernetes context and reload cluster info
+    prompt: |
+      Switch the current kubectl context to {{args.0}}. After switching,
+      list the namespaces the caller has RBAC access to and show which
+      node pool each default workload lands on.
+
+  - name: describe-pod
+    description: Describe a pod in the current context with recent events
+    prompt: |
+      Run `kubectl describe pod {{args.0}}` in namespace {{args.1 | default: "default"}}.
+      Summarize the Events section, highlight any CrashLoopBackOff or
+      ImagePullBackOff, and show the last three restart timestamps.
+
+permissions:
+  fileSystem:
+    read:
+      - "./k8s/**"
+      - "./deploy/**"
+    write:
+      - "./k8s/overlays/**"

@@ -1,0 +1,9 @@
+{"sessionId":"01JSMAB34DEF56GHJKLMNOPQRS","timestamp":"2026-04-14T08:32:11.402Z","cwd":"/workspace/dataflow","input":"add a retry to the vendor_b extractor when we hit 429"}
+{"sessionId":"01JSMAB34DEF56GHJKLMNOPQRS","timestamp":"2026-04-14T08:44:02.112Z","cwd":"/workspace/dataflow","input":"also log which retry attempt we're on so grafana can chart it"}
+{"sessionId":"01JSN7XK2PQ8M4TVWYZABCDEFG","timestamp":"2026-04-15T09:02:44.118Z","cwd":"/workspace/dataflow","input":"run the dag validation tests"}
+{"sessionId":"01JSN7XK2PQ8M4TVWYZABCDEFG","timestamp":"2026-04-15T09:14:09.771Z","cwd":"/workspace/dataflow","input":"the fraud_detection dag is failing to parse because sagemaker import is missing. check if the sandbox has sagemaker installed."}
+{"sessionId":"01JSN7XK2PQ8M4TVWYZABCDEFG","timestamp":"2026-04-15T09:14:38.019Z","cwd":"/workspace/dataflow","input":"ok report it — do not pip install at runtime per our rules"}
+{"sessionId":"01JSP2G7H8K5V4MRQWXY6ZC3D2","timestamp":"2026-04-17T11:04:40.219Z","cwd":"/workspace/dataflow","input":"Implement the WebSocket operator for DATA-403."}
+{"sessionId":"01JSP2G7H8K5V4MRQWXY6ZC3D2","timestamp":"2026-04-17T11:06:40.881Z","cwd":"/workspace/dataflow","input":"commit and push"}
+{"sessionId":"01JSQ4RZT7HJ8K5LMNPQRSTUVW","timestamp":"2026-04-18T14:22:05.200Z","cwd":"/workspace/dataflow","input":"the marketing attribution dag is taking 40min now instead of 12. profile the slow step."}
+{"sessionId":"01JSQ4RZT7HJ8K5LMNPQRSTUVW","timestamp":"2026-04-18T14:38:14.703Z","cwd":"/workspace/dataflow","input":"yeah the window function is the problem. rewrite it with a rolling groupby on pandas."}

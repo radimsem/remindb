@@ -1,0 +1,73 @@
+{
+  "$schema": "https://raw.githubusercontent.com/google-gemini/gemini-cli/main/schemas/settings.schema.json",
+  "general": {
+    "preferredEditor": "nvim",
+    "vimMode": true,
+    "defaultApprovalMode": "auto_edit",
+    "enableAutoUpdate": true,
+    "topicUpdateNarration": false,
+    "checkpointing": true
+  },
+  "ui": {
+    "theme": "GitHub Dark",
+    "autoThemeSwitching": false,
+    "compactToolOutput": true,
+    "showLineNumbers": true,
+    "inlineThinkingMode": "full",
+    "footer": {
+      "visible": true,
+      "items": ["model", "tokens", "git-branch"]
+    }
+  },
+  "model": {
+    "name": "gemini-3-pro-preview",
+    "maxSessionTurns": -1,
+    "compressionThreshold": 0.6,
+    "temperature": 0.2
+  },
+  "tools": {
+    "core": {
+      "write_file": { "enabled": true },
+      "read_file": { "enabled": true },
+      "shell": { "enabled": true, "approvalMode": "auto_edit" },
+      "grep": { "enabled": true }
+    },
+    "discovery": {
+      "command": "./scripts/list-tools.sh"
+    }
+  },
+  "contextFileName": ["GEMINI.md", "AGENTS.md"],
+  "mcpServers": {
+    "kubernetes": {
+      "command": "kubectl-mcp",
+      "args": ["--context", "prod"],
+      "trust": false,
+      "timeout": 30000,
+      "cwd": "/home/platform/workspaces/infra-api"
+    },
+    "vault": {
+      "httpUrl": "http://vault.internal:8200/mcp",
+      "headers": {
+        "X-Vault-Token": "${VAULT_TOKEN}"
+      },
+      "trust": true,
+      "timeout": 10000
+    }
+  },
+  "telemetry": {
+    "enabled": true,
+    "target": "gcp",
+    "logPrompts": false,
+    "otlpEndpoint": "otel-collector.internal:4317"
+  },
+  "privacy": {
+    "usageStatisticsEnabled": false
+  },
+  "billing": {
+    "overageStrategy": "ask"
+  },
+  "ide": {
+    "mode": "integrated",
+    "enableNotifications": true
+  }
+}

@@ -1,0 +1,58 @@
+{
+  "model": "gpt-5.4",
+  "model_provider": "openai",
+  "service_tier": "flex",
+  "model_reasoning_effort": "medium",
+  "plan_mode_reasoning_effort": "high",
+  "model_reasoning_summary": "auto",
+  "approval_policy": "on-request",
+  "sandbox_mode": "workspace-write",
+  "allow_login_shell": false,
+  "sandbox_workspace_write": {
+    "writable_roots": ["/workspace/dataflow"],
+    "network_access": false,
+    "exclude_tmpdir_env_var": false,
+    "exclude_slash_tmp": false
+  },
+  "history": {
+    "persistence": "save-all",
+    "max_bytes": 5242880
+  },
+  "mcp_servers": {
+    "snowflake": {
+      "enabled": true,
+      "required": false,
+      "command": "snowflake-mcp",
+      "args": ["--account", "acme-prod.us-east-1", "--role", "ETL_LOADER"],
+      "startup_timeout_sec": 15.0,
+      "tool_timeout_sec": 60.0,
+      "enabled_tools": ["describe_table", "run_query_readonly", "list_warehouses"]
+    },
+    "airflow": {
+      "enabled": true,
+      "required": false,
+      "url": "https://airflow.internal.acme.com/mcp",
+      "bearer_token_env_var": "AIRFLOW_MCP_TOKEN",
+      "startup_timeout_sec": 10.0,
+      "tool_timeout_sec": 45.0
+    }
+  },
+  "profiles": {
+    "default": {
+      "model": "gpt-5.4",
+      "approval_policy": "on-request",
+      "sandbox_mode": "workspace-write"
+    },
+    "strict": {
+      "model": "gpt-5.4",
+      "approval_policy": "untrusted",
+      "sandbox_mode": "read-only",
+      "model_reasoning_effort": "high"
+    },
+    "prod-readonly": {
+      "model": "gpt-5.4",
+      "approval_policy": "untrusted",
+      "sandbox_mode": "read-only"
+    }
+  }
+}
