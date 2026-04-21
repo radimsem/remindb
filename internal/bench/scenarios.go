@@ -252,7 +252,8 @@ func parseTopNodeID(text string) string {
 	return ""
 }
 
-// Pick a depth >= 2 node from the 25-50th percentile band of TokenCount
+// Pick the largest source file by total node token count, then return a depth >= 2
+// node from the 25-50th percentile band of TokenCount within that file.
 func pickMidsizeNode(ctx context.Context, dbPath string) (*store.Node, error) {
 	st, err := store.Open(dbPath)
 	if err != nil {
@@ -265,14 +266,31 @@ func pickMidsizeNode(ctx context.Context, dbPath string) (*store.Node, error) {
 		return nil, err
 	}
 
-	candidates := make([]*store.Node, 0, len(all))
+	fileTokens := make(map[string]int)
+	fileCandidates := make(map[string][]*store.Node)
 	for _, n := range all {
+		fileTokens[n.SourceFile] += n.TokenCount
 		if n.Depth < 2 || n.TokenCount == 0 {
 			continue
 		}
-		candidates = append(candidates, n)
+
+		fileCandidates[n.SourceFile] = append(fileCandidates[n.SourceFile], n)
 	}
 
+	var largestFile string
+	largestTotal := 0
+	for f, tot := range fileTokens {
+		if len(fileCandidates[f]) == 0 {
+			continue
+		}
+
+		if tot > largestTotal {
+			largestTotal = tot
+			largestFile = f
+		}
+	}
+
+	candidates := fileCandidates[largestFile]
 	if len(candidates) == 0 {
 		return nil, fmt.Errorf("no depth >= 2 nodes with content found; compile more content first")
 	}
