@@ -2,8 +2,8 @@ package tokens
 
 import "math"
 
-// Conservative tokens-per-byte ratio for mixed content.
-const perByte = 0.75
+// Approximates BPE output for mixed prose/structured content (~1 token per 4 chars).
+const perByte = 0.25
 
 func Estimate(s string) int {
 	if len(s) == 0 {

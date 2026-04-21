@@ -9,8 +9,8 @@ func TestEstimate_Empty(t *testing.T) {
 }
 
 func TestEstimate_Short(t *testing.T) {
-	// "hello" = 5 bytes * 0.75 = 3.75 → ceil → 4
-	if got := Estimate("hello"); got != 4 {
-		t.Errorf("Estimate(\"hello\") = %d, want 4", got)
+	// "hello" = 5 bytes * 0.25 = 1.25 → ceil → 2
+	if got := Estimate("hello"); got != 2 {
+		t.Errorf("Estimate(\"hello\") = %d, want 2", got)
 	}
 }
