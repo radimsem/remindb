@@ -46,8 +46,22 @@ func Transform(ctx context.Context, roots []*parser.ContextNode) error {
 }
 
 func wireIdentity(nodes []*parser.ContextNode, parentID string) {
-	for _, n := range nodes {
-		setIdentity(n, parentID)
+	// Top-level roots may come from multiple files when compiling a whole dir,
+	// so index siblings per-file; otherwise a root's ID would depend on walk order.
+	if parentID == "" {
+		perFile := make(map[string]int, len(nodes))
+		for _, n := range nodes {
+			i := perFile[n.SourceFile]
+			perFile[n.SourceFile] = i + 1
+
+			setIdentity(n, "", i)
+			wireIdentity(n.Children, n.ID)
+		}
+		return
+	}
+
+	for i, n := range nodes {
+		setIdentity(n, parentID, i)
 		wireIdentity(n.Children, n.ID)
 	}
 }

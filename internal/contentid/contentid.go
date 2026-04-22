@@ -3,6 +3,7 @@ package contentid
 import (
 	"encoding/binary"
 	"encoding/hex"
+	"strconv"
 
 	"github.com/cespare/xxhash/v2"
 )
@@ -23,9 +24,17 @@ func ContentHash(content string) string {
 	return hex.EncodeToString(buf[:])
 }
 
-// Return an 11-char base62 node ID derived from structural context.
-func Identify(source, parent, content string) string {
-	input := source + sep + parent + sep + content
+// Return an 11-char base62 node ID from structural position (stable across content edits).
+func IdentifyNode(source, parent string, siblingIndex int) string {
+	input := source + sep + parent + sep + strconv.Itoa(siblingIndex)
+	h := xxhash.Sum64String(input)
+
+	return encodeBase62(h)[:idLen]
+}
+
+// Return an 11-char base62 node ID from a payload under a namespace (content-addressed; identical payloads dedupe).
+func IdentifyPayload(namespace, payload string) string {
+	input := namespace + sep + payload
 	h := xxhash.Sum64String(input)
 
 	return encodeBase62(h)[:idLen]

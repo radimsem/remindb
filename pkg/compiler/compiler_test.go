@@ -95,9 +95,73 @@ func TestCompile_Recompile(t *testing.T) {
 		t.Errorf("snapshots = %d, want 2", len(snaps))
 	}
 
-	// Content-addressed IDs: changes are adds+removes, not mods.
-	if result.Added+result.Removed == 0 {
-		t.Error("expected changes on recompile")
+	if result.Modified == 0 {
+		t.Errorf("Modified = %d, want > 0 (content edit at stable structural position)", result.Modified)
+	}
+	if result.Added != 0 || result.Removed != 0 {
+		t.Errorf("Added = %d, Removed = %d, want both 0 (no insertions or deletions)", result.Added, result.Removed)
+	}
+}
+
+func TestCompile_SingleFileRescanAfterBatch(t *testing.T) {
+	st := testutil.OpenTestDB(t)
+	ctx := context.Background()
+	dir := t.TempDir()
+
+	// Batch compile multiple files — ALERT is not the first walked alphabetically.
+	writeFile(t, dir, "ALERT.md", "# Alert\n\nUrgent line.\n")
+	writeFile(t, dir, "other1.md", "# Other 1\n\nSome body.\n")
+	writeFile(t, dir, "other2.md", "# Other 2\n\nMore body.\n")
+
+	if _, err := CompileDir(ctx, st, dir, "batch"); err != nil {
+		t.Fatalf("CompileDir: %v", err)
+	}
+
+	alertPath := filepath.Join(dir, "ALERT.md")
+	writeFile(t, dir, "ALERT.md", "# Alert\n\nPrompt line.\n")
+
+	// Simulate rescan: recompile only the changed file.
+	result, err := Compile(ctx, st, []string{alertPath}, "rescan", dir, nil)
+	if err != nil {
+		t.Fatalf("Compile rescan: %v", err)
+	}
+
+	if result.Modified != 1 {
+		t.Errorf("Modified = %d, want 1 (paragraph edit in a single file)", result.Modified)
+	}
+	if result.Added != 0 || result.Removed != 0 {
+		t.Errorf("Added = %d, Removed = %d, want both 0 (root ID must be stable whether compiled alone or with siblings)", result.Added, result.Removed)
+	}
+}
+
+func TestCompile_HeadingEditDoesNotCascade(t *testing.T) {
+	st := testutil.OpenTestDB(t)
+	ctx := context.Background()
+	dir := t.TempDir()
+
+	body := "# Hello\n\nBody one.\n\nBody two.\n"
+	p := writeFile(t, dir, "doc.md", body)
+
+	first, err := Compile(ctx, st, []string{p}, "v1", "", nil)
+	if err != nil {
+		t.Fatalf("Compile v1: %v", err)
+	}
+
+	writeFile(t, dir, "doc.md", "# Goodbye\n\nBody one.\n\nBody two.\n")
+
+	result, err := Compile(ctx, st, []string{p}, "v2", "", nil)
+	if err != nil {
+		t.Fatalf("Compile v2: %v", err)
+	}
+
+	if result.Total != first.Total {
+		t.Errorf("Total = %d, want %d (structure unchanged)", result.Total, first.Total)
+	}
+	if result.Modified != 1 {
+		t.Errorf("Modified = %d, want 1 (only the heading changed)", result.Modified)
+	}
+	if result.Added != 0 || result.Removed != 0 {
+		t.Errorf("Added = %d, Removed = %d, want both 0 (no subtree cascade)", result.Added, result.Removed)
 	}
 }
 

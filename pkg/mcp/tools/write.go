@@ -24,7 +24,7 @@ func (d *Deps) HandleWrite(ctx context.Context, _ *gomcp.CallToolRequest, input 
 	contentHash := contentid.ContentHash(input.Payload)
 	nodeID := input.Anchor
 	if nodeID == "" {
-		nodeID = contentid.Identify("mcp:write", "", input.Payload)
+		nodeID = contentid.IdentifyPayload("mcp:write", input.Payload)
 	}
 
 	tokenCount := tokens.Estimate(input.Payload)

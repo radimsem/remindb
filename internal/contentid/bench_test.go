@@ -28,14 +28,13 @@ func BenchmarkContentHash(b *testing.B) {
 	}
 }
 
-func BenchmarkIdentify(b *testing.B) {
+func BenchmarkIdentifyNode(b *testing.B) {
 	source := "vault/notes/example.md"
 	parent := "AbCdEf12345"
-	content := strings.Repeat("The quick brown fox jumps over the lazy dog. ", 25)
 
-	b.SetBytes(int64(len(source) + len(parent) + len(content)))
+	b.SetBytes(int64(len(source) + len(parent)))
 	b.ReportAllocs()
 	for i := 0; i < b.N; i++ {
-		Identify(source, parent, content)
+		IdentifyNode(source, parent, i&0xff)
 	}
 }

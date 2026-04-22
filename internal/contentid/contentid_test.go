@@ -25,37 +25,50 @@ func TestContentHash_DifferentContent(t *testing.T) {
 	}
 }
 
-func TestIdentify_Length(t *testing.T) {
-	id := Identify("file.md", "", "content")
+func TestIdentifyNode_Length(t *testing.T) {
+	id := IdentifyNode("file.md", "", 0)
 	if len(id) != idLen {
 		t.Errorf("id len = %d, want %d", len(id), idLen)
 	}
 }
 
-func TestIdentify_Deterministic(t *testing.T) {
-	id1 := Identify("file.md", "parent", "content")
-	id2 := Identify("file.md", "parent", "content")
+func TestIdentifyNode_Deterministic(t *testing.T) {
+	id1 := IdentifyNode("file.md", "parent", 2)
+	id2 := IdentifyNode("file.md", "parent", 2)
 	if id1 != id2 {
 		t.Errorf("ids differ: %q vs %q", id1, id2)
 	}
 }
 
-func TestIdentify_DistinguishesContext(t *testing.T) {
-	base := Identify("file.md", "parent", "content")
+func TestIdentifyNode_DistinguishesPosition(t *testing.T) {
+	base := IdentifyNode("file.md", "parent", 0)
 
-	bySource := Identify("other.md", "parent", "content")
+	bySource := IdentifyNode("other.md", "parent", 0)
 	if base == bySource {
 		t.Error("same ID for different source_file")
 	}
 
-	byParent := Identify("file.md", "other", "content")
+	byParent := IdentifyNode("file.md", "other", 0)
 	if base == byParent {
 		t.Error("same ID for different parent")
 	}
 
-	byContent := Identify("file.md", "parent", "other")
-	if base == byContent {
-		t.Error("same ID for different content")
+	bySibling := IdentifyNode("file.md", "parent", 1)
+	if base == bySibling {
+		t.Error("same ID for different siblingIndex")
+	}
+}
+
+func TestIdentifyPayload_SamePayloadDedupes(t *testing.T) {
+	id1 := IdentifyPayload("mcp:write", "hello")
+	id2 := IdentifyPayload("mcp:write", "hello")
+	if id1 != id2 {
+		t.Errorf("identical payloads produced different IDs: %q vs %q", id1, id2)
+	}
+
+	id3 := IdentifyPayload("mcp:write", "goodbye")
+	if id1 == id3 {
+		t.Error("different payloads produced the same ID")
 	}
 }
 
