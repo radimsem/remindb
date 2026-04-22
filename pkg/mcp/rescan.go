@@ -64,7 +64,13 @@ func (r *RescanLoop) Run(ctx context.Context) {
 
 func (r *RescanLoop) seedMtimes() {
 	_ = filepath.WalkDir(r.dir, func(path string, d os.DirEntry, err error) error {
-		if err != nil || d.IsDir() {
+		if err != nil {
+			return nil
+		}
+		if d.IsDir() {
+			if path != r.dir && fileext.ShouldSkipDir(d.Name()) {
+				return filepath.SkipDir
+			}
 			return nil
 		}
 		if !fileext.Supported(path) {
@@ -87,7 +93,13 @@ func (r *RescanLoop) scan(ctx context.Context) {
 	now := r.now()
 
 	_ = filepath.WalkDir(r.dir, func(path string, d os.DirEntry, err error) error {
-		if err != nil || d.IsDir() {
+		if err != nil {
+			return nil
+		}
+		if d.IsDir() {
+			if path != r.dir && fileext.ShouldSkipDir(d.Name()) {
+				return filepath.SkipDir
+			}
 			return nil
 		}
 		if !fileext.Supported(path) {

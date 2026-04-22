@@ -84,6 +84,9 @@ func CompileDir(ctx context.Context, st *store.Store, dir, message string) (*Res
 			return err
 		}
 		if d.IsDir() {
+			if path != dir && fileext.ShouldSkipDir(d.Name()) {
+				return filepath.SkipDir
+			}
 			return nil
 		}
 		if fileext.Supported(path) {

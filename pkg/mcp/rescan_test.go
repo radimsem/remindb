@@ -25,6 +25,30 @@ func TestRescanLoop_SeedMtimes(t *testing.T) {
 	}
 }
 
+func TestRescanLoop_SkipsHiddenDirs(t *testing.T) {
+	dir := t.TempDir()
+	writeFile(t, dir, "notes.md", "# Notes\n")
+
+	hidden := filepath.Join(dir, ".obsidian")
+	if err := os.MkdirAll(hidden, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	writeFile(t, hidden, "prefs.json", `{"hidden": true}`)
+
+	st := testutil.OpenTestDB(t)
+	r := NewRescanLoop(st, dir, time.Minute, nil)
+	r.seedMtimes()
+
+	for path := range r.modTimes {
+		if filepath.Base(filepath.Dir(path)) == ".obsidian" {
+			t.Errorf("seeded hidden path: %s", path)
+		}
+	}
+	if len(r.modTimes) != 1 {
+		t.Errorf("mtimes = %d, want 1 (notes.md only)", len(r.modTimes))
+	}
+}
+
 func TestRescanLoop_DetectsChanges(t *testing.T) {
 	dir := t.TempDir()
 	writeFile(t, dir, "doc.md", "# Original\n\nContent.\n")

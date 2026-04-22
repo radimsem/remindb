@@ -4,6 +4,7 @@ import (
 	"context"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"github.com/radimsem/remindb/internal/testutil"
@@ -187,6 +188,47 @@ func TestCompile_HeadingEditDoesNotCascade(t *testing.T) {
 	}
 	if result.Added != 0 || result.Removed != 0 {
 		t.Errorf("Added = %d, Removed = %d, want both 0 (no subtree cascade)", result.Added, result.Removed)
+	}
+}
+
+func TestCompileDir_SkipsHiddenDirs(t *testing.T) {
+	st := testutil.OpenTestDB(t)
+	ctx := context.Background()
+	dir := t.TempDir()
+
+	writeFile(t, dir, "notes.md", "# Notes\n\nVisible.\n")
+
+	hidden := filepath.Join(dir, ".obsidian")
+	if err := os.MkdirAll(hidden, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	writeFile(t, hidden, "prefs.json", `{"hidden": true}`)
+
+	nested := filepath.Join(dir, "node_modules", "pkg")
+	if err := os.MkdirAll(nested, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	writeFile(t, nested, "pkg.json", `{"name": "pkg"}`)
+
+	result, err := CompileDir(ctx, st, dir, "skip")
+	if err != nil {
+		t.Fatalf("CompileDir: %v", err)
+	}
+
+	nodes, err := st.GetAllNodes(ctx)
+	if err != nil {
+		t.Fatalf("GetAllNodes: %v", err)
+	}
+	for _, n := range nodes {
+		if filepath.Base(filepath.Dir(n.SourceFile)) == ".obsidian" {
+			t.Errorf("indexed hidden dir entry: %s", n.SourceFile)
+		}
+		if strings.Contains(n.SourceFile, "node_modules") {
+			t.Errorf("indexed node_modules entry: %s", n.SourceFile)
+		}
+	}
+	if result.Added == 0 {
+		t.Error("expected visible file to contribute nodes")
 	}
 }
 
