@@ -3,7 +3,7 @@ package main
 import (
 	"context"
 	"fmt"
-	"log"
+	"log/slog"
 	"os"
 	"os/signal"
 	"syscall"
@@ -19,6 +19,7 @@ import (
 var (
 	sourceDir      string
 	rescanInterval time.Duration
+	verbose        bool
 )
 
 var serveCmd = &cobra.Command{
@@ -30,6 +31,7 @@ var serveCmd = &cobra.Command{
 func init() {
 	serveCmd.Flags().StringVar(&sourceDir, "source", "", "Source directory to watch for changes (falls back to REMINDB_SOURCE)")
 	serveCmd.Flags().DurationVar(&rescanInterval, "rescan-interval", 0, "Rescan interval (e.g. 30s, 5m); 0 uses default (falls back to REMINDB_RESCAN_INTERVAL)")
+	serveCmd.Flags().BoolVarP(&verbose, "verbose", "v", false, "Emit debug-level logs (default level is info)")
 	rootCmd.AddCommand(serveCmd)
 }
 
@@ -37,6 +39,8 @@ func runServe(cmd *cobra.Command, _ []string) error {
 	if err := applyServeEnv(cmd); err != nil {
 		return err
 	}
+
+	logger := newServeLogger(verbose)
 
 	st, err := store.Open(dbPath)
 	if err != nil {
@@ -52,9 +56,16 @@ func runServe(cmd *cobra.Command, _ []string) error {
 	}
 
 	cfg := temperature.DefaultConfig()
-	tracker := temperature.NewTracker(st, cfg)
+	tracker := temperature.NewTracker(st, cfg, logger)
+	srv := remindb.NewServer(st, tracker, logger)
 
-	srv := remindb.NewServer(st, tracker)
+	logger.Info("serve: starting",
+		"db", dbPath,
+		"source", sourceDir,
+		"rescan_interval", rescanInterval,
+		"tick_interval", cfg.TickInterval,
+		"verbose", verbose,
+	)
 
 	g, ctx := errgroup.WithContext(ctx)
 
@@ -63,21 +74,34 @@ func runServe(cmd *cobra.Command, _ []string) error {
 	})
 
 	g.Go(func() error {
-		tracker.Run(ctx, func(ctx context.Context, nodes []*store.Node) {
-			log.Printf("cold nodes detected: %d", len(nodes))
+		tracker.Run(ctx, func(_ context.Context, nodes []*store.Node) {
+			logger.Info("cold nodes detected", "count", len(nodes))
 		})
 		return nil
 	})
 
 	if sourceDir != "" {
-		rescan := remindb.NewRescanLoop(st, sourceDir, rescanInterval)
+		rescan := remindb.NewRescanLoop(st, sourceDir, rescanInterval, logger)
 		g.Go(func() error {
 			rescan.Run(ctx)
 			return nil
 		})
 	}
 
-	return g.Wait()
+	if err := g.Wait(); err != nil {
+		logger.Error("serve: stopped with error", "err", err)
+		return err
+	}
+	logger.Info("serve: stopped")
+	return nil
+}
+
+func newServeLogger(verbose bool) *slog.Logger {
+	level := slog.LevelInfo
+	if verbose {
+		level = slog.LevelDebug
+	}
+	return slog.New(slog.NewTextHandler(os.Stderr, &slog.HandlerOptions{Level: level}))
 }
 
 func applyServeEnv(cmd *cobra.Command) error {

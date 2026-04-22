@@ -3,6 +3,7 @@ package tools
 import (
 	"context"
 	"fmt"
+	"time"
 
 	gomcp "github.com/modelcontextprotocol/go-sdk/mcp"
 	"github.com/radimsem/remindb/internal/contentid"
@@ -17,7 +18,9 @@ type WriteInput struct {
 	Payload string `json:"payload" jsonschema:"Content to write"`
 }
 
-func (d *Deps) HandleWrite(ctx context.Context, _ *gomcp.CallToolRequest, input WriteInput) (*gomcp.CallToolResult, any, error) {
+func (d *Deps) HandleWrite(ctx context.Context, _ *gomcp.CallToolRequest, input WriteInput) (_ *gomcp.CallToolResult, _ any, err error) {
+	defer d.logCall("MemoryWrite", &err, time.Now(), "anchor", input.Anchor, "payload_bytes", len(input.Payload))
+
 	contentHash := contentid.ContentHash(input.Payload)
 	nodeID := input.Anchor
 	if nodeID == "" {

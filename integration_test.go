@@ -447,7 +447,7 @@ func TestTemperatureBoostOnAccess(t *testing.T) {
 	}
 
 	cfg := temperature.DefaultConfig()
-	tracker := temperature.NewTracker(st, cfg)
+	tracker := temperature.NewTracker(st, cfg, nil)
 
 	// Find a node via search.
 	eng := query.NewEngine(st)

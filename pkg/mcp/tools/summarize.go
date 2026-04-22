@@ -3,6 +3,7 @@ package tools
 import (
 	"context"
 	"fmt"
+	"time"
 
 	gomcp "github.com/modelcontextprotocol/go-sdk/mcp"
 	"github.com/radimsem/remindb/internal/contentid"
@@ -14,7 +15,9 @@ type SummarizeInput struct {
 	Summary string `json:"summary" jsonschema:"Summary text to replace the node content"`
 }
 
-func (d *Deps) HandleSummarize(ctx context.Context, _ *gomcp.CallToolRequest, input SummarizeInput) (*gomcp.CallToolResult, any, error) {
+func (d *Deps) HandleSummarize(ctx context.Context, _ *gomcp.CallToolRequest, input SummarizeInput) (_ *gomcp.CallToolResult, _ any, err error) {
+	defer d.logCall("MemorySummarize", &err, time.Now(), "node_id", input.NodeID, "summary_bytes", len(input.Summary))
+
 	node, err := d.Store.GetNode(ctx, input.NodeID)
 	if err != nil {
 		return nil, nil, fmt.Errorf("failed to get node: %s: %w", input.NodeID, err)

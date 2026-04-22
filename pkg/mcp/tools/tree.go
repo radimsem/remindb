@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"strings"
+	"time"
 
 	gomcp "github.com/modelcontextprotocol/go-sdk/mcp"
 	"github.com/radimsem/remindb/pkg/store"
@@ -14,7 +15,9 @@ type TreeInput struct {
 	Depth int    `json:"depth,omitempty" jsonschema:"Maximum depth to traverse (default 5)"`
 }
 
-func (d *Deps) HandleTree(ctx context.Context, _ *gomcp.CallToolRequest, input TreeInput) (*gomcp.CallToolResult, any, error) {
+func (d *Deps) HandleTree(ctx context.Context, _ *gomcp.CallToolRequest, input TreeInput) (_ *gomcp.CallToolResult, _ any, err error) {
+	defer d.logCall("MemoryTree", &err, time.Now(), "root", input.Root, "depth", input.Depth)
+
 	maxDepth := input.Depth
 	if maxDepth <= 0 {
 		maxDepth = 5

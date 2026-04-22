@@ -19,7 +19,14 @@ func (t *Tracker) Run(ctx context.Context, handler ColdHandler) {
 			return
 		case <-ticker.C:
 			result, err := t.Tick(ctx, t.cfg.TickInterval)
-			if err != nil || len(result.Cold) == 0 {
+			if err != nil {
+				t.logger.Error("temperature tick failed", "err", err)
+				continue
+			}
+
+			t.logger.Debug("temperature tick", "decayed", result.Decayed, "cold", len(result.Cold))
+
+			if len(result.Cold) == 0 {
 				continue
 			}
 			if handler != nil {

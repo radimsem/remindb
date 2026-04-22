@@ -2,7 +2,7 @@ package mcp
 
 import (
 	"context"
-	"log"
+	"log/slog"
 	"os"
 	"path/filepath"
 	"time"
@@ -24,11 +24,15 @@ type RescanLoop struct {
 	settle   time.Duration
 	now      func() time.Time
 	modTimes map[string]time.Time
+	logger   *slog.Logger
 }
 
-func NewRescanLoop(st *store.Store, dir string, interval time.Duration) *RescanLoop {
+func NewRescanLoop(st *store.Store, dir string, interval time.Duration, logger *slog.Logger) *RescanLoop {
 	if interval <= 0 {
 		interval = defaultRescanInterval
+	}
+	if logger == nil {
+		logger = slog.New(slog.DiscardHandler)
 	}
 	return &RescanLoop{
 		store:    st,
@@ -37,6 +41,7 @@ func NewRescanLoop(st *store.Store, dir string, interval time.Duration) *RescanL
 		settle:   defaultSettleTime,
 		now:      time.Now,
 		modTimes: make(map[string]time.Time),
+		logger:   logger,
 	}
 }
 
@@ -119,15 +124,20 @@ func (r *RescanLoop) scan(ctx context.Context) {
 	}
 
 	if len(changed) == 0 {
+		r.logger.Debug("rescan: no changes", "watched", len(r.modTimes))
 		return
 	}
 
 	result, err := compiler.Compile(ctx, r.store, changed, "rescan", r.dir, nil)
 	if err != nil {
-		log.Printf("rescan: compile error: %v", err)
+		r.logger.Error("rescan: compile failed", "err", err)
 		return
 	}
 
-	log.Printf("rescan: %d added, %d modified, %d removed (%d total)",
-		result.Added, result.Modified, result.Removed, result.Total)
+	r.logger.Info("rescan: applied",
+		"added", result.Added,
+		"modified", result.Modified,
+		"removed", result.Removed,
+		"total", result.Total,
+	)
 }

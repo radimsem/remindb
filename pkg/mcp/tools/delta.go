@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"strings"
+	"time"
 
 	gomcp "github.com/modelcontextprotocol/go-sdk/mcp"
 )
@@ -12,7 +13,9 @@ type DeltaInput struct {
 	SinceSnapshot int64 `json:"since_snapshot,omitempty" jsonschema:"Snapshot ID to diff from (0 for all changes)"`
 }
 
-func (d *Deps) HandleDelta(ctx context.Context, _ *gomcp.CallToolRequest, input DeltaInput) (*gomcp.CallToolResult, any, error) {
+func (d *Deps) HandleDelta(ctx context.Context, _ *gomcp.CallToolRequest, input DeltaInput) (_ *gomcp.CallToolResult, _ any, err error) {
+	defer d.logCall("MemoryDelta", &err, time.Now(), "since_snapshot", input.SinceSnapshot)
+
 	diffs, err := d.Engine.Delta(ctx, input.SinceSnapshot)
 	if err != nil {
 		return nil, nil, fmt.Errorf("failed to get delta: %w", err)

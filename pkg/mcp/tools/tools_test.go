@@ -26,7 +26,7 @@ func setup(t *testing.T) (*Deps, *store.Store) {
 	d := &Deps{
 		Store:   st,
 		Engine:  query.NewEngine(st),
-		Tracker: temperature.NewTracker(st, temperature.DefaultConfig()),
+		Tracker: temperature.NewTracker(st, temperature.DefaultConfig(), nil),
 	}
 	return d, st
 }

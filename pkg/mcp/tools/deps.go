@@ -2,6 +2,8 @@ package tools
 
 import (
 	"context"
+	"log/slog"
+	"time"
 	"unicode/utf8"
 
 	"github.com/radimsem/remindb/pkg/query"
@@ -13,6 +15,22 @@ type Deps struct {
 	Store   *store.Store
 	Engine  *query.Engine
 	Tracker *temperature.Tracker
+	Logger  *slog.Logger
+}
+
+func (d *Deps) logCall(name string, errp *error, start time.Time, attrs ...any) {
+	if d.Logger == nil {
+		return
+	}
+
+	fields := []any{"tool", name, "elapsed_ms", time.Since(start).Milliseconds()}
+	fields = append(fields, attrs...)
+	if *errp != nil {
+		fields = append(fields, "err", *errp)
+		d.Logger.Error("mcp call failed", fields...)
+		return
+	}
+	d.Logger.Debug("mcp call", fields...)
 }
 
 func (d *Deps) boostResultNodes(ctx context.Context, result *query.Result) {

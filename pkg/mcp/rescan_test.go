@@ -17,7 +17,7 @@ func TestRescanLoop_SeedMtimes(t *testing.T) {
 	writeFile(t, dir, "skip.txt", "not supported")
 
 	st := testutil.OpenTestDB(t)
-	r := NewRescanLoop(st, dir, time.Minute)
+	r := NewRescanLoop(st, dir, time.Minute, nil)
 	r.seedMtimes()
 
 	if len(r.modTimes) != 2 {
@@ -30,7 +30,7 @@ func TestRescanLoop_DetectsChanges(t *testing.T) {
 	writeFile(t, dir, "doc.md", "# Original\n\nContent.\n")
 
 	st := testutil.OpenTestDB(t)
-	r := NewRescanLoop(st, dir, time.Minute)
+	r := NewRescanLoop(st, dir, time.Minute, nil)
 
 	// Pin the clock past the settle window so writes count as settled.
 	r.now = func() time.Time { return time.Now().Add(time.Hour) }
@@ -60,7 +60,7 @@ func TestRescanLoop_DebouncesMidSave(t *testing.T) {
 	dir := t.TempDir()
 
 	st := testutil.OpenTestDB(t)
-	r := NewRescanLoop(st, dir, time.Minute)
+	r := NewRescanLoop(st, dir, time.Minute, nil)
 	r.seedMtimes()
 
 	// Freeze "now" so the file's mtime is always inside the settle window.
@@ -88,7 +88,7 @@ func TestRescanLoop_NewFile(t *testing.T) {
 	dir := t.TempDir()
 
 	st := testutil.OpenTestDB(t)
-	r := NewRescanLoop(st, dir, time.Minute)
+	r := NewRescanLoop(st, dir, time.Minute, nil)
 	r.now = func() time.Time { return time.Now().Add(time.Hour) }
 	r.seedMtimes()
 

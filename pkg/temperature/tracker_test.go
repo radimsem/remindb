@@ -33,7 +33,7 @@ func TestRecordAccess(t *testing.T) {
 	seedNode(t, st, "node0001", 0.5)
 	seedNode(t, st, "node0002", 0.8)
 
-	tr := NewTracker(st, DefaultConfig())
+	tr := NewTracker(st, DefaultConfig(), nil)
 
 	if err := tr.RecordAccess(ctx, []string{"node0001", "node0002"}); err != nil {
 		t.Fatalf("RecordAccess: %v", err)
@@ -59,7 +59,7 @@ func TestRecordAccess_Cap(t *testing.T) {
 
 	seedNode(t, st, "node0001", 0.95)
 
-	tr := NewTracker(st, DefaultConfig())
+	tr := NewTracker(st, DefaultConfig(), nil)
 	if err := tr.RecordAccess(ctx, []string{"node0001"}); err != nil {
 		t.Fatalf("RecordAccess: %v", err)
 	}
@@ -79,7 +79,7 @@ func TestTick(t *testing.T) {
 
 	cfg := DefaultConfig()
 	cfg.ColdThreshold = 0.1
-	tr := NewTracker(st, cfg)
+	tr := NewTracker(st, cfg, nil)
 
 	elapsed := time.Hour
 	result, err := tr.Tick(ctx, elapsed)
@@ -117,7 +117,7 @@ func TestTick_NoColdNodes(t *testing.T) {
 
 	seedNode(t, st, "hot00001", 0.9)
 
-	tr := NewTracker(st, DefaultConfig())
+	tr := NewTracker(st, DefaultConfig(), nil)
 
 	result, err := tr.Tick(ctx, 10*time.Minute)
 	if err != nil {

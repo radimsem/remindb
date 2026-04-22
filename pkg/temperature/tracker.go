@@ -3,6 +3,7 @@ package temperature
 import (
 	"context"
 	"fmt"
+	"log/slog"
 	"time"
 
 	"github.com/radimsem/remindb/pkg/store"
@@ -20,12 +21,16 @@ type TickResult struct {
 }
 
 type Tracker struct {
-	store NodeStore
-	cfg   Config
+	store  NodeStore
+	cfg    Config
+	logger *slog.Logger
 }
 
-func NewTracker(s NodeStore, cfg Config) *Tracker {
-	return &Tracker{store: s, cfg: cfg}
+func NewTracker(s NodeStore, cfg Config, logger *slog.Logger) *Tracker {
+	if logger == nil {
+		logger = slog.New(slog.DiscardHandler)
+	}
+	return &Tracker{store: s, cfg: cfg, logger: logger}
 }
 
 func (t *Tracker) RecordAccess(ctx context.Context, ids []string) error {

@@ -19,7 +19,7 @@ func TestRun_CallsHandler(t *testing.T) {
 	cfg := DefaultConfig()
 	cfg.TickInterval = 50 * time.Millisecond
 	cfg.ColdThreshold = 0.1
-	tr := NewTracker(st, cfg)
+	tr := NewTracker(st, cfg, nil)
 
 	var mu sync.Mutex
 	var got []*store.Node
@@ -55,7 +55,7 @@ func TestRun_StopsOnCancel(t *testing.T) {
 
 	cfg := DefaultConfig()
 	cfg.TickInterval = 50 * time.Millisecond
-	tr := NewTracker(st, cfg)
+	tr := NewTracker(st, cfg, nil)
 
 	ctx, cancel := context.WithCancel(context.Background())
 	done := make(chan struct{})

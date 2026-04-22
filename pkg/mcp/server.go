@@ -2,6 +2,7 @@ package mcp
 
 import (
 	"context"
+	"log/slog"
 
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 	"github.com/radimsem/remindb/pkg/mcp/tools"
@@ -14,7 +15,7 @@ type Server struct {
 	mcp *mcp.Server
 }
 
-func NewServer(st *store.Store, tracker *temperature.Tracker) *Server {
+func NewServer(st *store.Store, tracker *temperature.Tracker, logger *slog.Logger) *Server {
 	s := &Server{
 		mcp: mcp.NewServer(&mcp.Implementation{
 			Name:    "remindb",
@@ -26,6 +27,7 @@ func NewServer(st *store.Store, tracker *temperature.Tracker) *Server {
 		Store:   st,
 		Engine:  query.NewEngine(st),
 		Tracker: tracker,
+		Logger:  logger,
 	}
 
 	registerTools(s.mcp, deps)

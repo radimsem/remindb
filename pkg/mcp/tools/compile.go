@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"os"
+	"time"
 
 	gomcp "github.com/modelcontextprotocol/go-sdk/mcp"
 	"github.com/radimsem/remindb/pkg/compiler"
@@ -14,7 +15,9 @@ type CompileInput struct {
 	Message string `json:"message,omitempty" jsonschema:"Snapshot message"`
 }
 
-func (d *Deps) HandleCompile(ctx context.Context, _ *gomcp.CallToolRequest, input CompileInput) (*gomcp.CallToolResult, any, error) {
+func (d *Deps) HandleCompile(ctx context.Context, _ *gomcp.CallToolRequest, input CompileInput) (_ *gomcp.CallToolResult, _ any, err error) {
+	defer d.logCall("MemoryCompile", &err, time.Now(), "path", input.Path, "message", input.Message)
+
 	msg := input.Message
 	if msg == "" {
 		msg = "compile:" + input.Path
