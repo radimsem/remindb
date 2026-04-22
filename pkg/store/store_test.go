@@ -3,7 +3,9 @@ package store
 import (
 	"context"
 	"database/sql"
+	"sync"
 	"testing"
+	"time"
 )
 
 func openTestDB(t *testing.T) *Store {
@@ -187,6 +189,31 @@ func TestDeleteNodesByFiles_CascadesChildren(t *testing.T) {
 
 	if _, err := st.GetNode(ctx, "childbbbbb"); err == nil {
 		t.Error("child node should have been cascade-deleted")
+	}
+}
+
+func TestStore_OpMuSerializes(t *testing.T) {
+	st := openTestDB(t)
+
+	const N = 3
+	const hold = 20 * time.Millisecond
+
+	start := time.Now()
+	var wg sync.WaitGroup
+	for i := 0; i < N; i++ {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			st.OpMu.Lock()
+			defer st.OpMu.Unlock()
+			time.Sleep(hold)
+		}()
+	}
+	wg.Wait()
+
+	elapsed := time.Since(start)
+	if min := time.Duration(N) * hold; elapsed < min-5*time.Millisecond {
+		t.Errorf("elapsed = %v, want >= %v (OpMu did not serialize goroutines)", elapsed, min)
 	}
 }
 

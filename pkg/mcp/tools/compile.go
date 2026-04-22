@@ -18,6 +18,9 @@ type CompileInput struct {
 func (d *Deps) HandleCompile(ctx context.Context, _ *gomcp.CallToolRequest, input CompileInput) (_ *gomcp.CallToolResult, _ any, err error) {
 	defer d.logCall("MemoryCompile", &err, time.Now(), "path", input.Path, "message", input.Message)
 
+	d.Store.OpMu.Lock()
+	defer d.Store.OpMu.Unlock()
+
 	msg := input.Message
 	if msg == "" {
 		msg = "compile:" + input.Path

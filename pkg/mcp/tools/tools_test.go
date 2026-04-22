@@ -5,6 +5,7 @@ import (
 	"os"
 	"path/filepath"
 	"testing"
+	"time"
 
 	gomcp "github.com/modelcontextprotocol/go-sdk/mcp"
 	"github.com/radimsem/remindb/pkg/query"
@@ -232,5 +233,68 @@ func TestHandleTree(t *testing.T) {
 	}
 	if len(result.Content) == 0 {
 		t.Error("empty content")
+	}
+}
+
+func TestHandleWrite_BlocksOnOpMu(t *testing.T) {
+	d, st := setup(t)
+	ctx := context.Background()
+
+	st.OpMu.Lock()
+
+	done := make(chan struct{})
+	go func() {
+		_, _, _ = d.HandleWrite(ctx, &gomcp.CallToolRequest{}, WriteInput{Payload: "hello"})
+		close(done)
+	}()
+
+	select {
+	case <-done:
+		t.Fatal("HandleWrite completed while OpMu was held")
+	case <-time.After(50 * time.Millisecond):
+	}
+
+	st.OpMu.Unlock()
+
+	select {
+	case <-done:
+	case <-time.After(500 * time.Millisecond):
+		t.Fatal("HandleWrite did not complete after OpMu.Unlock")
+	}
+}
+
+func TestHandleSummarize_BlocksOnOpMu(t *testing.T) {
+	d, st := setup(t)
+	ctx := context.Background()
+
+	seed := &store.Node{
+		ID: "sumnode001", SourceFile: "test.md", NodeType: "text",
+		Depth: 1, Label: "l", Content: "old",
+		Format: "plain", TokenCount: 1, ContentHash: "h",
+	}
+	if err := st.UpsertNode(ctx, seed); err != nil {
+		t.Fatal(err)
+	}
+
+	st.OpMu.Lock()
+
+	done := make(chan struct{})
+	go func() {
+		_, _, _ = d.HandleSummarize(ctx, &gomcp.CallToolRequest{}, SummarizeInput{NodeID: "sumnode001", Summary: "new"})
+		close(done)
+	}()
+
+	select {
+	case <-done:
+		t.Fatal("HandleSummarize completed while OpMu was held")
+	case <-time.After(50 * time.Millisecond):
+	}
+
+	st.OpMu.Unlock()
+
+	select {
+	case <-done:
+	case <-time.After(500 * time.Millisecond):
+		t.Fatal("HandleSummarize did not complete after OpMu.Unlock")
 	}
 }

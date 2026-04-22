@@ -21,6 +21,9 @@ type WriteInput struct {
 func (d *Deps) HandleWrite(ctx context.Context, _ *gomcp.CallToolRequest, input WriteInput) (_ *gomcp.CallToolResult, _ any, err error) {
 	defer d.logCall("MemoryWrite", &err, time.Now(), "anchor", input.Anchor, "payload_bytes", len(input.Payload))
 
+	d.Store.OpMu.Lock()
+	defer d.Store.OpMu.Unlock()
+
 	contentHash := contentid.ContentHash(input.Payload)
 	nodeID := input.Anchor
 	if nodeID == "" {

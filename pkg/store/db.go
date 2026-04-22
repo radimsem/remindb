@@ -14,6 +14,7 @@ import (
 type Store struct {
 	db   *sql.DB
 	txMu sync.Mutex
+	OpMu sync.Mutex
 }
 
 func Open(path string) (*Store, error) {

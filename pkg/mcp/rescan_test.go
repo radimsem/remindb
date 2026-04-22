@@ -222,6 +222,37 @@ func TestRescanLoop_NewFile(t *testing.T) {
 	}
 }
 
+func TestRescanLoop_ScanBlocksOnOpMu(t *testing.T) {
+	dir := t.TempDir()
+	writeFile(t, dir, "doc.md", "# Doc\n\nBody.\n")
+
+	st := testutil.OpenTestDB(t)
+	r := NewRescanLoop(st, dir, time.Minute, nil)
+	r.now = func() time.Time { return time.Now().Add(time.Hour) }
+
+	st.OpMu.Lock()
+
+	done := make(chan struct{})
+	go func() {
+		r.scan(context.Background())
+		close(done)
+	}()
+
+	select {
+	case <-done:
+		t.Fatal("scan completed while OpMu was held")
+	case <-time.After(50 * time.Millisecond):
+	}
+
+	st.OpMu.Unlock()
+
+	select {
+	case <-done:
+	case <-time.After(500 * time.Millisecond):
+		t.Fatal("scan did not complete after OpMu.Unlock")
+	}
+}
+
 func TestRescanLoop_RunCatchesStaleEditsAtStartup(t *testing.T) {
 	dir := t.TempDir()
 	writeFile(t, dir, "doc.md", "# Before\n\nOriginal body.\n")
