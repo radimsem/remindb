@@ -66,7 +66,7 @@ func Compile(ctx context.Context, st *store.Store, paths []string, message, comp
 		return nil, fmt.Errorf("failed to emit: %w", err)
 	}
 
-	return countResult(flat, deltas), nil
+	return countResult(deltas), nil
 }
 
 func seedTemp(nodes []*parser.ContextNode, t *float64) {
@@ -162,8 +162,8 @@ func uniqueFilesFlat(flat []*parser.ContextNode) []string {
 	return out
 }
 
-func countResult(flat []*parser.ContextNode, deltas []diff.Delta) *Result {
-	r := &Result{Total: len(flat)}
+func countResult(deltas []diff.Delta) *Result {
+	r := &Result{}
 
 	for _, d := range deltas {
 		switch d.Op {
@@ -175,5 +175,7 @@ func countResult(flat []*parser.ContextNode, deltas []diff.Delta) *Result {
 			r.Removed++
 		}
 	}
+
+	r.Total = r.Added + r.Modified + r.Removed
 	return r
 }

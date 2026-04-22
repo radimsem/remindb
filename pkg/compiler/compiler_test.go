@@ -70,6 +70,35 @@ func TestCompileDir(t *testing.T) {
 	}
 }
 
+func TestCompile_TotalEqualsSumOfOps(t *testing.T) {
+	st := testutil.OpenTestDB(t)
+	ctx := context.Background()
+	dir := t.TempDir()
+
+	p := writeFile(t, dir, "doc.md", "# Hi\n\nA.\n\nB.\n")
+
+	first, err := Compile(ctx, st, []string{p}, "v1", "", nil)
+	if err != nil {
+		t.Fatalf("Compile v1: %v", err)
+	}
+
+	want := first.Added + first.Modified + first.Removed
+	if first.Total != want {
+		t.Errorf("Total = %d, want %d (added+modified+removed on first compile)", first.Total, want)
+	}
+
+	writeFile(t, dir, "doc.md", "# Hi\n\nA edited.\n\nB.\n")
+	second, err := Compile(ctx, st, []string{p}, "v2", "", nil)
+	if err != nil {
+		t.Fatalf("Compile v2: %v", err)
+	}
+
+	want = second.Added + second.Modified + second.Removed
+	if second.Total != want {
+		t.Errorf("Total = %d, want %d (added+modified+removed on recompile)", second.Total, want)
+	}
+}
+
 func TestCompile_Recompile(t *testing.T) {
 	st := testutil.OpenTestDB(t)
 	ctx := context.Background()
@@ -142,8 +171,7 @@ func TestCompile_HeadingEditDoesNotCascade(t *testing.T) {
 	body := "# Hello\n\nBody one.\n\nBody two.\n"
 	p := writeFile(t, dir, "doc.md", body)
 
-	first, err := Compile(ctx, st, []string{p}, "v1", "", nil)
-	if err != nil {
+	if _, err := Compile(ctx, st, []string{p}, "v1", "", nil); err != nil {
 		t.Fatalf("Compile v1: %v", err)
 	}
 
@@ -154,9 +182,6 @@ func TestCompile_HeadingEditDoesNotCascade(t *testing.T) {
 		t.Fatalf("Compile v2: %v", err)
 	}
 
-	if result.Total != first.Total {
-		t.Errorf("Total = %d, want %d (structure unchanged)", result.Total, first.Total)
-	}
 	if result.Modified != 1 {
 		t.Errorf("Modified = %d, want 1 (only the heading changed)", result.Modified)
 	}
