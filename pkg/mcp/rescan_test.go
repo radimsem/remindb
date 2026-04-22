@@ -11,22 +11,8 @@ import (
 	"time"
 
 	"github.com/radimsem/remindb/internal/testutil"
+	"github.com/radimsem/remindb/pkg/compiler"
 )
-
-func TestRescanLoop_SeedMtimes(t *testing.T) {
-	dir := t.TempDir()
-	writeFile(t, dir, "a.md", "# Hello\n")
-	writeFile(t, dir, "b.json", `{"key": "value"}`)
-	writeFile(t, dir, "skip.txt", "not supported")
-
-	st := testutil.OpenTestDB(t)
-	r := NewRescanLoop(st, dir, time.Minute, nil)
-	r.seedMtimes()
-
-	if len(r.modTimes) != 2 {
-		t.Errorf("mtimes = %d, want 2 (md + json)", len(r.modTimes))
-	}
-}
 
 func TestRescanLoop_LogsWalkErrors(t *testing.T) {
 	dir := t.TempDir()
@@ -43,7 +29,8 @@ func TestRescanLoop_LogsWalkErrors(t *testing.T) {
 
 	st := testutil.OpenTestDB(t)
 	r := NewRescanLoop(st, dir, time.Minute, logger)
-	r.seedMtimes()
+	r.now = func() time.Time { return time.Now().Add(time.Hour) }
+	r.scan(context.Background())
 
 	if !strings.Contains(buf.String(), "level=WARN") {
 		t.Errorf("expected WARN log for walk error, got: %q", buf.String())
@@ -65,11 +52,12 @@ func TestRescanLoop_SkipsHiddenDirs(t *testing.T) {
 
 	st := testutil.OpenTestDB(t)
 	r := NewRescanLoop(st, dir, time.Minute, nil)
-	r.seedMtimes()
+	r.now = func() time.Time { return time.Now().Add(time.Hour) }
+	r.scan(context.Background())
 
 	for path := range r.modTimes {
 		if filepath.Base(filepath.Dir(path)) == ".obsidian" {
-			t.Errorf("seeded hidden path: %s", path)
+			t.Errorf("indexed hidden path: %s", path)
 		}
 	}
 	if len(r.modTimes) != 1 {
@@ -83,18 +71,17 @@ func TestRescanLoop_DetectsChanges(t *testing.T) {
 
 	st := testutil.OpenTestDB(t)
 	r := NewRescanLoop(st, dir, time.Minute, nil)
-
-	// Pin the clock past the settle window so writes count as settled.
 	r.now = func() time.Time { return time.Now().Add(time.Hour) }
-	r.seedMtimes()
 
 	ctx := context.Background()
 
-	// First scan — no changes since seed.
+	// First scan compiles doc.md into the DB.
 	r.scan(ctx)
-	roots, _ := st.GetRootNodes(ctx)
-	if len(roots) != 0 {
-		t.Errorf("expected no nodes after seed+scan, got %d", len(roots))
+	nodes, _ := st.GetAllNodes(ctx)
+	for _, n := range nodes {
+		if strings.Contains(n.Content, "Updated") {
+			t.Fatalf("unexpected updated content before edit: %q", n.Content)
+		}
 	}
 
 	// Modify the file (bump mtime).
@@ -102,9 +89,16 @@ func TestRescanLoop_DetectsChanges(t *testing.T) {
 	writeFile(t, dir, "doc.md", "# Updated\n\nNew content.\n")
 
 	r.scan(ctx)
-	roots, _ = st.GetRootNodes(ctx)
-	if len(roots) == 0 {
-		t.Error("expected nodes after recompile")
+	nodes, _ = st.GetAllNodes(ctx)
+
+	foundUpdated := false
+	for _, n := range nodes {
+		if strings.Contains(n.Content, "New content") {
+			foundUpdated = true
+		}
+	}
+	if !foundUpdated {
+		t.Error("expected updated content after recompile")
 	}
 }
 
@@ -113,7 +107,6 @@ func TestRescanLoop_DebouncesMidSave(t *testing.T) {
 
 	st := testutil.OpenTestDB(t)
 	r := NewRescanLoop(st, dir, time.Minute, nil)
-	r.seedMtimes()
 
 	// Freeze "now" so the file's mtime is always inside the settle window.
 	frozen := time.Now()
@@ -214,17 +207,60 @@ func TestRescanLoop_NewFile(t *testing.T) {
 	st := testutil.OpenTestDB(t)
 	r := NewRescanLoop(st, dir, time.Minute, nil)
 	r.now = func() time.Time { return time.Now().Add(time.Hour) }
-	r.seedMtimes()
-
-	// Add a new file after seed.
-	writeFile(t, dir, "new.md", "# New\n\nContent.\n")
 
 	ctx := context.Background()
+	r.scan(ctx)
+
+	// Add a new file after the first scan.
+	writeFile(t, dir, "new.md", "# New\n\nContent.\n")
+
 	r.scan(ctx)
 
 	roots, _ := st.GetRootNodes(ctx)
 	if len(roots) == 0 {
 		t.Error("expected nodes from new file")
+	}
+}
+
+func TestRescanLoop_RunCatchesStaleEditsAtStartup(t *testing.T) {
+	dir := t.TempDir()
+	writeFile(t, dir, "doc.md", "# Before\n\nOriginal body.\n")
+
+	st := testutil.OpenTestDB(t)
+	ctx := context.Background()
+
+	if _, err := compiler.CompileDir(ctx, st, dir, "initial"); err != nil {
+		t.Fatalf("CompileDir: %v", err)
+	}
+
+	// User edits the file while serve was offline.
+	writeFile(t, dir, "doc.md", "# Before\n\nUpdated body.\n")
+
+	// Long interval — ticker must not fire during the test, so only the
+	// startup reconcile can catch the edit.
+	r := NewRescanLoop(st, dir, time.Hour, nil)
+	r.now = func() time.Time { return time.Now().Add(time.Hour) }
+
+	runCtx, cancel := context.WithTimeout(ctx, 200*time.Millisecond)
+	defer cancel()
+	r.Run(runCtx)
+
+	nodes, err := st.GetAllNodes(ctx)
+	if err != nil {
+		t.Fatalf("GetAllNodes: %v", err)
+	}
+
+	foundUpdated := false
+	for _, n := range nodes {
+		if strings.Contains(n.Content, "Original body") {
+			t.Errorf("stale content persisted after startup reconcile: %q", n.Content)
+		}
+		if strings.Contains(n.Content, "Updated body") {
+			foundUpdated = true
+		}
+	}
+	if !foundUpdated {
+		t.Error("startup reconcile did not apply edit made while serve was down")
 	}
 }
 

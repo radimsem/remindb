@@ -46,8 +46,8 @@ func NewRescanLoop(st *store.Store, dir string, interval time.Duration, logger *
 }
 
 func (r *RescanLoop) Run(ctx context.Context) {
-	// Avoid recompiling all files on the first tick.
-	r.seedMtimes()
+	// Startup reconcile catches edits made between the last compile and now.
+	r.scan(ctx)
 
 	ticker := time.NewTicker(r.interval)
 	defer ticker.Stop()
@@ -60,32 +60,6 @@ func (r *RescanLoop) Run(ctx context.Context) {
 			r.scan(ctx)
 		}
 	}
-}
-
-func (r *RescanLoop) seedMtimes() {
-	_ = filepath.WalkDir(r.dir, func(path string, d os.DirEntry, err error) error {
-		if err != nil {
-			r.logger.Warn("rescan: walk error", "path", path, "err", err)
-			return nil
-		}
-		if d.IsDir() {
-			if path != r.dir && fileext.ShouldSkipDir(d.Name()) {
-				return filepath.SkipDir
-			}
-			return nil
-		}
-		if !fileext.Supported(path) {
-			return nil
-		}
-
-		info, err := d.Info()
-		if err != nil {
-			return nil
-		}
-
-		r.modTimes[path] = info.ModTime()
-		return nil
-	})
 }
 
 func (r *RescanLoop) scan(ctx context.Context) {
