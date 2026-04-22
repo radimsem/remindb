@@ -64,5 +64,6 @@ func runCompile(cmd *cobra.Command, args []string) error {
 
 	_, _ = fmt.Fprintf(os.Stdout, "compiled: %d added, %d modified, %d removed (%d total nodes)\n",
 		result.Added, result.Modified, result.Removed, result.Total)
+
 	return nil
 }

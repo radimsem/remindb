@@ -80,6 +80,7 @@ func runInspect(cmd *cobra.Command, _ []string) error {
 
 	_, _ = fmt.Fprintln(w, paint(ansiBold+ansiCyan, "=== Node Tree ==="))
 	roots, childMap := store.BuildTree(all)
+
 	for _, root := range roots {
 		printTree(w, childMap, root, 0, inspectTreeDepth)
 	}
@@ -91,6 +92,7 @@ func printStats(w io.Writer, s *store.Stats) {
 	if fi, err := os.Stat(dbPath); err == nil {
 		header += " (" + humanSize(fi.Size()) + ")"
 	}
+
 	header += " ==="
 	_, _ = fmt.Fprintln(w, paint(ansiBold+ansiCyan, header))
 
@@ -137,7 +139,7 @@ func paint(code, s string) string {
 	return code + s + ansiReset
 }
 
-// Gradient blue (cold) → red (hot) over t∈[0,1].
+// Gradient blue (cold) → red (hot) over [0,1].
 func tempPaint(t float64) string {
 	s := fmt.Sprintf("%.2f", t)
 	if !inspectColorOn {
