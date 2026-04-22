@@ -81,6 +81,10 @@ func runServe(cmd *cobra.Command, _ []string) error {
 	})
 
 	if sourceDir != "" {
+		if err := remindb.MaybeInitialCompile(ctx, st, sourceDir, logger); err != nil {
+			return err
+		}
+
 		rescan := remindb.NewRescanLoop(st, sourceDir, rescanInterval, logger)
 		g.Go(func() error {
 			rescan.Run(ctx)

@@ -228,6 +228,60 @@ func TestRescanLoop_NewFile(t *testing.T) {
 	}
 }
 
+func TestMaybeInitialCompile_EmptyDB(t *testing.T) {
+	dir := t.TempDir()
+	writeFile(t, dir, "a.md", "# A\n\nBody.\n")
+	writeFile(t, dir, "b.md", "# B\n\nBody.\n")
+
+	st := testutil.OpenTestDB(t)
+	ctx := context.Background()
+
+	if err := MaybeInitialCompile(ctx, st, dir, nil); err != nil {
+		t.Fatalf("MaybeInitialCompile: %v", err)
+	}
+
+	roots, err := st.GetRootNodes(ctx)
+	if err != nil {
+		t.Fatalf("GetRootNodes: %v", err)
+	}
+	if len(roots) == 0 {
+		t.Error("expected nodes to be compiled on empty DB")
+	}
+}
+
+func TestMaybeInitialCompile_NonEmptyDB(t *testing.T) {
+	dir := t.TempDir()
+	writeFile(t, dir, "a.md", "# A\n\nBody.\n")
+
+	st := testutil.OpenTestDB(t)
+	ctx := context.Background()
+
+	// Pre-populate so DB is not empty.
+	if err := MaybeInitialCompile(ctx, st, dir, nil); err != nil {
+		t.Fatalf("seed compile: %v", err)
+	}
+
+	before, err := st.GetRootNodes(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	// Add a new file, call MaybeInitialCompile again — must skip.
+	writeFile(t, dir, "new.md", "# New\n")
+
+	if err := MaybeInitialCompile(ctx, st, dir, nil); err != nil {
+		t.Fatalf("MaybeInitialCompile: %v", err)
+	}
+
+	after, err := st.GetRootNodes(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(after) != len(before) {
+		t.Errorf("root count changed: before=%d after=%d (MaybeInitialCompile ran on non-empty DB)", len(before), len(after))
+	}
+}
+
 func writeFile(t *testing.T, dir, name, content string) {
 	t.Helper()
 	p := filepath.Join(dir, name)
