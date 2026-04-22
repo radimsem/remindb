@@ -7,6 +7,7 @@ import (
 	"os"
 	"os/signal"
 	"syscall"
+	"time"
 
 	remindb "github.com/radimsem/remindb/pkg/mcp"
 	"github.com/radimsem/remindb/pkg/store"
@@ -15,7 +16,10 @@ import (
 	"golang.org/x/sync/errgroup"
 )
 
-var sourceDir string
+var (
+	sourceDir      string
+	rescanInterval time.Duration
+)
 
 var serveCmd = &cobra.Command{
 	Use:   "serve",
@@ -25,6 +29,7 @@ var serveCmd = &cobra.Command{
 
 func init() {
 	serveCmd.Flags().StringVar(&sourceDir, "source", "", "Source directory to watch for changes (falls back to REMINDB_SOURCE)")
+	serveCmd.Flags().DurationVar(&rescanInterval, "rescan-interval", 0, "Rescan interval (e.g. 30s, 5m); 0 uses default (falls back to REMINDB_RESCAN_INTERVAL)")
 	rootCmd.AddCommand(serveCmd)
 }
 
@@ -65,7 +70,7 @@ func runServe(cmd *cobra.Command, _ []string) error {
 	})
 
 	if sourceDir != "" {
-		rescan := remindb.NewRescanLoop(st, sourceDir, 0)
+		rescan := remindb.NewRescanLoop(st, sourceDir, rescanInterval)
 		g.Go(func() error {
 			rescan.Run(ctx)
 			return nil
@@ -87,6 +92,16 @@ func applyServeEnv(cmd *cobra.Command) error {
 
 	if sourceDir == "" {
 		sourceDir = os.Getenv("REMINDB_SOURCE")
+	}
+
+	if !cmd.Flags().Changed("rescan-interval") {
+		if v := os.Getenv("REMINDB_RESCAN_INTERVAL"); v != "" {
+			d, err := time.ParseDuration(v)
+			if err != nil {
+				return fmt.Errorf("failed to parse: REMINDB_RESCAN_INTERVAL=%q: %w", v, err)
+			}
+			rescanInterval = d
+		}
 	}
 	return nil
 }
