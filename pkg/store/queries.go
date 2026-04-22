@@ -76,6 +76,9 @@ const (
 
 	qDeleteNode = `DELETE FROM nodes WHERE id = ?`
 
+	// IN clause is closed by the caller after appending placeholders.
+	qDeleteNodesByFilesPrefix = `DELETE FROM nodes WHERE source_file IN (`
+
 	qRewriteSourcePaths = `UPDATE nodes SET source_file = ? || substr(source_file, length(?) + 1)
 		WHERE source_file LIKE ? || '%'`
 )

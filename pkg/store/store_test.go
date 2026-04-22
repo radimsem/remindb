@@ -135,6 +135,61 @@ func TestDeleteNode(t *testing.T) {
 	}
 }
 
+func TestDeleteNodesByFiles(t *testing.T) {
+	st := openTestDB(t)
+	ctx := context.Background()
+
+	a := testNode("aaaaaaaa", "")
+	a.SourceFile = "a.md"
+	b := testNode("bbbbbbbb", "")
+	b.SourceFile = "b.md"
+	c := testNode("cccccccc", "")
+	c.SourceFile = "c.md"
+
+	must(t, st.UpsertNode(ctx, a))
+	must(t, st.UpsertNode(ctx, b))
+	must(t, st.UpsertNode(ctx, c))
+
+	must(t, st.DeleteNodesByFiles(ctx, []string{"a.md", "b.md"}))
+
+	if _, err := st.GetNode(ctx, "aaaaaaaa"); err == nil {
+		t.Error("a.md node still present")
+	}
+	if _, err := st.GetNode(ctx, "bbbbbbbb"); err == nil {
+		t.Error("b.md node still present")
+	}
+	if _, err := st.GetNode(ctx, "cccccccc"); err != nil {
+		t.Errorf("c.md node unexpectedly removed: %v", err)
+	}
+}
+
+func TestDeleteNodesByFiles_Empty(t *testing.T) {
+	st := openTestDB(t)
+	ctx := context.Background()
+
+	must(t, st.DeleteNodesByFiles(ctx, nil))
+	must(t, st.DeleteNodesByFiles(ctx, []string{}))
+}
+
+func TestDeleteNodesByFiles_CascadesChildren(t *testing.T) {
+	st := openTestDB(t)
+	ctx := context.Background()
+
+	parent := testNode("parentaaaa", "")
+	parent.SourceFile = "doc.md"
+	child := testNode("childbbbbb", "parentaaaa")
+	child.SourceFile = "doc.md"
+
+	must(t, st.UpsertNode(ctx, parent))
+	must(t, st.UpsertNode(ctx, child))
+
+	must(t, st.DeleteNodesByFiles(ctx, []string{"doc.md"}))
+
+	if _, err := st.GetNode(ctx, "childbbbbb"); err == nil {
+		t.Error("child node should have been cascade-deleted")
+	}
+}
+
 func TestSearch(t *testing.T) {
 	st := openTestDB(t)
 	ctx := context.Background()

@@ -143,6 +143,23 @@ func (s *Store) DeleteNodeTx(ctx context.Context, tx *sql.Tx, id string) error {
 	return err
 }
 
+func (s *Store) DeleteNodesByFiles(ctx context.Context, paths []string) error {
+	if len(paths) == 0 {
+		return nil
+	}
+
+	placeholders := make([]string, len(paths))
+	args := make([]any, len(paths))
+	for i, p := range paths {
+		placeholders[i] = "?"
+		args[i] = p
+	}
+
+	query := qDeleteNodesByFilesPrefix + strings.Join(placeholders, ",") + `)`
+	_, err := s.db.ExecContext(ctx, query, args...)
+	return err
+}
+
 func (s *Store) GetDescendants(ctx context.Context, id string, maxDepth int) ([]*Node, error) {
 	rows, err := s.db.QueryContext(ctx, qSelectDescendants, id, maxDepth)
 	if err != nil {

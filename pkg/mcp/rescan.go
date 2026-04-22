@@ -132,11 +132,20 @@ func (r *RescanLoop) scan(ctx context.Context) {
 	})
 
 	// Purge entries for deleted files.
+	var deleted []string
 	for path := range r.modTimes {
-		if !seen[path] {
-			delete(r.modTimes, path)
+		if seen[path] {
+			continue
 		}
+		delete(r.modTimes, path)
+
+		rel, err := filepath.Rel(r.dir, path)
+		if err != nil {
+			rel = path
+		}
+		deleted = append(deleted, rel)
 	}
+	r.reconcileDeleted(ctx, deleted)
 
 	if len(changed) == 0 {
 		r.logger.Debug("rescan: no changes", "watched", len(r.modTimes))
@@ -159,4 +168,16 @@ func (r *RescanLoop) scan(ctx context.Context) {
 		"removed", result.Removed,
 		"total", result.Total,
 	)
+}
+
+func (r *RescanLoop) reconcileDeleted(ctx context.Context, deleted []string) {
+	if len(deleted) == 0 {
+		return
+	}
+
+	if err := r.store.DeleteNodesByFiles(ctx, deleted); err != nil {
+		r.logger.Error("rescan: purge failed", "err", err)
+		return
+	}
+	r.logger.Info("rescan: purged deleted files", "count", len(deleted), "files", deleted)
 }

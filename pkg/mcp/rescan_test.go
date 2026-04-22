@@ -161,6 +161,53 @@ func TestRescanLoop_CommitsMtimesOnlyAfterSuccess(t *testing.T) {
 	}
 }
 
+func TestRescanLoop_ReconcilesDeletedFiles(t *testing.T) {
+	dir := t.TempDir()
+	writeFile(t, dir, "keep.md", "# Keep\n")
+	writeFile(t, dir, "gone.md", "# Gone\n\nBody.\n")
+
+	st := testutil.OpenTestDB(t)
+	r := NewRescanLoop(st, dir, time.Minute, nil)
+	r.now = func() time.Time { return time.Now().Add(time.Hour) }
+
+	ctx := context.Background()
+
+	// First scan populates both.
+	r.scan(ctx)
+
+	before, err := st.GetNodesByFile(ctx, "gone.md")
+	if err != nil {
+		t.Fatalf("GetNodesByFile: %v", err)
+	}
+	if len(before) == 0 {
+		t.Fatal("expected gone.md nodes after initial scan")
+	}
+
+	// Delete the file from disk.
+	if err := os.Remove(filepath.Join(dir, "gone.md")); err != nil {
+		t.Fatal(err)
+	}
+
+	// Rescan should purge the orphaned nodes.
+	r.scan(ctx)
+
+	after, err := st.GetNodesByFile(ctx, "gone.md")
+	if err != nil {
+		t.Fatalf("GetNodesByFile: %v", err)
+	}
+	if len(after) != 0 {
+		t.Errorf("orphan nodes after delete = %d, want 0", len(after))
+	}
+
+	kept, err := st.GetNodesByFile(ctx, "keep.md")
+	if err != nil {
+		t.Fatalf("GetNodesByFile: %v", err)
+	}
+	if len(kept) == 0 {
+		t.Error("keep.md nodes should remain")
+	}
+}
+
 func TestRescanLoop_NewFile(t *testing.T) {
 	dir := t.TempDir()
 
