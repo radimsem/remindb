@@ -136,6 +136,31 @@ func TestRescanLoop_DebouncesMidSave(t *testing.T) {
 	}
 }
 
+func TestRescanLoop_CommitsMtimesOnlyAfterSuccess(t *testing.T) {
+	dir := t.TempDir()
+	writeFile(t, dir, "ok.md", "# OK\n")
+	writeFile(t, dir, "bad.json", `{"unterminated`)
+
+	st := testutil.OpenTestDB(t)
+	r := NewRescanLoop(st, dir, time.Minute, nil)
+	r.now = func() time.Time { return time.Now().Add(time.Hour) }
+
+	ctx := context.Background()
+	r.scan(ctx)
+
+	if len(r.modTimes) != 0 {
+		t.Errorf("mtimes = %d, want 0 (compile failed, nothing committed)", len(r.modTimes))
+	}
+
+	writeFile(t, dir, "bad.json", `{"valid": "now"}`)
+
+	r.scan(ctx)
+
+	if len(r.modTimes) != 2 {
+		t.Errorf("mtimes = %d, want 2 (both files compiled on retry)", len(r.modTimes))
+	}
+}
+
 func TestRescanLoop_NewFile(t *testing.T) {
 	dir := t.TempDir()
 

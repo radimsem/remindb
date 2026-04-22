@@ -91,6 +91,7 @@ func (r *RescanLoop) seedMtimes() {
 func (r *RescanLoop) scan(ctx context.Context) {
 	var changed []string
 	seen := make(map[string]bool, len(r.modTimes))
+	pending := make(map[string]time.Time)
 	now := r.now()
 
 	_ = filepath.WalkDir(r.dir, func(path string, d os.DirEntry, err error) error {
@@ -125,7 +126,7 @@ func (r *RescanLoop) scan(ctx context.Context) {
 		prev, ok := r.modTimes[path]
 		if !ok || mtime.After(prev) {
 			changed = append(changed, path)
-			r.modTimes[path] = mtime
+			pending[path] = mtime
 		}
 		return nil
 	})
@@ -146,6 +147,10 @@ func (r *RescanLoop) scan(ctx context.Context) {
 	if err != nil {
 		r.logger.Error("rescan: compile failed", "err", err)
 		return
+	}
+
+	for path, mtime := range pending {
+		r.modTimes[path] = mtime
 	}
 
 	r.logger.Info("rescan: applied",
