@@ -1,9 +1,12 @@
 package mcp
 
 import (
+	"bytes"
 	"context"
+	"log/slog"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 
@@ -22,6 +25,31 @@ func TestRescanLoop_SeedMtimes(t *testing.T) {
 
 	if len(r.modTimes) != 2 {
 		t.Errorf("mtimes = %d, want 2 (md + json)", len(r.modTimes))
+	}
+}
+
+func TestRescanLoop_LogsWalkErrors(t *testing.T) {
+	dir := t.TempDir()
+	writeFile(t, dir, "ok.md", "# OK\n")
+
+	unreadable := filepath.Join(dir, "nope")
+	if err := os.MkdirAll(unreadable, 0o000); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = os.Chmod(unreadable, 0o755) })
+
+	var buf bytes.Buffer
+	logger := slog.New(slog.NewTextHandler(&buf, &slog.HandlerOptions{Level: slog.LevelWarn}))
+
+	st := testutil.OpenTestDB(t)
+	r := NewRescanLoop(st, dir, time.Minute, logger)
+	r.seedMtimes()
+
+	if !strings.Contains(buf.String(), "level=WARN") {
+		t.Errorf("expected WARN log for walk error, got: %q", buf.String())
+	}
+	if !strings.Contains(buf.String(), "nope") {
+		t.Errorf("expected path %q in log, got: %q", "nope", buf.String())
 	}
 }
 

@@ -65,6 +65,7 @@ func (r *RescanLoop) Run(ctx context.Context) {
 func (r *RescanLoop) seedMtimes() {
 	_ = filepath.WalkDir(r.dir, func(path string, d os.DirEntry, err error) error {
 		if err != nil {
+			r.logger.Warn("rescan: walk error", "path", path, "err", err)
 			return nil
 		}
 		if d.IsDir() {
@@ -94,6 +95,7 @@ func (r *RescanLoop) scan(ctx context.Context) {
 
 	_ = filepath.WalkDir(r.dir, func(path string, d os.DirEntry, err error) error {
 		if err != nil {
+			r.logger.Warn("rescan: walk error", "path", path, "err", err)
 			return nil
 		}
 		if d.IsDir() {
