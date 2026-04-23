@@ -261,6 +261,56 @@ func TestRescanLoop_RecordsDeletionsInSnapshot(t *testing.T) {
 	}
 }
 
+func TestRescanLoop_SkipsPurgeOnWalkError(t *testing.T) {
+	dir := t.TempDir()
+	writeFile(t, dir, "keep.md", "# Keep\n\nBody.\n")
+
+	st := testutil.OpenTestDB(t)
+	r := NewRescanLoop(st, dir, time.Minute, nil)
+	r.now = func() time.Time { return time.Now().Add(time.Hour) }
+
+	ctx := context.Background()
+	r.scan(ctx)
+
+	before, err := st.GetNodesByFile(ctx, "keep.md")
+	if err != nil {
+		t.Fatalf("GetNodesByFile: %v", err)
+	}
+	if len(before) == 0 {
+		t.Fatal("expected keep.md nodes after initial scan")
+	}
+
+	snapsBefore, _ := st.ListSnapshots(ctx, 10)
+
+	// Block the walk by removing read permission on the root.
+	if err := os.Chmod(dir, 0o000); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = os.Chmod(dir, 0o755) })
+
+	r.scan(ctx)
+
+	_ = os.Chmod(dir, 0o755)
+
+	after, err := st.GetNodesByFile(ctx, "keep.md")
+	if err != nil {
+		t.Fatalf("GetNodesByFile: %v", err)
+	}
+	if len(after) != len(before) {
+		t.Errorf("keep.md nodes = %d, want %d (walk failed, must not purge)", len(after), len(before))
+	}
+
+	snapsAfter, _ := st.ListSnapshots(ctx, 10)
+	if len(snapsAfter) != len(snapsBefore) {
+		t.Errorf("snapshots changed: before=%d after=%d (walk failed, must not emit purge snapshot)",
+			len(snapsBefore), len(snapsAfter))
+	}
+
+	if _, ok := r.modTimes[filepath.Join(dir, "keep.md")]; !ok {
+		t.Error("modTimes entry dropped despite walk error")
+	}
+}
+
 func TestRescanLoop_NewFile(t *testing.T) {
 	dir := t.TempDir()
 
