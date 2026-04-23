@@ -201,6 +201,66 @@ func TestRescanLoop_ReconcilesDeletedFiles(t *testing.T) {
 	}
 }
 
+func TestRescanLoop_RecordsDeletionsInSnapshot(t *testing.T) {
+	dir := t.TempDir()
+	writeFile(t, dir, "keep.md", "# Keep\n")
+	writeFile(t, dir, "gone.md", "# Gone\n\nBody.\n")
+
+	st := testutil.OpenTestDB(t)
+	r := NewRescanLoop(st, dir, time.Minute, nil)
+	r.now = func() time.Time { return time.Now().Add(time.Hour) }
+
+	ctx := context.Background()
+	r.scan(ctx)
+
+	goneNodes, err := st.GetNodesByFile(ctx, "gone.md")
+	if err != nil {
+		t.Fatalf("GetNodesByFile: %v", err)
+	}
+	if len(goneNodes) == 0 {
+		t.Fatal("expected gone.md nodes after initial scan")
+	}
+
+	snapsBefore, _ := st.ListSnapshots(ctx, 10)
+
+	if err := os.Remove(filepath.Join(dir, "gone.md")); err != nil {
+		t.Fatal(err)
+	}
+	r.scan(ctx)
+
+	snapsAfter, _ := st.ListSnapshots(ctx, 10)
+	if len(snapsAfter) != len(snapsBefore)+1 {
+		t.Fatalf("snapshots = %d, want %d (one new purge snapshot)", len(snapsAfter), len(snapsBefore)+1)
+	}
+
+	purge := snapsAfter[0]
+	if !strings.Contains(purge.Message, "purged") {
+		t.Errorf("purge snapshot message = %q, want to contain %q", purge.Message, "purged")
+	}
+
+	diffs, err := st.GetDiffsBySnapshot(ctx, purge.ID)
+	if err != nil {
+		t.Fatalf("GetDiffsBySnapshot: %v", err)
+	}
+	if len(diffs) != len(goneNodes) {
+		t.Errorf("diff records = %d, want %d (one per deleted node)", len(diffs), len(goneNodes))
+	}
+
+	for _, d := range diffs {
+		if d.Op != "rem" {
+			t.Errorf("diff op = %q, want %q", d.Op, "rem")
+		}
+		if d.OldHash == "" || d.OldContent == "" {
+			t.Errorf("diff missing old hash/content: %+v", d)
+		}
+	}
+
+	cursor, _ := st.GetHeadCursorHash(ctx)
+	if cursor != purge.CursorHash {
+		t.Errorf("HEAD cursor = %q, want %q", cursor, purge.CursorHash)
+	}
+}
+
 func TestRescanLoop_NewFile(t *testing.T) {
 	dir := t.TempDir()
 

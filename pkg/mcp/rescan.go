@@ -2,6 +2,7 @@ package mcp
 
 import (
 	"context"
+	"fmt"
 	"log/slog"
 	"os"
 	"path/filepath"
@@ -9,6 +10,9 @@ import (
 
 	"github.com/radimsem/remindb/internal/fileext"
 	"github.com/radimsem/remindb/pkg/compiler"
+	"github.com/radimsem/remindb/pkg/diff"
+	"github.com/radimsem/remindb/pkg/emitter"
+	"github.com/radimsem/remindb/pkg/parser"
 	"github.com/radimsem/remindb/pkg/store"
 )
 
@@ -156,9 +160,41 @@ func (r *RescanLoop) reconcileDeleted(ctx context.Context, deleted []string) {
 		return
 	}
 
-	if err := r.store.DeleteNodesByFiles(ctx, deleted); err != nil {
-		r.logger.Error("rescan: purge failed", "err", err)
+	nodes, err := r.store.GetNodesByFiles(ctx, deleted)
+	if err != nil {
+		r.logger.Error("rescan: load deleted nodes failed", "err", err)
 		return
 	}
-	r.logger.Info("rescan: purged deleted files", "count", len(deleted), "files", deleted)
+	if len(nodes) == 0 {
+		return
+	}
+
+	deltas := make([]diff.Delta, 0, len(nodes))
+	synthetic := make([]*parser.ContextNode, 0, len(nodes))
+	for _, n := range nodes {
+		deltas = append(deltas, diff.Delta{
+			NodeID:     n.ID,
+			Op:         diff.OpRem,
+			OldHash:    n.ContentHash,
+			OldContent: n.Content,
+		})
+		// "rem:" prefix keeps the delete cursor-hash domain disjoint from compile's.
+		synthetic = append(synthetic, &parser.ContextNode{ContentHash: "rem:" + n.ID + ":" + n.ContentHash})
+	}
+
+	msg := fmt.Sprintf("rescan: purged %d files", len(deleted))
+	if err := emitter.Emit(ctx, r.store,
+		emitter.WithDeltas(deltas),
+		emitter.WithCursorHash(diff.CursorHashFlat(synthetic)),
+		emitter.WithMessage(msg),
+	); err != nil {
+		r.logger.Error("rescan: purge emit failed", "err", err)
+		return
+	}
+
+	r.logger.Info("rescan: purged deleted files",
+		"files", len(deleted),
+		"nodes", len(nodes),
+		"paths", deleted,
+	)
 }
