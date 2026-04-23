@@ -145,9 +145,7 @@ func TestOpenClawAgentWorkflow(t *testing.T) {
 	t.Logf("fetch around %s: %d nodes, %d tokens", searchResult.Nodes[0].Node.ID, len(fetchResult.Nodes), fetchResult.TokensUsed)
 }
 
-// TestClaudeCodeMemoryWorkflow simulates the memory workflow of a Claude Code
-// session: compile project instructions and memory files, then search for
-// feedback and project context as the agent would when starting a task.
+// Simulates the memory workflow of a Claude Code.
 func TestClaudeCodeMemoryWorkflow(t *testing.T) {
 	st := testutil.OpenTestDB(t)
 	ctx := context.Background()
@@ -217,9 +215,7 @@ func TestClaudeCodeMemoryWorkflow(t *testing.T) {
 	logSearchResult(t, "user preferences", userResult)
 }
 
-// TestGeminiCliMemoryWorkflow simulates a Gemini CLI session working on the
-// infra-api project: compile mixed markdown+yaml fixtures, search for
-// architecture decisions and incident history.
+// Simulates a Gemini CLI session working.
 func TestGeminiCliMemoryWorkflow(t *testing.T) {
 	st := testutil.OpenTestDB(t)
 	ctx := context.Background()
@@ -268,9 +264,7 @@ func TestGeminiCliMemoryWorkflow(t *testing.T) {
 	logSearchResult(t, "YAML dependencies", depResult)
 }
 
-// TestCodexAgentWorkflow simulates a Codex agent session: compile a Python
-// data pipeline project, search for architecture, typing feedback, ETL
-// migration state, and YAML pipeline configuration.
+// Simulates a Codex agent session.
 func TestCodexAgentWorkflow(t *testing.T) {
 	st := testutil.OpenTestDB(t)
 	ctx := context.Background()
@@ -370,8 +364,7 @@ func TestCodexAgentWorkflow(t *testing.T) {
 	t.Logf("fetch around %s: %d nodes, %d tokens", archResult.Nodes[0].Node.ID, len(fetchResult.Nodes), fetchResult.TokensUsed)
 }
 
-// TestRecompileWorkflow tests incremental recompilation: compile, modify a
-// file, recompile, verify snapshots and diffs accumulate.
+// Tests incremental recompilation.
 func TestRecompileWorkflow(t *testing.T) {
 	st := testutil.OpenTestDB(t)
 	ctx := context.Background()
@@ -405,6 +398,7 @@ func TestRecompileWorkflow(t *testing.T) {
 	updated := strings.ReplaceAll(string(src),
 		"Implement checkout flow with Stripe integration",
 		"Checkout flow shipped, now in QA")
+
 	if err := os.WriteFile(p, []byte(updated), 0o644); err != nil {
 		t.Fatal(err)
 	}
@@ -432,11 +426,11 @@ func TestRecompileWorkflow(t *testing.T) {
 	if len(diffs) == 0 {
 		t.Error("expected diffs between v1 and v2")
 	}
+
 	testutil.LogDiffs(t, diffs)
 }
 
-// TestTemperatureBoostOnAccess verifies that querying nodes boosts their
-// temperature, simulating the "frequently accessed = hotter" behavior.
+// Verifies that querying nodes boosts their temperature.
 func TestTemperatureBoostOnAccess(t *testing.T) {
 	st := testutil.OpenTestDB(t)
 	ctx := context.Background()
@@ -455,6 +449,7 @@ func TestTemperatureBoostOnAccess(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Search: %v", err)
 	}
+
 	if len(result.Nodes) == 0 {
 		t.Fatal("expected search results")
 	}
@@ -485,11 +480,11 @@ func TestTemperatureBoostOnAccess(t *testing.T) {
 	if after.AccessCount != before.AccessCount+1 {
 		t.Errorf("access_count = %d, want %d", after.AccessCount, before.AccessCount+1)
 	}
+
 	t.Logf("temperature boost: %.3f -> %.3f (access=%d)", tempBefore, after.Temperature, after.AccessCount)
 }
 
-// TestCrossFormatSearch verifies that search works across all fixture formats
-// (markdown, YAML, JSON) after compiling the original testdata samples.
+// Verifies that search works across all fixture formats.
 func TestCrossFormatSearch(t *testing.T) {
 	st := testutil.OpenTestDB(t)
 	ctx := context.Background()
@@ -544,6 +539,8 @@ func TestCrossFormatSearch(t *testing.T) {
 
 func logSearchResult(t *testing.T, label string, result *query.Result) {
 	t.Helper()
+	const limit = 80
+
 	if len(result.Nodes) == 0 {
 		t.Logf("search %q: no results", label)
 		return
@@ -551,10 +548,11 @@ func logSearchResult(t *testing.T, label string, result *query.Result) {
 
 	var b strings.Builder
 	fmt.Fprintf(&b, "search %q: %d nodes, %d tokens\n", label, len(result.Nodes), result.TokensUsed)
+
 	for i, sn := range result.Nodes {
 		content := sn.Node.Content
-		if len(content) > 80 {
-			content = content[:80] + "..."
+		if len(content) > limit {
+			content = content[:limit] + "..."
 		}
 		fmt.Fprintf(&b, "  [%d] score=%.4f [%s] %s\n", i, sn.Score, sn.Node.NodeType, content)
 	}
@@ -564,6 +562,7 @@ func logSearchResult(t *testing.T, label string, result *query.Result) {
 func abs(t *testing.T, path string) string {
 	t.Helper()
 	p, err := filepath.Abs(path)
+
 	if err != nil {
 		t.Fatal(err)
 	}

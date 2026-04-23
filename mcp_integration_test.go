@@ -9,9 +9,7 @@ import (
 	"github.com/radimsem/remindb/internal/mcptest"
 )
 
-// TestMcp_OpenClawAgent simulates an OpenClaw agent session:
-// compile identity files, search for capabilities, fetch context
-// around a node, write a new memory, then check the tree.
+// Simulates an OpenClaw agent session.
 func TestMcp_OpenClawAgent(t *testing.T) {
 	env := mcptest.NewEnv(t)
 	dir, _ := filepath.Abs("testdata/openclaw")
@@ -29,8 +27,10 @@ func TestMcp_OpenClawAgent(t *testing.T) {
 	// 2. Agent inspects its memory tree — should include all workspace files.
 	treeResult := env.CallTool(t, "MemoryTree", map[string]any{})
 	treeText := env.TextContent(t, treeResult)
+
+	const limit = 200
 	if !strings.Contains(treeText, "Soul") && !strings.Contains(treeText, "Identity") {
-		t.Errorf("tree should contain Soul/Identity headings, got: %s", treeText[:min(200, len(treeText))])
+		t.Errorf("tree should contain Soul/Identity headings, got: %s", treeText[:min(limit, len(treeText))])
 	}
 
 	// 3. Agent searches for its capabilities to self-describe.
@@ -105,9 +105,7 @@ func TestMcp_OpenClawAgent(t *testing.T) {
 	}
 }
 
-// TestMcp_ClaudeCodeAgent simulates a Claude Code session:
-// compile project instructions + memory files, search for testing
-// feedback, write a new feedback memory, summarize a verbose node.
+// Simulates a Claude Code session.
 func TestMcp_ClaudeCodeAgent(t *testing.T) {
 	env := mcptest.NewEnv(t)
 	dir, _ := filepath.Abs("testdata/claude-code")
@@ -179,9 +177,7 @@ func TestMcp_ClaudeCodeAgent(t *testing.T) {
 	}
 }
 
-// TestMcp_GeminiCliAgent simulates a Gemini CLI session:
-// compile mixed markdown+YAML fixtures, search architecture decisions,
-// write a decision, check history.
+// Simulates a Gemini CLI session.
 func TestMcp_GeminiCliAgent(t *testing.T) {
 	env := mcptest.NewEnv(t)
 	dir, _ := filepath.Abs("testdata/gemini-cli")
@@ -254,9 +250,7 @@ func TestMcp_GeminiCliAgent(t *testing.T) {
 	}
 }
 
-// TestMcp_CodexAgent simulates a Codex agent session: compile Python pipeline
-// fixtures, search for typing feedback and migration state, write a new
-// decision, verify cross-format search hits YAML config.
+// Simulates a Codex agent session.
 func TestMcp_CodexAgent(t *testing.T) {
 	env := mcptest.NewEnv(t)
 	dir, _ := filepath.Abs("testdata/codex")
@@ -351,7 +345,7 @@ func TestMcp_CodexAgent(t *testing.T) {
 	}
 }
 
-// TestMcp_ToolDiscovery verifies that the client can list all available tools.
+// Verifies that the client can list all available tools.
 func TestMcp_ToolDiscovery(t *testing.T) {
 	env := mcptest.NewEnv(t)
 
@@ -384,13 +378,15 @@ func TestMcp_ToolDiscovery(t *testing.T) {
 	}
 }
 
-// extractNodeID parses "wrote node XXXXXXXX (N tokens)" to get the node ID.
+// Parses "wrote node XXXXXXXX (N tokens)" to get the node ID.
 func extractNodeID(s string) string {
 	prefix := "wrote node "
 	i := strings.Index(s, prefix)
+
 	if i < 0 {
 		return ""
 	}
+
 	rest := s[i+len(prefix):]
 	if j := strings.IndexByte(rest, ' '); j > 0 {
 		return rest[:j]
@@ -398,14 +394,16 @@ func extractNodeID(s string) string {
 	return rest
 }
 
-// extractFirstNodeID finds the first node ID in tree output like "(id=XXXXXXXX".
+// Finds the first node ID in tree output like "(id=XXXXXXXX".
 func extractFirstNodeID(tree string) string {
 	prefix := "(id="
 	i := strings.Index(tree, prefix)
+
 	if i < 0 {
 		// Try the other format: "(XXXXXXXX)"
 		return extractFirstParenID(tree)
 	}
+
 	rest := tree[i+len(prefix):]
 	if j := strings.IndexAny(rest, " )"); j > 0 {
 		return rest[:j]
@@ -419,9 +417,11 @@ func extractFirstParenID(tree string) string {
 	if i < 0 {
 		return ""
 	}
+
 	rest := tree[i+1:]
 	if j := strings.IndexByte(rest, ')'); j > 0 {
 		id := rest[:j]
+
 		// Validate it looks like an ID (8 alphanumeric chars).
 		if len(id) >= 6 && !strings.Contains(id, " ") {
 			return id
