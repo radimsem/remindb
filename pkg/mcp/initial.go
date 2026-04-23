@@ -25,7 +25,7 @@ func MaybeInitialCompile(ctx context.Context, st *store.Store, dir string, logge
 
 	logger.Info("serve: empty DB detected, running initial compile", "source", dir)
 
-	result, err := compiler.CompileDir(ctx, st, dir, "initial")
+	result, err := compiler.CompileDir(ctx, st, dir, "initial", compiler.WithLogger(logger))
 	if err != nil {
 		return fmt.Errorf("failed to compile: %w", err)
 	}

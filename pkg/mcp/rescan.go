@@ -140,6 +140,7 @@ func (r *RescanLoop) scan(ctx context.Context) {
 		compiler.WithPaths(changed),
 		compiler.WithMessage("rescan"),
 		compiler.WithCompileRoot(r.dir),
+		compiler.WithLogger(r.logger),
 	)
 	if err != nil {
 		r.logger.Error("rescan: compile failed", "err", err)

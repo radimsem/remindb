@@ -4,7 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"log"
+	"log/slog"
 	"os"
 	"path/filepath"
 
@@ -31,6 +31,7 @@ type options struct {
 	message     string
 	compileRoot string
 	temps       map[string]*float64
+	logger      *slog.Logger
 }
 
 func WithPaths(p []string) Option {
@@ -49,10 +50,19 @@ func WithTemps(t map[string]*float64) Option {
 	return func(o *options) { o.temps = t }
 }
 
+func WithLogger(l *slog.Logger) Option {
+	return func(o *options) { o.logger = l }
+}
+
 func Compile(ctx context.Context, st *store.Store, opts ...Option) (*Result, error) {
 	var o options
 	for _, opt := range opts {
 		opt(&o)
+	}
+
+	logger := o.logger
+	if logger == nil {
+		logger = slog.Default()
 	}
 
 	var roots []*parser.ContextNode
@@ -65,7 +75,7 @@ func Compile(ctx context.Context, st *store.Store, opts ...Option) (*Result, err
 		nodes, err := parser.ParseBytes(p, data)
 		if err != nil {
 			if errors.Is(err, parser.ErrUnsupportedExt) {
-				log.Printf("skipping %s: %v", p, err)
+				logger.Warn("compile: skipping unsupported file", "path", p, "err", err)
 				continue
 			}
 			return nil, fmt.Errorf("failed to parse: %s: %w", p, err)
@@ -113,7 +123,7 @@ func seedTemp(nodes []*parser.ContextNode, t *float64) {
 	}
 }
 
-func CompileDir(ctx context.Context, st *store.Store, dir, message string) (*Result, error) {
+func CompileDir(ctx context.Context, st *store.Store, dir, message string, opts ...Option) (*Result, error) {
 	var paths []string
 
 	err := filepath.WalkDir(dir, func(path string, d os.DirEntry, err error) error {
@@ -148,12 +158,16 @@ func CompileDir(ctx context.Context, st *store.Store, dir, message string) (*Res
 	if err != nil {
 		return nil, fmt.Errorf("failed to resolve: %s: %w", dir, err)
 	}
-	return Compile(ctx, st,
+
+	// Caller-supplied opts come first so WithPaths/WithCompileRoot/WithTemps below win.
+	all := append([]Option{}, opts...)
+	all = append(all,
 		WithPaths(paths),
 		WithMessage(message),
 		WithCompileRoot(absDir),
 		WithTemps(temps),
 	)
+	return Compile(ctx, st, all...)
 }
 
 func resolveTemps(dir string, paths []string) (map[string]*float64, error) {

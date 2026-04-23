@@ -33,11 +33,12 @@ func (d *Deps) HandleCompile(ctx context.Context, _ *gomcp.CallToolRequest, inpu
 
 	var result *compiler.Result
 	if fi.IsDir() {
-		result, err = compiler.CompileDir(ctx, d.Store, input.Path, msg)
+		result, err = compiler.CompileDir(ctx, d.Store, input.Path, msg, compiler.WithLogger(d.Logger))
 	} else {
 		result, err = compiler.Compile(ctx, d.Store,
 			compiler.WithPaths([]string{input.Path}),
 			compiler.WithMessage(msg),
+			compiler.WithLogger(d.Logger),
 		)
 	}
 	if err != nil {
