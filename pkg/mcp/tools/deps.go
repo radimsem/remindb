@@ -44,7 +44,7 @@ func (d *Deps) boostResultNodes(ctx context.Context, result *query.Result) {
 	}
 
 	if err := d.Tracker.RecordAccess(ctx, ids); err != nil && d.Logger != nil {
-		d.Logger.Warn("failed to boost: access", "err", err, "count", len(ids))
+		d.Logger.Warn("failed to boost: access", "err", err, "count", len(ids), "ids", ids)
 	}
 }
 
