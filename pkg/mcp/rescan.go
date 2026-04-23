@@ -75,7 +75,7 @@ func (r *RescanLoop) scan(ctx context.Context) {
 	pending := make(map[string]time.Time)
 	now := r.now()
 
-	_ = filepath.WalkDir(r.dir, func(path string, d os.DirEntry, err error) error {
+	walkErr := filepath.WalkDir(r.dir, func(path string, d os.DirEntry, err error) error {
 		if err != nil {
 			r.logger.Warn("rescan: walk error", "path", path, "err", err)
 			return nil
@@ -111,6 +111,9 @@ func (r *RescanLoop) scan(ctx context.Context) {
 		}
 		return nil
 	})
+	if walkErr != nil {
+		r.logger.Error("rescan: walk failed", "dir", r.dir, "err", walkErr)
+	}
 
 	// Purge entries for deleted files.
 	var deleted []string
