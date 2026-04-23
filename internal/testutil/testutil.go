@@ -9,6 +9,8 @@ import (
 	"github.com/radimsem/remindb/pkg/store"
 )
 
+const logLabelMaxLen = 60
+
 func OpenTestDB(t *testing.T) *store.Store {
 	t.Helper()
 	st, err := store.Open(":memory:")
@@ -48,8 +50,8 @@ func LogTree(t *testing.T, st *store.Store) {
 func logTreeNode(b *strings.Builder, st *store.Store, ctx context.Context, n *store.Node, depth int) {
 	indent := strings.Repeat("  ", depth)
 	label := n.Label
-	if len(label) > 60 {
-		label = label[:60] + "..."
+	if len(label) > logLabelMaxLen {
+		label = label[:logLabelMaxLen] + "..."
 	}
 	fmt.Fprintf(b, "%s[%s] %s (id=%s temp=%.2f tok=%d)\n",
 		indent, n.NodeType, label, n.ID, n.Temperature, n.TokenCount)

@@ -21,6 +21,14 @@ const (
 	ansiBrightW = "\x1b[97m"
 )
 
+const (
+	defaultInspectDepth = 10
+	inspectLabelPad     = 14
+	hotThreshold        = 0.5
+	coldThreshold       = 0.1
+	gradientGreen       = 60
+)
+
 var (
 	inspectShowTree  bool
 	inspectTreeDepth int
@@ -35,7 +43,7 @@ var inspectCmd = &cobra.Command{
 
 func init() {
 	inspectCmd.Flags().BoolVar(&inspectShowTree, "tree", false, "Render the node tree")
-	inspectCmd.Flags().IntVar(&inspectTreeDepth, "depth", 10, "Maximum tree depth (requires --tree)")
+	inspectCmd.Flags().IntVar(&inspectTreeDepth, "depth", defaultInspectDepth, "Maximum tree depth (requires --tree)")
 	rootCmd.AddCommand(inspectCmd)
 }
 
@@ -97,16 +105,19 @@ func printStats(w io.Writer, s *store.Stats) {
 	_, _ = fmt.Fprintln(w, paint(ansiBold+ansiCyan, header))
 
 	row := func(label, value string) {
-		padded := runePad(label, 14)
+		padded := runePad(label, inspectLabelPad)
 		_, _ = fmt.Fprintf(w, "%s %s\n", paint(ansiDim, padded), value)
 	}
 	num := func(n int) string { return paint(ansiBrightW, fmt.Sprintf("%d", n)) }
 
+	hotLabel := fmt.Sprintf("Hot (≥%.1f):", hotThreshold)
+	coldLabel := fmt.Sprintf("Cold (<%.1f):", coldThreshold)
+
 	row("Nodes:", num(s.NodeCount))
 	row("Snapshots:", num(s.SnapshotCount))
 	row("Avg temp:", tempPaint(s.AvgTemp))
-	row("Hot (≥0.5):", num(s.HotCount))
-	row("Cold (<0.1):", num(s.ColdCount))
+	row(hotLabel, num(s.HotCount))
+	row(coldLabel, num(s.ColdCount))
 	_, _ = fmt.Fprintln(w)
 }
 
@@ -154,7 +165,7 @@ func tempPaint(t float64) string {
 		c = 1
 	}
 	r := int(255 * c)
-	g := 60
+	g := gradientGreen
 	b := int(255 * (1 - c))
 
 	return fmt.Sprintf("\x1b[38;2;%d;%d;%dm%s%s", r, g, b, s, ansiReset)

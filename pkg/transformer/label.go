@@ -8,7 +8,12 @@ import (
 	"github.com/radimsem/remindb/pkg/parser"
 )
 
-const maxLabelLen = 80
+const (
+	maxLabelLen    = 80
+	codeLabelLines = 3
+	kvLabelKeys    = 3
+	ellipsis       = "..."
+)
 
 func setLabel(n *parser.ContextNode) {
 	switch n.NodeType {
@@ -74,7 +79,7 @@ func labelTable(n *parser.ContextNode) string {
 }
 
 func labelCode(n *parser.ContextNode) string {
-	lines := strings.SplitN(n.Content, "\n", 3)
+	lines := strings.SplitN(n.Content, "\n", codeLabelLines)
 	if len(lines) == 0 {
 		return "Code"
 	}
@@ -91,7 +96,7 @@ func labelCode(n *parser.ContextNode) string {
 }
 
 func labelKV(n *parser.ContextNode) string {
-	keys := extractTopKeys(n.Content, 3)
+	keys := extractTopKeys(n.Content, kvLabelKeys)
 	if len(keys) == 0 {
 		return truncate(n.Content, maxLabelLen)
 	}
@@ -147,9 +152,9 @@ func truncate(s string, max int) string {
 		return s
 	}
 
-	end := max - 3
+	end := max - len(ellipsis)
 	for end > 0 && !utf8.RuneStart(s[end]) {
 		end--
 	}
-	return s[:end] + "..."
+	return s[:end] + ellipsis
 }
