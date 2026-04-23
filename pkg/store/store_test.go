@@ -200,14 +200,12 @@ func TestStore_OpMuSerializes(t *testing.T) {
 
 	start := time.Now()
 	var wg sync.WaitGroup
-	for i := 0; i < N; i++ {
-		wg.Add(1)
-		go func() {
-			defer wg.Done()
+	for range N {
+		wg.Go(func() {
 			st.OpMu.Lock()
 			defer st.OpMu.Unlock()
 			time.Sleep(hold)
-		}()
+		})
 	}
 	wg.Wait()
 

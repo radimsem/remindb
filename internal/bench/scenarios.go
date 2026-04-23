@@ -239,13 +239,11 @@ func sumFileTokens(files []string) int {
 }
 
 func parseTopNodeID(text string) string {
-	const prefix = "(id="
-	i := strings.Index(text, prefix)
-	if i < 0 {
+	_, rest, ok := strings.Cut(text, "(id=")
+	if !ok {
 		return ""
 	}
 
-	rest := text[i+len(prefix):]
 	if j := strings.IndexAny(rest, " )"); j > 0 {
 		return rest[:j]
 	}

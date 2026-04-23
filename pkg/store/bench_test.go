@@ -24,7 +24,7 @@ func seedNodes(b *testing.B, st *Store, n int) []*Node {
 	ctx := context.Background()
 	nodes := make([]*Node, n)
 
-	for i := 0; i < n; i++ {
+	for i := range n {
 		parentID := ""
 		if i > 0 {
 			parentID = fmt.Sprintf("node%04d", (i-1)/3)
@@ -71,8 +71,8 @@ func BenchmarkUpsertNode(b *testing.B) {
 	}
 
 	b.ReportAllocs()
-	b.ResetTimer()
-	for i := 0; i < b.N; i++ {
+
+	for i := 0; b.Loop(); i++ {
 		n.ID = ids[i%1000]
 		_ = st.UpsertNode(ctx, n)
 	}
@@ -85,8 +85,8 @@ func BenchmarkGetNode(b *testing.B) {
 	target := nodes[100].ID
 
 	b.ReportAllocs()
-	b.ResetTimer()
-	for i := 0; i < b.N; i++ {
+
+	for b.Loop() {
 		_, _ = st.GetNode(ctx, target)
 	}
 }
@@ -128,8 +128,8 @@ func BenchmarkGetAncestors(b *testing.B) {
 	deep := nodes[len(nodes)-1].ID
 
 	b.ReportAllocs()
-	b.ResetTimer()
-	for i := 0; i < b.N; i++ {
+
+	for b.Loop() {
 		_, _ = st.GetAncestors(ctx, deep)
 	}
 }
@@ -140,8 +140,8 @@ func BenchmarkGetDescendants(b *testing.B) {
 	ctx := context.Background()
 
 	b.ReportAllocs()
-	b.ResetTimer()
-	for i := 0; i < b.N; i++ {
+
+	for b.Loop() {
 		_, _ = st.GetDescendants(ctx, "node0000", 10)
 	}
 }

@@ -9,7 +9,7 @@ import (
 
 func benchDiffNodes(n int) []*parser.ContextNode {
 	nodes := make([]*parser.ContextNode, n)
-	for i := 0; i < n; i++ {
+	for i := range n {
 		nodes[i] = &parser.ContextNode{
 			ID:          fmt.Sprintf("node%04d", i),
 			ContentHash: fmt.Sprintf("%016x", i*12345),

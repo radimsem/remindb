@@ -380,14 +380,11 @@ func TestMcp_ToolDiscovery(t *testing.T) {
 
 // Parses "wrote node XXXXXXXX (N tokens)" to get the node ID.
 func extractNodeID(s string) string {
-	prefix := "wrote node "
-	i := strings.Index(s, prefix)
-
-	if i < 0 {
+	_, rest, ok := strings.Cut(s, "wrote node ")
+	if !ok {
 		return ""
 	}
 
-	rest := s[i+len(prefix):]
 	if j := strings.IndexByte(rest, ' '); j > 0 {
 		return rest[:j]
 	}
@@ -396,15 +393,12 @@ func extractNodeID(s string) string {
 
 // Finds the first node ID in tree output like "(id=XXXXXXXX".
 func extractFirstNodeID(tree string) string {
-	prefix := "(id="
-	i := strings.Index(tree, prefix)
-
-	if i < 0 {
+	_, rest, ok := strings.Cut(tree, "(id=")
+	if !ok {
 		// Try the other format: "(XXXXXXXX)"
 		return extractFirstParenID(tree)
 	}
 
-	rest := tree[i+len(prefix):]
 	if j := strings.IndexAny(rest, " )"); j > 0 {
 		return rest[:j]
 	}
@@ -413,12 +407,11 @@ func extractFirstNodeID(tree string) string {
 
 func extractFirstParenID(tree string) string {
 	// Tree format: "[type] label (XXXXXXXX)"
-	i := strings.Index(tree, "(")
-	if i < 0 {
+	_, rest, ok := strings.Cut(tree, "(")
+	if !ok {
 		return ""
 	}
 
-	rest := tree[i+1:]
 	if j := strings.IndexByte(rest, ')'); j > 0 {
 		id := rest[:j]
 

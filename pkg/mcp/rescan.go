@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"log/slog"
+	"maps"
 	"os"
 	"path/filepath"
 	"time"
@@ -149,9 +150,7 @@ func (r *RescanLoop) scan(ctx context.Context) {
 		return
 	}
 
-	for path, mtime := range pending {
-		r.modTimes[path] = mtime
-	}
+	maps.Copy(r.modTimes, pending)
 
 	r.logger.Info("rescan: applied",
 		"added", result.Added,

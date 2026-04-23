@@ -4,14 +4,14 @@ import "testing"
 
 func BenchmarkDecayFactor(b *testing.B) {
 	b.ReportAllocs()
-	for i := 0; i < b.N; i++ {
+	for b.Loop() {
 		decayFactor(0.05, 24.0)
 	}
 }
 
 func BenchmarkScore(b *testing.B) {
 	b.ReportAllocs()
-	for i := 0; i < b.N; i++ {
+	for b.Loop() {
 		Score(2.5, 0.75)
 	}
 }

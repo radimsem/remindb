@@ -38,10 +38,7 @@ func (e *Engine) Fetch(ctx context.Context, anchor string, budget, depth int) (*
 		return nil, err
 	}
 
-	remaining := budget - node.TokenCount
-	if remaining < 0 {
-		remaining = 0
-	}
+	remaining := max(budget-node.TokenCount, 0)
 
 	d := e.maxDepth
 	if depth > 0 {

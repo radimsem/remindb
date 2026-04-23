@@ -13,7 +13,7 @@ import (
 func benchScoredNodes(n int) []ScoredNode {
 	now := time.Now()
 	out := make([]ScoredNode, 0, n)
-	for i := 0; i < n; i++ {
+	for i := range n {
 		out = append(out, ScoredNode{
 			Node: &store.Node{
 				ID:           fmt.Sprintf("%08d", i),
@@ -33,7 +33,7 @@ func benchScoredNodes(n int) []ScoredNode {
 func benchStoreNodes(n int) []*store.Node {
 	now := time.Now()
 	nodes := make([]*store.Node, 0, n)
-	for i := 0; i < n; i++ {
+	for i := range n {
 		nodes = append(nodes, &store.Node{
 			ID:           fmt.Sprintf("%08d", i),
 			TokenCount:   50 + (i % 200),
@@ -51,7 +51,7 @@ func BenchmarkScoreNode(b *testing.B) {
 		LastAccessed: sql.NullInt64{Int64: now.Add(-2 * time.Hour).Unix(), Valid: true},
 	}
 	b.ReportAllocs()
-	for i := 0; i < b.N; i++ {
+	for b.Loop() {
 		scoreNode(n, 2.5, now)
 	}
 }
@@ -86,7 +86,7 @@ func BenchmarkFormat(b *testing.B) {
 	scored := benchScoredNodes(50)
 	result := &Result{Nodes: scored, TokensUsed: 5000}
 	b.ReportAllocs()
-	for i := 0; i < b.N; i++ {
+	for b.Loop() {
 		Format(result)
 	}
 }

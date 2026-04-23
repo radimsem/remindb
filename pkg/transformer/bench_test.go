@@ -22,7 +22,7 @@ func benchNodes(n int) []*parser.ContextNode {
 		"name: gateway\nversion: 2.1.0\nport: 8080\nreplicas: 3",
 	}
 
-	for i := 0; i < n; i++ {
+	for i := range n {
 		idx := i % len(types)
 		nodes = append(nodes, &parser.ContextNode{
 			SourceFile: fmt.Sprintf("bench/doc_%d.md", i/10),
@@ -61,7 +61,7 @@ func BenchmarkCompress(b *testing.B) {
 	n := &parser.ContextNode{}
 	raw := "  Line one  \r\n\r\n\r\n  Line two  \r\n  Line three  \n\n\n\nLine four\n\n"
 	b.ReportAllocs()
-	for i := 0; i < b.N; i++ {
+	for b.Loop() {
 		n.Content = raw
 		compress(n)
 	}

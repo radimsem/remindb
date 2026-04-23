@@ -35,14 +35,12 @@ func splitAtDelim(data []byte, delim string, kind preambleKind) (front, body []b
 	after := data[len(delim):]
 	after = trimLeadingNewline(after)
 
-	closing := "\n" + delim
-	idx := bytes.Index(after, []byte(closing))
-	if idx < 0 {
+	var rest []byte
+	var ok bool
+	front, rest, ok = bytes.Cut(after, []byte("\n"+delim))
+	if !ok {
 		return nil, data, preambleNone
 	}
-
-	front = after[:idx]
-	rest := after[idx+len(closing):]
 
 	switch {
 	case len(rest) == 0:

@@ -36,7 +36,7 @@ func BenchmarkIdentifyNode(b *testing.B) {
 
 	b.SetBytes(int64(len(source) + len(parent)))
 	b.ReportAllocs()
-	for i := 0; i < b.N; i++ {
+	for i := 0; b.Loop(); i++ {
 		IdentifyNode(source, parent, i&siblingIndexMask)
 	}
 }

@@ -26,7 +26,7 @@ func TestConcurrent_TwoWritersSameFile(t *testing.T) {
 
 	go func() {
 		defer wg.Done()
-		for i := 0; i < perWriter; i++ {
+		for i := range perWriter {
 			id := fmt.Sprintf("a_%06d", i)
 			if err := a.UpsertNode(ctx, testNode(id, "")); err != nil {
 				errs <- fmt.Errorf("a: %w", err)
@@ -36,7 +36,7 @@ func TestConcurrent_TwoWritersSameFile(t *testing.T) {
 	}()
 	go func() {
 		defer wg.Done()
-		for i := 0; i < perWriter; i++ {
+		for i := range perWriter {
 			id := fmt.Sprintf("b_%06d", i)
 			if err := b.UpsertNode(ctx, testNode(id, "")); err != nil {
 				errs <- fmt.Errorf("b: %w", err)
@@ -51,7 +51,7 @@ func TestConcurrent_TwoWritersSameFile(t *testing.T) {
 		t.Errorf("concurrent write: %v", err)
 	}
 
-	for i := 0; i < perWriter; i++ {
+	for i := range perWriter {
 		for _, prefix := range []string{"a_", "b_"} {
 			id := fmt.Sprintf("%s%06d", prefix, i)
 
@@ -82,7 +82,7 @@ func TestConcurrent_SnapshotIDsMonotonic(t *testing.T) {
 		go func() {
 			defer wg.Done()
 
-			for i := 0; i < per; i++ {
+			for i := range per {
 				hash := fmt.Sprintf("h%d_%013d", idx, i)
 				err := st.Tx(ctx, func(tx *sql.Tx) error {
 					id, err := st.CreateSnapshotTx(ctx, tx, hash, "concurrent", "")
