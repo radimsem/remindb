@@ -28,6 +28,8 @@ func BenchmarkContentHash(b *testing.B) {
 	}
 }
 
+const siblingIndexMask = 0xff
+
 func BenchmarkIdentifyNode(b *testing.B) {
 	source := "vault/notes/example.md"
 	parent := "AbCdEf12345"
@@ -35,6 +37,6 @@ func BenchmarkIdentifyNode(b *testing.B) {
 	b.SetBytes(int64(len(source) + len(parent)))
 	b.ReportAllocs()
 	for i := 0; i < b.N; i++ {
-		IdentifyNode(source, parent, i&0xff)
+		IdentifyNode(source, parent, i&siblingIndexMask)
 	}
 }
