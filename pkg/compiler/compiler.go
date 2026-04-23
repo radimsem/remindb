@@ -24,9 +24,39 @@ type Result struct {
 	Total    int
 }
 
-func Compile(ctx context.Context, st *store.Store, paths []string, message, compileRoot string, temps map[string]*float64) (*Result, error) {
+type Option func(*options)
+
+type options struct {
+	paths       []string
+	message     string
+	compileRoot string
+	temps       map[string]*float64
+}
+
+func WithPaths(p []string) Option {
+	return func(o *options) { o.paths = p }
+}
+
+func WithMessage(m string) Option {
+	return func(o *options) { o.message = m }
+}
+
+func WithCompileRoot(r string) Option {
+	return func(o *options) { o.compileRoot = r }
+}
+
+func WithTemps(t map[string]*float64) Option {
+	return func(o *options) { o.temps = t }
+}
+
+func Compile(ctx context.Context, st *store.Store, opts ...Option) (*Result, error) {
+	var o options
+	for _, opt := range opts {
+		opt(&o)
+	}
+
 	var roots []*parser.ContextNode
-	for _, p := range paths {
+	for _, p := range o.paths {
 		data, err := os.ReadFile(p)
 		if err != nil {
 			return nil, fmt.Errorf("failed to read: %s: %w", p, err)
@@ -41,7 +71,7 @@ func Compile(ctx context.Context, st *store.Store, paths []string, message, comp
 			return nil, fmt.Errorf("failed to parse: %s: %w", p, err)
 		}
 
-		if t := temps[p]; t != nil {
+		if t := o.temps[p]; t != nil {
 			seedTemp(nodes, t)
 		}
 
@@ -62,7 +92,14 @@ func Compile(ctx context.Context, st *store.Store, paths []string, message, comp
 	deltas := diff.DiffFlat(flat, prev)
 	cursorHash := diff.CursorHashFlat(flat)
 
-	if err := emitter.Emit(ctx, st, roots, deltas, cursorHash, message, compileRoot); err != nil {
+	err = emitter.Emit(ctx, st,
+		emitter.WithRoots(roots),
+		emitter.WithDeltas(deltas),
+		emitter.WithCursorHash(cursorHash),
+		emitter.WithMessage(o.message),
+		emitter.WithCompileRoot(o.compileRoot),
+	)
+	if err != nil {
 		return nil, fmt.Errorf("failed to emit: %w", err)
 	}
 
@@ -111,7 +148,12 @@ func CompileDir(ctx context.Context, st *store.Store, dir, message string) (*Res
 	if err != nil {
 		return nil, fmt.Errorf("failed to resolve: %s: %w", dir, err)
 	}
-	return Compile(ctx, st, paths, message, absDir, temps)
+	return Compile(ctx, st,
+		WithPaths(paths),
+		WithMessage(message),
+		WithCompileRoot(absDir),
+		WithTemps(temps),
+	)
 }
 
 func resolveTemps(dir string, paths []string) (map[string]*float64, error) {

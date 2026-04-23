@@ -26,7 +26,7 @@ func TestCompile(t *testing.T) {
 
 	p := writeFile(t, dir, "doc.md", "# Hello\n\nSome content here.\n")
 
-	result, err := Compile(ctx, st, []string{p}, "initial", "", nil)
+	result, err := Compile(ctx, st, WithPaths([]string{p}), WithMessage("initial"))
 	if err != nil {
 		t.Fatalf("Compile: %v", err)
 	}
@@ -78,7 +78,7 @@ func TestCompile_TotalEqualsSumOfOps(t *testing.T) {
 
 	p := writeFile(t, dir, "doc.md", "# Hi\n\nA.\n\nB.\n")
 
-	first, err := Compile(ctx, st, []string{p}, "v1", "", nil)
+	first, err := Compile(ctx, st, WithPaths([]string{p}), WithMessage("v1"))
 	if err != nil {
 		t.Fatalf("Compile v1: %v", err)
 	}
@@ -89,7 +89,7 @@ func TestCompile_TotalEqualsSumOfOps(t *testing.T) {
 	}
 
 	writeFile(t, dir, "doc.md", "# Hi\n\nA edited.\n\nB.\n")
-	second, err := Compile(ctx, st, []string{p}, "v2", "", nil)
+	second, err := Compile(ctx, st, WithPaths([]string{p}), WithMessage("v2"))
 	if err != nil {
 		t.Fatalf("Compile v2: %v", err)
 	}
@@ -107,7 +107,7 @@ func TestCompile_Recompile(t *testing.T) {
 
 	p := writeFile(t, dir, "doc.md", "# Hello\n\nOriginal content.\n")
 
-	_, err := Compile(ctx, st, []string{p}, "v1", "", nil)
+	_, err := Compile(ctx, st, WithPaths([]string{p}), WithMessage("v1"))
 	if err != nil {
 		t.Fatalf("Compile v1: %v", err)
 	}
@@ -115,7 +115,7 @@ func TestCompile_Recompile(t *testing.T) {
 	// Modify and recompile.
 	writeFile(t, dir, "doc.md", "# Hello\n\nUpdated content.\n")
 
-	result, err := Compile(ctx, st, []string{p}, "v2", "", nil)
+	result, err := Compile(ctx, st, WithPaths([]string{p}), WithMessage("v2"))
 	if err != nil {
 		t.Fatalf("Compile v2: %v", err)
 	}
@@ -151,7 +151,11 @@ func TestCompile_SingleFileRescanAfterBatch(t *testing.T) {
 	writeFile(t, dir, "ALERT.md", "# Alert\n\nPrompt line.\n")
 
 	// Simulate rescan: recompile only the changed file.
-	result, err := Compile(ctx, st, []string{alertPath}, "rescan", dir, nil)
+	result, err := Compile(ctx, st,
+		WithPaths([]string{alertPath}),
+		WithMessage("rescan"),
+		WithCompileRoot(dir),
+	)
 	if err != nil {
 		t.Fatalf("Compile rescan: %v", err)
 	}
@@ -172,13 +176,13 @@ func TestCompile_HeadingEditDoesNotCascade(t *testing.T) {
 	body := "# Hello\n\nBody one.\n\nBody two.\n"
 	p := writeFile(t, dir, "doc.md", body)
 
-	if _, err := Compile(ctx, st, []string{p}, "v1", "", nil); err != nil {
+	if _, err := Compile(ctx, st, WithPaths([]string{p}), WithMessage("v1")); err != nil {
 		t.Fatalf("Compile v1: %v", err)
 	}
 
 	writeFile(t, dir, "doc.md", "# Goodbye\n\nBody one.\n\nBody two.\n")
 
-	result, err := Compile(ctx, st, []string{p}, "v2", "", nil)
+	result, err := Compile(ctx, st, WithPaths([]string{p}), WithMessage("v2"))
 	if err != nil {
 		t.Fatalf("Compile v2: %v", err)
 	}
@@ -240,7 +244,7 @@ func TestCompile_SkipsUnsupported(t *testing.T) {
 	mdPath := writeFile(t, dir, "doc.md", "# Hello\n\nContent.\n")
 	txtPath := writeFile(t, dir, "notes.txt", "plain text not supported")
 
-	result, err := Compile(ctx, st, []string{mdPath, txtPath}, "mixed", "", nil)
+	result, err := Compile(ctx, st, WithPaths([]string{mdPath, txtPath}), WithMessage("mixed"))
 	if err != nil {
 		t.Fatalf("Compile should not fail on unsupported files: %v", err)
 	}

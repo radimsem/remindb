@@ -24,7 +24,12 @@ func TestEmit_FirstCompilation(t *testing.T) {
 		{NodeID: "rootroot", Op: diff.OpAdd, NewHash: "h1", NewContent: "hello"},
 	}
 
-	if err := Emit(ctx, st, roots, deltas, "cursor0123456789", "initial", ""); err != nil {
+	if err := Emit(ctx, st,
+		WithRoots(roots),
+		WithDeltas(deltas),
+		WithCursorHash("cursor0123456789"),
+		WithMessage("initial"),
+	); err != nil {
 		t.Fatalf("Emit: %v", err)
 	}
 
@@ -66,10 +71,15 @@ func TestEmit_ModifyAndRemove(t *testing.T) {
 			Label: "rem", Format: "plain", Depth: 1, TokenCount: 5,
 		},
 	}
-	if err := Emit(ctx, st, roots, []diff.Delta{
-		{NodeID: "node0001", Op: diff.OpAdd, NewHash: "h1", NewContent: "original"},
-		{NodeID: "node0002", Op: diff.OpAdd, NewHash: "h2", NewContent: "to remove"},
-	}, "cursor1111111111", "v1", ""); err != nil {
+	if err := Emit(ctx, st,
+		WithRoots(roots),
+		WithDeltas([]diff.Delta{
+			{NodeID: "node0001", Op: diff.OpAdd, NewHash: "h1", NewContent: "original"},
+			{NodeID: "node0002", Op: diff.OpAdd, NewHash: "h2", NewContent: "to remove"},
+		}),
+		WithCursorHash("cursor1111111111"),
+		WithMessage("v1"),
+	); err != nil {
 		t.Fatalf("Emit v1: %v", err)
 	}
 
@@ -80,10 +90,15 @@ func TestEmit_ModifyAndRemove(t *testing.T) {
 			Label: "mod", Format: "plain", Depth: 1, TokenCount: 5,
 		},
 	}
-	if err := Emit(ctx, st, roots2, []diff.Delta{
-		{NodeID: "node0001", Op: diff.OpMod, OldHash: "h1", NewHash: "h3", OldContent: "original", NewContent: "modified"},
-		{NodeID: "node0002", Op: diff.OpRem, OldHash: "h2", OldContent: "to remove"},
-	}, "cursor2222222222", "v2", ""); err != nil {
+	if err := Emit(ctx, st,
+		WithRoots(roots2),
+		WithDeltas([]diff.Delta{
+			{NodeID: "node0001", Op: diff.OpMod, OldHash: "h1", NewHash: "h3", OldContent: "original", NewContent: "modified"},
+			{NodeID: "node0002", Op: diff.OpRem, OldHash: "h2", OldContent: "to remove"},
+		}),
+		WithCursorHash("cursor2222222222"),
+		WithMessage("v2"),
+	); err != nil {
 		t.Fatalf("Emit v2: %v", err)
 	}
 

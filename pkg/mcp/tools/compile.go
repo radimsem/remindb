@@ -35,7 +35,10 @@ func (d *Deps) HandleCompile(ctx context.Context, _ *gomcp.CallToolRequest, inpu
 	if fi.IsDir() {
 		result, err = compiler.CompileDir(ctx, d.Store, input.Path, msg)
 	} else {
-		result, err = compiler.Compile(ctx, d.Store, []string{input.Path}, msg, "", nil)
+		result, err = compiler.Compile(ctx, d.Store,
+			compiler.WithPaths([]string{input.Path}),
+			compiler.WithMessage(msg),
+		)
 	}
 	if err != nil {
 		return nil, nil, fmt.Errorf("failed to compile: %w", err)

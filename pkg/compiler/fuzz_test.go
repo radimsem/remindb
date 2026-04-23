@@ -45,7 +45,7 @@ func FuzzCompile(f *testing.F) {
 		rootsBefore, _ := st.GetRootNodes(ctx)
 
 		// Must never panic regardless of input.
-		_, err := Compile(ctx, st, []string{p}, "fuzz", "", nil)
+		_, err := Compile(ctx, st, WithPaths([]string{p}), WithMessage("fuzz"))
 
 		// Atomicity: on error, the store must be unchanged.
 		if err != nil {
