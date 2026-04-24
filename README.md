@@ -1,3 +1,7 @@
+<p align="center">
+  <img src="assets/logo.png" alt="remindb logo" width="400" />
+</p>
+
 <h1 align="center">remindb</h1>
 
 <p align="center">
@@ -261,6 +265,8 @@ Five ready-to-install plugin folders ship with the repo, one per supported codin
 | Codex | [`codex/`](./codex/) | [codex/README.md](./codex/README.md) |
 | OpenCode | [`opencode/`](./opencode/) | [opencode/README.md](./opencode/README.md) |
 | OpenClaw | [`openclaw/`](./openclaw/) | [openclaw/README.md](./openclaw/README.md) |
+
+Pair the plugin with the companion [`efficient-memo`](./skills/efficient-memo/) skill — it teaches the agent the FTS5 query format, token-budget conventions, and the `MemoryTree → MemorySearch → MemoryFetch` chain so you don't re-explain them each session. Drop the folder into your agent's user-scope skills directory (Claude Code: `~/.claude/skills/efficient-memo/`; OpenClaw: the equivalent user skills path). Agents without a native skill loader can paste `SKILL.md` into their `AGENTS.md` / system-prompt equivalent.
 
 For any other MCP-capable agent, add this stanza to its MCP config by hand:
 
