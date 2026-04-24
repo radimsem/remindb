@@ -134,15 +134,16 @@ func TestOpenClawAgentWorkflow(t *testing.T) {
 	}
 	logSearchResult(t, "json session data", jsonResult)
 
-	// Fetch context around a specific node.
-	fetchResult, err := eng.Fetch(ctx, searchResult.Nodes[0].Node.ID, 4000, 0)
+	// Fetch context around a specific node. Top hit is last (ascending score order).
+	topHit := searchResult.Nodes[len(searchResult.Nodes)-1].Node.ID
+	fetchResult, err := eng.Fetch(ctx, topHit, 4000, 0)
 	if err != nil {
 		t.Fatalf("Fetch: %v", err)
 	}
 	if fetchResult.TokensUsed == 0 {
 		t.Error("expected non-zero token usage in fetch result")
 	}
-	t.Logf("fetch around %s: %d nodes, %d tokens", searchResult.Nodes[0].Node.ID, len(fetchResult.Nodes), fetchResult.TokensUsed)
+	t.Logf("fetch around %s: %d nodes, %d tokens", topHit, len(fetchResult.Nodes), fetchResult.TokensUsed)
 }
 
 // Simulates the memory workflow of a Claude Code.
@@ -353,15 +354,16 @@ func TestCodexAgentWorkflow(t *testing.T) {
 	}
 	logSearchResult(t, "pipeline config", yamlResult)
 
-	// Fetch context around a node — verify cross-file context assembly.
-	fetchResult, err := eng.Fetch(ctx, archResult.Nodes[0].Node.ID, 4000, 0)
+	// Fetch context around a node — verify cross-file context assembly. Top hit is last (ascending score order).
+	topHit := archResult.Nodes[len(archResult.Nodes)-1].Node.ID
+	fetchResult, err := eng.Fetch(ctx, topHit, 4000, 0)
 	if err != nil {
 		t.Fatalf("Fetch: %v", err)
 	}
 	if fetchResult.TokensUsed == 0 {
 		t.Error("expected non-zero token usage in fetch result")
 	}
-	t.Logf("fetch around %s: %d nodes, %d tokens", archResult.Nodes[0].Node.ID, len(fetchResult.Nodes), fetchResult.TokensUsed)
+	t.Logf("fetch around %s: %d nodes, %d tokens", topHit, len(fetchResult.Nodes), fetchResult.TokensUsed)
 }
 
 // Simulates an OpenCode agent session.
@@ -494,15 +496,16 @@ func TestOpenCodeAgentWorkflow(t *testing.T) {
 	}
 	logSearchResult(t, "review agent", agentResult)
 
-	// Fetch context around a node — verify cross-file context assembly.
-	fetchResult, err := eng.Fetch(ctx, stackResult.Nodes[0].Node.ID, 4000, 0)
+	// Fetch context around a node — verify cross-file context assembly. Top hit is last (ascending score order).
+	topHit := stackResult.Nodes[len(stackResult.Nodes)-1].Node.ID
+	fetchResult, err := eng.Fetch(ctx, topHit, 4000, 0)
 	if err != nil {
 		t.Fatalf("Fetch: %v", err)
 	}
 	if fetchResult.TokensUsed == 0 {
 		t.Error("expected non-zero token usage in fetch result")
 	}
-	t.Logf("fetch around %s: %d nodes, %d tokens", stackResult.Nodes[0].Node.ID, len(fetchResult.Nodes), fetchResult.TokensUsed)
+	t.Logf("fetch around %s: %d nodes, %d tokens", topHit, len(fetchResult.Nodes), fetchResult.TokensUsed)
 }
 
 // Tests incremental recompilation.
@@ -596,7 +599,8 @@ func TestTemperatureBoostOnAccess(t *testing.T) {
 	}
 	logSearchResult(t, "precision", result)
 
-	nodeID := result.Nodes[0].Node.ID
+	// Top hit is last (ascending score order).
+	nodeID := result.Nodes[len(result.Nodes)-1].Node.ID
 
 	// Read temperature before boost.
 	before, err := st.GetNode(ctx, nodeID)

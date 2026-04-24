@@ -2,6 +2,7 @@ package query
 
 import (
 	"context"
+	"slices"
 	"time"
 
 	"github.com/radimsem/remindb/pkg/store"
@@ -54,8 +55,11 @@ func (e *Engine) Fetch(ctx context.Context, anchor string, budget, depth int) (*
 	scored := rankNodes(context, now)
 	filled := fillBudget(scored, remaining)
 
+	// Ascending score so the anchor lands at the prompt tail where LLM attention peaks.
+	slices.Reverse(filled.Nodes)
+
 	anchorScored := ScoredNode{Node: node, Score: scoreNode(node, 1.0, now)}
-	filled.Nodes = append([]ScoredNode{anchorScored}, filled.Nodes...)
+	filled.Nodes = append(filled.Nodes, anchorScored)
 	filled.TokensUsed += node.TokenCount
 
 	return &filled, nil
@@ -70,6 +74,10 @@ func (e *Engine) Search(ctx context.Context, query string, budget int) (*Result,
 	now := time.Now()
 	scored := rankSearchResults(ranked, now)
 	filled := fillBudget(scored, budget)
+
+	// Ascending score so the top hit lands at the prompt tail where LLM attention peaks.
+	slices.Reverse(filled.Nodes)
+
 	return &filled, nil
 }
 

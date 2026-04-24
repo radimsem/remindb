@@ -64,8 +64,9 @@ func TestFetch_IncludesAnchor(t *testing.T) {
 	if len(result.Nodes) == 0 {
 		t.Fatal("empty result")
 	}
-	if result.Nodes[0].Node.ID != "child001" {
-		t.Errorf("first node = %q, want anchor child001", result.Nodes[0].Node.ID)
+	last := result.Nodes[len(result.Nodes)-1]
+	if last.Node.ID != "child001" {
+		t.Errorf("last node = %q, want anchor child001", last.Node.ID)
 	}
 }
 
