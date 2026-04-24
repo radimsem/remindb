@@ -10,7 +10,7 @@ TESTDATA="$REPO_ROOT/testdata"
 
 BUDGET=1000
 
-AGENTS=(openclaw claude-code codex gemini-cli)
+AGENTS=(openclaw claude-code codex gemini-cli opencode)
 
 # Per-agent search queries.
 declare -A QUERIES=(
@@ -18,6 +18,7 @@ declare -A QUERIES=(
   [claude-code]="Stripe webhook idempotency key cart|PostgreSQL connection pool PgBouncer|drizzle migration NOT NULL backfill"
   [codex]="WebSocket operator Vendor C blocked|dead letter queue rejected records|Snowflake COPY INTO parquet"
   [gemini-cli]="exponential backoff jitter DefaultBackoff|PLAT 1903 retry storm ConfigMap reconciler|Vault token renewer silent alerting"
+  [opencode]="tantivy migration remaining blocked sqlite|Linear HARBOR sprint Grafana dashboard runbook|ratatui TUI event loop keymap"
 )
 
 WORK_DIR="$(mktemp -d -t remindb-bench-agents-XXXXXX)"

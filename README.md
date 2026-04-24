@@ -292,6 +292,16 @@ search:Vault token renewer silent al…  ~5849        ~520           +91.1%
 fetch                                  ~2807        ~448           +84.0%
 delta                                  ~3010        ~28            +99.1%
 total                                  ~29670       ~4716          +84.1%
+
+=== opencode ==================================================================
+scenario                               naive (tok)  remindb (tok)  saved
+tree                                   ~6638        ~3268          +50.8%
+search:tantivy migration remaining b…  ~7533        ~530           +93.0%
+search:Linear HARBOR sprint Grafana …  ~8939        ~512           +94.3%
+search:ratatui TUI event loop keymap   ~6167        ~537           +91.3%
+fetch                                  ~1357        ~160           +88.2%
+delta                                  ~1578        ~28            +98.2%
+total                                  ~32212       ~5035          +84.4%
 ```
 
 > [!NOTE]
