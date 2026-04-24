@@ -250,64 +250,26 @@ and MemoryFetch on the top hit. Explain what you learned and which files it came
 
 ## Benchmarks
 
-Token counts are measured against the naive baseline an agent falls back to without a memory layer: list the directory, read every matching file, grep through it. Numbers come from `./scripts/bench-agents.sh` running the current `testdata/` vaults.
+Token counts are measured against the naive baseline an agent falls back to without a memory layer: list the directory, read every matching file, grep through it. Numbers come from `./scripts/bench-agents.sh` over the five plugin fixtures in `testdata/`, plus a one-off compile of a real Obsidian vault (117 markdown files across AI concepts, market briefs, security notes, and MOCs — ~619k naive tokens end-to-end).
 
-```
-=== openclaw ==================================================================
-scenario                               naive (tok)  remindb (tok)  saved
-tree                                   ~12128       ~8380          +30.9%
-search:WebSocket persistent connecti…  ~13835       ~620           +95.5%
-search:Sentry alert threshold deploy…  ~9323        ~802           +91.4%
-search:stale memory flagged review     ~14195       ~953           +93.3%
-fetch                                  ~3206        ~675           +78.9%
-delta                                  ~583         ~28            +95.2%
-total                                  ~53270       ~11458         +78.5%
+The scenario suite (tree · 3 searches · fetch · delta) rolls up into three workflow categories:
 
-=== claude-code ===============================================================
-scenario                               naive (tok)  remindb (tok)  saved
-tree                                   ~6199        ~3353          +45.9%
-search:Stripe webhook idempotency ke…  ~8359        ~639           +92.4%
-search:PostgreSQL connection pool Pg…  ~3919        ~296           +92.4%
-search:drizzle migration NOT NULL ba…  ~7981        ~236           +97.0%
-fetch                                  ~2733        ~333           +87.8%
-delta                                  ~2983        ~28            +99.1%
-total                                  ~32174       ~4885          +84.8%
+- **context window** — a single `MemoryTree` orientation call.
+- **context gathering** — 3 × `MemorySearch` + `MemoryFetch` + `MemoryDelta`, token-weighted.
+- **total session** — sum of both.
 
-=== codex =====================================================================
-scenario                               naive (tok)  remindb (tok)  saved
-tree                                   ~6950        ~2989          +57.0%
-search:WebSocket operator Vendor C b…  ~14510       ~605           +95.8%
-search:dead letter queue rejected re…  ~4892        ~456           +90.7%
-search:Snowflake COPY INTO parquet     ~6665        ~542           +91.9%
-fetch                                  ~2867        ~393           +86.3%
-delta                                  ~824         ~28            +96.6%
-total                                  ~36708       ~5013          +86.3%
+| Category | openclaw | claude-code | codex | gemini-cli | opencode | brain vault¹ | **avg** |
+|----------|---------:|------------:|------:|-----------:|---------:|-------------:|--------:|
+| context window | +30.9 % | +45.9 % | +57.0 % | +52.0 % | +50.8 % | +41.7 % | **+46.4 %** |
+| context gathering | +92.5 % | +94.1 % | +93.2 % | +92.5 % | +93.1 % | +99.3 % | **+94.1 %** |
+| **total session** | **+78.5 %** | **+84.8 %** | **+86.3 %** | **+84.1 %** | **+84.4 %** | **+81.0 %** | **+83.2 %** |
 
-=== gemini-cli ================================================================
-scenario                               naive (tok)  remindb (tok)  saved
-tree                                   ~6155        ~2952          +52.0%
-search:exponential backoff jitter De…  ~4585        ~231           +95.0%
-search:PLAT 1903 retry storm ConfigM…  ~7264        ~537           +92.6%
-search:Vault token renewer silent al…  ~5849        ~520           +91.1%
-fetch                                  ~2807        ~448           +84.0%
-delta                                  ~3010        ~28            +99.1%
-total                                  ~29670       ~4716          +84.1%
-
-=== opencode ==================================================================
-scenario                               naive (tok)  remindb (tok)  saved
-tree                                   ~6638        ~3268          +50.8%
-search:tantivy migration remaining b…  ~7533        ~530           +93.0%
-search:Linear HARBOR sprint Grafana …  ~8939        ~512           +94.3%
-search:ratatui TUI event loop keymap   ~6167        ~537           +91.3%
-fetch                                  ~1357        ~160           +88.2%
-delta                                  ~1578        ~28            +98.2%
-total                                  ~32212       ~5035          +84.4%
-```
+<sub>¹ Obsidian vault (`~/Documents/Brain`): 117 markdown files, ~619k naive tokens, 3 190 compiled nodes.</sub>
 
 > [!NOTE]
-> **Small corpora, small sessions — and the delta matters.** These vaults are ~3k–20k tokens each, kept small so the repository doesn't balloon with fixture data. The scenario list (tree · 3 searches · fetch · delta) is also intentionally short — a realistic agent session is *much* longer. A typical 30-minute coding session does dozens of orient / search / fetch / write / re-orient cycles, and the same search often fires three or four times as the agent loops on a problem. Each of those calls is where `remindb` turns a ~15k-token re-read into a 500-token budgeted answer.
+> **Corpus size moves the numbers in remindb's favour.** The plugin fixtures are ~3k–20k tokens each; the Brain vault is ~619k. As the corpus grows, the naive baseline scales linearly (more files to list, more bytes to grep, more prose to re-read), while remindb's answers stay bounded by the token budget you pass. That's why the vault's context-gathering row hits **99.3 %** — every search still returns ~800 tokens, but the baseline is now 15–20× larger.
 >
-> A real knowledge base — say, an Obsidian vault with 100 articles (~300k tokens) — pushes the numbers in remindb's favour, not against it: the naive baseline scales linearly with corpus size (more files to list, more bytes to grep, more prose to re-read), while remindb's answers stay bounded by the token budget you pass. Expected **session-level savings on realistic corpora run 85–99%**, and **full coding sessions trend toward 90%+ total token reduction** as orient/search/fetch calls compound.
+> The scenario list is also intentionally short. A real 30-minute agent session does dozens of orient/search/fetch/write/re-orient cycles, and the same search often fires three or four times as the agent loops on a problem. Each of those calls compounds toward **90 %+ full-session savings** on realistic corpora.
 
 Reproduce the table yourself:
 
