@@ -107,51 +107,9 @@ remindb --help
 
 Two phases, one SQLite file between them. The compiler runs offline and turns source files into versioned nodes; the MCP runtime runs online and answers the agent in milliseconds. The `.db` is the whole handoff — copy it, commit it, sync it.
 
-```
-     COMPILER PHASE (offline)                          MCP RUNTIME PHASE (online)
-
-  ┌──────────────────────────────┐               ┌──────────────────────────────┐
-  │ Source files                 │               │ MCP server                   │
-  │ .md · .yaml · .json · .toon  │               │ Tool dispatcher · budgets    │
-  └──────────────┬───────────────┘               └──────────────┬───────────────┘
-                 │                                              │
-  ┌──────────────▼───────────────┐               ┌──────────────▼───────────────┐
-  │ Parser / AST builder         │               │ MCP tools                    │
-  │ Headings · KV · preamble     │               │ MemoryTree · MemorySearch    │
-  └──────────────┬───────────────┘               │ MemoryFetch · MemoryWrite    │
-                 │                               │ MemoryDelta · MemoryHistory  │
-  ┌──────────────▼───────────────┐               │ MemorySummarize · *Compile   │
-  │ Transformer                  │               └──────────────┬───────────────┘
-  │ Node typing · anchor IDs     │                              │
-  │ TOON encoding · token est.   │               ┌──────────────▼───────────────┐
-  └──────────────┬───────────────┘               │ Query engine                 │
-                 │                               │ Budget-ranked · temp rank    │
-  ┌──────────────▼───────────────┐               │ Tree traversal · FTS5 search │
-  │ Diff engine                  │               └──────────────┬───────────────┘
-  │ Delta · xxhash64 cursor_hash │                              │
-  └──────────────┬───────────────┘               ┌──────────────▼───────────────┐
-                 │                               │ Injected context             │
-  ┌──────────────▼───────────────┐               │ Minimal tokens · task-scoped │
-  │ DB emitter                   │               └──────────────┬───────────────┘
-  │ INSERT nodes · diffs · FTS5  │                              │
-  └──────────────┬───────────────┘               ┌──────────────▼───────────────┐
-                 │                               │ Agent / LLM                  │
-  ┌──────────────▼───────────────┐               └──────────────────────────────┘
-  │ Rescan loop                  │
-  │ Polls source · incremental   │
-  └──────────────────────────────┘
-
-                ┌──────────────────────────────────────────────┐
-                │ SQLite .db  ·  one portable file             │
-                │ nodes · snapshots · diffs                    │
-                │ cursors · nodes_fts (FTS5)                   │
-                └──────────────────────────────────────────────┘
-
-  DB emitter    →  writes nodes · diffs · the new snapshot in one transaction
-  Query engine  →  reads ranked nodes + FTS5 hits, trimmed to the token budget
-  Temperature   →  bumps access counts on read · decays on a 10-minute tick
-  Rescan loop   →  triggers Parser → … → DB emitter on source-file change
-```
+<p align="center">
+  <img src="assets/arch.svg" alt="remindb architecture" width="100%" />
+</p>
 
 | Layer | Responsibility |
 |-------|----------------|
