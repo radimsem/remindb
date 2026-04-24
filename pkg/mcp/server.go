@@ -3,6 +3,7 @@ package mcp
 import (
 	"context"
 	"log/slog"
+	"sync"
 
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 	"github.com/radimsem/remindb/pkg/mcp/tools"
@@ -12,15 +13,29 @@ import (
 )
 
 type Server struct {
-	mcp *mcp.Server
+	mcp             *mcp.Server
+	logger          *slog.Logger
+	coldThreshold   float64
+	notifyThreshold float64
+
+	mu       sync.Mutex
+	notified map[string]struct{}
 }
 
-func NewServer(st *store.Store, tracker *temperature.Tracker, logger *slog.Logger) *Server {
+func NewServer(st *store.Store, tracker *temperature.Tracker, cfg temperature.Config, logger *slog.Logger) *Server {
+	if logger == nil {
+		logger = slog.New(slog.DiscardHandler)
+	}
+
 	s := &Server{
 		mcp: mcp.NewServer(&mcp.Implementation{
 			Name:    "remindb",
 			Version: "0.1.0",
 		}, nil),
+		logger:          logger,
+		coldThreshold:   cfg.ColdThreshold,
+		notifyThreshold: cfg.NotifyThreshold,
+		notified:        make(map[string]struct{}),
 	}
 
 	deps := &tools.Deps{
@@ -40,6 +55,92 @@ func (s *Server) Run(ctx context.Context) error {
 
 func (s *Server) Connect(ctx context.Context, t mcp.Transport) (*mcp.ServerSession, error) {
 	return s.mcp.Connect(ctx, t, nil)
+}
+
+// Push a summarize-nudge notification to every live client session for nodes
+// that have dropped below NotifyThreshold.
+func (s *Server) NotifyColdNodes(ctx context.Context, cold []*store.Node) {
+	toNotify := s.selectNewNotifications(cold)
+	if len(toNotify) == 0 {
+		return
+	}
+	s.sendColdLogging(ctx, toNotify)
+}
+
+// Update dedup state against the tick's cold set and return nodes not yet notified.
+func (s *Server) selectNewNotifications(cold []*store.Node) []*store.Node {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	stillCold := make(map[string]struct{}, len(cold))
+	for _, n := range cold {
+		stillCold[n.ID] = struct{}{}
+	}
+	for id := range s.notified {
+		if _, ok := stillCold[id]; !ok {
+			delete(s.notified, id)
+		}
+	}
+
+	out := make([]*store.Node, 0, len(cold))
+	for _, n := range cold {
+		if n.Temperature >= s.notifyThreshold {
+			continue
+		}
+		if _, seen := s.notified[n.ID]; seen {
+			continue
+		}
+
+		out = append(out, n)
+		s.notified[n.ID] = struct{}{}
+	}
+	return out
+}
+
+type coldNodeEntry struct {
+	ID          string  `json:"id"`
+	Label       string  `json:"label"`
+	SourceFile  string  `json:"file"`
+	Temperature float64 `json:"temperature"`
+}
+
+type coldNodePayload struct {
+	Message         string          `json:"message"`
+	SuggestedAction string          `json:"suggested_action"`
+	Nodes           []coldNodeEntry `json:"nodes"`
+}
+
+func (s *Server) sendColdLogging(ctx context.Context, nodes []*store.Node) {
+	entries := make([]coldNodeEntry, len(nodes))
+	for i, n := range nodes {
+		entries[i] = coldNodeEntry{
+			ID:          n.ID,
+			Label:       n.Label,
+			SourceFile:  n.SourceFile,
+			Temperature: n.Temperature,
+		}
+	}
+
+	params := &mcp.LoggingMessageParams{
+		Level:  "warning",
+		Logger: "remindb.temperature",
+		Data: coldNodePayload{
+			Message:         "Cold nodes detected; consider summarizing via MemorySummarize",
+			SuggestedAction: "MemorySummarize",
+			Nodes:           entries,
+		},
+	}
+
+	sent := 0
+	for ss := range s.mcp.Sessions() {
+		if err := ss.Log(ctx, params); err != nil {
+			s.logger.Warn("failed to send: cold-node notification", "err", err)
+			continue
+		}
+		sent++
+	}
+
+	s.logger.Debug("cold-node notification dispatched", "nodes", len(nodes), "sessions", sent)
 }
 
 func registerTools(srv *mcp.Server, d *tools.Deps) {
