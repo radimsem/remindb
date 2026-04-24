@@ -1,0 +1,108 @@
+{
+  "$schema": "https://opencode.ai/config.json",
+  "model": "anthropic/claude-sonnet-4-6",
+  "small_model": "anthropic/claude-haiku-4-5",
+  "default_agent": "build",
+  "instructions": [
+    "AGENTS.md",
+    "memory/*.md",
+    "memory/*.yaml"
+  ],
+  "agent": {
+    "build": {
+      "description": "Primary build agent for harbor — edits Rust sources, runs cargo builds, updates fixtures",
+      "mode": "primary",
+      "model": "anthropic/claude-sonnet-4-6",
+      "temperature": 0.2,
+      "permission": {
+        "edit": "allow",
+        "bash": "ask",
+        "webfetch": "deny"
+      },
+      "tools": {
+        "write": true,
+        "edit": true,
+        "bash": true,
+        "read": true,
+        "grep": true,
+        "glob": true
+      }
+    },
+    "plan": {
+      "description": "Planning agent — produces numbered implementation plans before any code touches disk",
+      "mode": "primary",
+      "model": "anthropic/claude-sonnet-4-6",
+      "temperature": 0.4,
+      "prompt": "{file:./agents/plan.md}",
+      "permission": {
+        "edit": "deny",
+        "bash": "deny",
+        "webfetch": "deny"
+      },
+      "tools": {
+        "write": false,
+        "edit": false,
+        "bash": false,
+        "read": true,
+        "grep": true,
+        "glob": true
+      }
+    },
+    "review": {
+      "description": "Review subagent — inspects unsafe blocks, error handling, and tantivy schema changes",
+      "mode": "subagent",
+      "model": "anthropic/claude-sonnet-4-6",
+      "temperature": 0.1,
+      "prompt": "{file:./agents/review.md}",
+      "permission": {
+        "edit": "deny",
+        "bash": "ask",
+        "webfetch": "deny"
+      }
+    }
+  },
+  "permission": {
+    "edit": {
+      "**/*.rs": "allow",
+      "tests/fixtures/**": "allow",
+      "crates/harbor-parsers/vendor/**": "deny",
+      "Cargo.lock": "ask"
+    },
+    "bash": {
+      "cargo *": "allow",
+      "cargo xtask *": "allow",
+      "git *": "ask",
+      "rm -rf *": "deny",
+      "curl *": "deny"
+    }
+  },
+  "mcp": {
+    "harbor-index": {
+      "type": "local",
+      "command": ["./target/release/harbor", "mcp-server", "--port", "0"],
+      "enabled": true
+    },
+    "linear": {
+      "type": "remote",
+      "url": "https://mcp.linear.app/sse",
+      "headers": {
+        "Authorization": "Bearer {env:LINEAR_API_KEY}"
+      },
+      "enabled": true
+    }
+  },
+  "formatter": {
+    "rustfmt": {
+      "command": ["cargo", "fmt", "--"],
+      "extensions": [".rs"]
+    }
+  },
+  "disabled_providers": ["openai", "google"],
+  "experimental": {
+    "hook": {
+      "session_completed": [
+        {"command": ["cargo", "xtask", "record-session"]}
+      ]
+    }
+  }
+}

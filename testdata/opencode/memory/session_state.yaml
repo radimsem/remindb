@@ -1,0 +1,68 @@
+project: harbor
+session_version: 3
+
+index:
+  backend: tantivy
+  path: .harbor/index
+  shard_count: 8
+  heap_size_mb: 512
+  commit_interval_ms: 5000
+  fsync: false
+
+language_parsers:
+  rust:
+    grammar: tree-sitter-rust
+    version: "0.23.0"
+    extensions: [".rs"]
+    symbol_kinds: [function, struct, enum, trait, impl, mod]
+  go:
+    grammar: tree-sitter-go
+    version: "0.23.1"
+    extensions: [".go"]
+    symbol_kinds: [function, method, type, interface, package]
+  typescript:
+    grammar: tree-sitter-typescript
+    version: "0.23.2"
+    extensions: [".ts", ".tsx"]
+    symbol_kinds: [function, class, interface, type_alias, method]
+  python:
+    grammar: tree-sitter-python
+    version: "0.23.4"
+    extensions: [".py", ".pyi"]
+    symbol_kinds: [function, class, method]
+
+query_defaults:
+  limit: 50
+  fuzzy: false
+  symbol_boost: 1.5
+  recency_boost: 0.2
+  highlight: true
+
+tui:
+  layout: split-vertical
+  preview_panel_ratio: 0.55
+  keymap_preset: vim
+  theme: tokyo-night
+
+mcp_servers:
+  harbor_index:
+    status: connected
+    socket: unix:///tmp/harbor-mcp.sock
+    tool_count: 6
+    startup_latency_ms: 182
+  linear:
+    status: connected
+    endpoint: https://mcp.linear.app/sse
+    tool_count: 4
+    last_ping_ms: 47
+
+feature_flags:
+  tantivy_ranking: false
+  parallel_indexing: true
+  symbol_lsp_bridge: true
+  crash_recovery: true
+
+telemetry:
+  enabled: true
+  endpoint: https://telemetry.harbor.internal/v1/sessions
+  sample_rate: 1.0

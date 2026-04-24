@@ -345,6 +345,117 @@ func TestMcp_CodexAgent(t *testing.T) {
 	}
 }
 
+// Simulates an OpenCode agent session.
+func TestMcp_OpenCodeAgent(t *testing.T) {
+	env := mcptest.NewEnv(t)
+	dir, _ := filepath.Abs("testdata/opencode")
+
+	// 1. Compile the harbor project context.
+	compileResult := env.CallTool(t, "MemoryCompile", map[string]any{
+		"path":    dir,
+		"message": "opencode-init",
+	})
+	text := env.TextContent(t, compileResult)
+	if !strings.Contains(text, "compiled") {
+		t.Fatalf("unexpected compile result: %s", text)
+	}
+
+	// 2. Agent inspects the memory tree.
+	treeResult := env.CallTool(t, "MemoryTree", map[string]any{})
+	treeText := env.TextContent(t, treeResult)
+	if !strings.Contains(treeText, "Harbor") && !strings.Contains(treeText, "harbor") {
+		t.Errorf("tree should contain Harbor/harbor headings, got: %s", treeText[:min(200, len(treeText))])
+	}
+
+	// 3. Agent checks project migration state before picking up tantivy work.
+	migrationResult := env.CallTool(t, "MemorySearch", map[string]any{
+		"query":  "tantivy migration remaining blocked",
+		"budget": 2000,
+	})
+	migrationText := env.TextContent(t, migrationResult)
+	if migrationText == "no results" {
+		t.Fatal("expected search results for tantivy migration state")
+	}
+	if !strings.Contains(migrationText, "tantivy") {
+		t.Error("migration search should surface tantivy content")
+	}
+
+	// 4. Agent checks testing feedback before writing new tests.
+	testingResult := env.CallTool(t, "MemorySearch", map[string]any{
+		"query":  "proptest property based",
+		"budget": 1000,
+	})
+	testingText := env.TextContent(t, testingResult)
+	if testingText == "no results" {
+		t.Fatal("expected search results for testing feedback")
+	}
+	if !strings.Contains(testingText, "proptest") {
+		t.Error("testing search should surface proptest feedback")
+	}
+
+	// 5. Agent checks user preferences before responding.
+	userResult := env.CallTool(t, "MemorySearch", map[string]any{
+		"query":  "unified diffs terse",
+		"budget": 1000,
+	})
+	userText := env.TextContent(t, userResult)
+	if userText == "no results" {
+		t.Fatal("expected search results for user preferences")
+	}
+	if !strings.Contains(userText, "user_preferences.md") {
+		t.Error("user pref search should surface user_preferences.md")
+	}
+
+	// 6. Agent writes a new architectural decision after a design spike.
+	writeResult := env.CallTool(t, "MemoryWrite", map[string]any{
+		"payload": "Decision: use tokio::select! over futures::select! for the TUI event loop. Rationale: tokio::select! integrates with our existing tokio runtime, supports biased polling for predictable keybinding latency, and avoids pulling futures-util as an extra dependency.",
+	})
+	writeText := env.TextContent(t, writeResult)
+	if !strings.Contains(writeText, "wrote node") {
+		t.Fatalf("unexpected write result: %s", writeText)
+	}
+	nodeID := extractNodeID(writeText)
+
+	// 7. Agent verifies the decision is searchable.
+	tokioResult := env.CallTool(t, "MemorySearch", map[string]any{
+		"query":  "tokio select biased polling",
+		"budget": 1000,
+	})
+	tokioText := env.TextContent(t, tokioResult)
+	if !strings.Contains(tokioText, "tokio::select") {
+		t.Fatal("newly written decision should be searchable")
+	}
+
+	// 8. Agent fetches context around the new decision.
+	fetchResult := env.CallTool(t, "MemoryFetch", map[string]any{
+		"anchor": nodeID,
+		"budget": 2000,
+	})
+	fetchText := env.TextContent(t, fetchResult)
+	if !strings.Contains(fetchText, "tokio::select") {
+		t.Errorf("fetch should include the written content, got: %s", fetchText[:min(100, len(fetchText))])
+	}
+
+	// 9. Agent summarizes a verbose node to trim session budget.
+	summaryNodeID := extractFirstNodeID(treeText)
+	if summaryNodeID == "" {
+		t.Fatal("could not find a node ID in tree output")
+	}
+	env.CallTool(t, "MemorySummarize", map[string]any{
+		"node_id": summaryNodeID,
+		"summary": "Summarized: harbor is a Rust TUI code search engine using tantivy and tree-sitter.",
+	})
+
+	// 10. Agent checks delta since compile.
+	deltaResult := env.CallTool(t, "MemoryDelta", map[string]any{
+		"since_snapshot": 1,
+	})
+	deltaText := env.TextContent(t, deltaResult)
+	if deltaText == "no changes" {
+		t.Error("expected delta changes after write and summarize")
+	}
+}
+
 // Verifies that the client can list all available tools.
 func TestMcp_ToolDiscovery(t *testing.T) {
 	env := mcptest.NewEnv(t)

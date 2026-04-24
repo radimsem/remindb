@@ -364,6 +364,147 @@ func TestCodexAgentWorkflow(t *testing.T) {
 	t.Logf("fetch around %s: %d nodes, %d tokens", archResult.Nodes[0].Node.ID, len(fetchResult.Nodes), fetchResult.TokensUsed)
 }
 
+// Simulates an OpenCode agent session.
+func TestOpenCodeAgentWorkflow(t *testing.T) {
+	st := testutil.OpenTestDB(t)
+	ctx := context.Background()
+
+	result, err := compiler.CompileDir(ctx, st, "testdata/opencode", "opencode-agent")
+	if err != nil {
+		t.Fatalf("CompileDir: %v", err)
+	}
+	if result.Added == 0 {
+		t.Fatal("expected nodes from OpenCode fixtures")
+	}
+	t.Logf("compiled: +%d ~%d -%d (%d total)", result.Added, result.Modified, result.Removed, result.Total)
+
+	testutil.LogTree(t, st)
+
+	// Roots from 10 files: 2 root (AGENTS.md + opencode.json) + 2 agents/ + 6 memory/.
+	roots, err := st.GetRootNodes(ctx)
+	if err != nil {
+		t.Fatalf("GetRootNodes: %v", err)
+	}
+	if len(roots) < 10 {
+		t.Errorf("roots = %d, want >= 10 (preambles + headings from 10 files)", len(roots))
+	}
+
+	eng := query.NewEngine(st)
+
+	// Search for project stack — should find nodes from AGENTS.md.
+	stackResult, err := eng.Search(ctx, "ratatui tantivy polyglot codebase search", 2000)
+	if err != nil {
+		t.Fatalf("Search stack: %v", err)
+	}
+	if len(stackResult.Nodes) == 0 {
+		t.Fatal("expected search results for harbor stack")
+	}
+	logSearchResult(t, "harbor stack", stackResult)
+
+	hasTantivy := false
+	for _, sn := range stackResult.Nodes {
+		if strings.Contains(sn.Node.Content, "tantivy") {
+			hasTantivy = true
+			break
+		}
+	}
+	if !hasTantivy {
+		t.Error("search results should include AGENTS.md tantivy content")
+	}
+
+	// Search for testing feedback — should find Rust-specific proptest guidance.
+	testingResult, err := eng.Search(ctx, "proptest property based glob matcher", 2000)
+	if err != nil {
+		t.Fatalf("Search testing: %v", err)
+	}
+	if len(testingResult.Nodes) == 0 {
+		t.Fatal("expected search results for testing feedback")
+	}
+	logSearchResult(t, "testing feedback", testingResult)
+
+	hasProptest := false
+	for _, sn := range testingResult.Nodes {
+		if strings.Contains(sn.Node.Content, "proptest") {
+			hasProptest = true
+			break
+		}
+	}
+	if !hasProptest {
+		t.Error("search results should include proptest feedback from feedback_testing.md")
+	}
+
+	// Search for migration state — should find tantivy migration progress.
+	migrationResult, err := eng.Search(ctx, "tantivy migration remaining blocked sqlite", 2000)
+	if err != nil {
+		t.Fatalf("Search migration: %v", err)
+	}
+	if len(migrationResult.Nodes) == 0 {
+		t.Fatal("expected search results for tantivy migration state")
+	}
+	logSearchResult(t, "tantivy migration", migrationResult)
+
+	// Search for user preferences — should find style and tooling guidance.
+	userResult, err := eng.Search(ctx, "unified diffs terse responses Rust preferences", 2000)
+	if err != nil {
+		t.Fatalf("Search user: %v", err)
+	}
+	if len(userResult.Nodes) == 0 {
+		t.Fatal("expected search results for user preferences")
+	}
+	logSearchResult(t, "user preferences", userResult)
+
+	hasDiffPref := false
+	for _, sn := range userResult.Nodes {
+		if strings.Contains(sn.Node.Content, "unified diffs") {
+			hasDiffPref = true
+			break
+		}
+	}
+	if !hasDiffPref {
+		t.Error("search results should include unified diffs preference from user_preferences.md")
+	}
+
+	// Search for YAML session config — should find tree-sitter language parsers.
+	yamlResult, err := eng.Search(ctx, "grammar language parsers shards tantivy", 2000)
+	if err != nil {
+		t.Fatalf("Search yaml: %v", err)
+	}
+	if len(yamlResult.Nodes) == 0 {
+		t.Fatal("expected search results for YAML session state")
+	}
+	logSearchResult(t, "session state", yamlResult)
+
+	// Search for JSON session data — should find open tabs and recent searches.
+	jsonResult, err := eng.Search(ctx, "open tabs recent searches workspace branch", 2000)
+	if err != nil {
+		t.Fatalf("Search json: %v", err)
+	}
+	if len(jsonResult.Nodes) == 0 {
+		t.Fatal("expected search results for JSON session data")
+	}
+	logSearchResult(t, "json session data", jsonResult)
+
+	// Search for custom agent definitions — should find review/plan agent markdown.
+	agentResult, err := eng.Search(ctx, "unsafe blocks SAFETY comment schema drift", 2000)
+	if err != nil {
+		t.Fatalf("Search agents: %v", err)
+	}
+	if len(agentResult.Nodes) == 0 {
+		t.Fatal("expected search results for custom agent definitions")
+	}
+	logSearchResult(t, "review agent", agentResult)
+
+	// Fetch context around a node — verify cross-file context assembly.
+	fetchResult, err := eng.Fetch(ctx, stackResult.Nodes[0].Node.ID, 4000, 0)
+	if err != nil {
+		t.Fatalf("Fetch: %v", err)
+	}
+	if fetchResult.TokensUsed == 0 {
+		t.Error("expected non-zero token usage in fetch result")
+	}
+	t.Logf("fetch around %s: %d nodes, %d tokens", stackResult.Nodes[0].Node.ID, len(fetchResult.Nodes), fetchResult.TokensUsed)
+}
+
 // Tests incremental recompilation.
 func TestRecompileWorkflow(t *testing.T) {
 	st := testutil.OpenTestDB(t)

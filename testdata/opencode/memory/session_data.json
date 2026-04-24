@@ -1,0 +1,56 @@
+{
+  "session_id": "opencode-sess-20260420-184201",
+  "started_at": "2026-04-20T18:42:01Z",
+  "workspace_root": "/workspace/harbor",
+  "active_branch": "feat/tantivy-ranking-retune",
+  "open_tabs": [
+    {"path": "crates/harbor-core/src/schema.rs", "cursor_line": 184, "modified": true},
+    {"path": "crates/harbor-core/src/query/planner.rs", "cursor_line": 42, "modified": false},
+    {"path": "crates/harbor-tui/src/widgets/results.rs", "cursor_line": 297, "modified": true},
+    {"path": "tests/integration_tantivy_ranking.rs", "cursor_line": 1, "modified": false}
+  ],
+  "recent_searches": [
+    {"query": "BM25 scorer", "results": 12, "clicked_result": "crates/harbor-core/src/query/scorer.rs:44"},
+    {"query": "Language::Rust impl", "results": 3, "clicked_result": "crates/harbor-parsers/src/rust.rs:18"},
+    {"query": "migrate shard", "results": 7, "clicked_result": "crates/harbor-core/src/migrations/v3.rs:1"},
+    {"query": "KeyEvent handler", "results": 23, "clicked_result": "crates/harbor-tui/src/event_loop.rs:118"}
+  ],
+  "active_tasks": [
+    {
+      "id": "LIN-2107",
+      "title": "TUI result ranking retune for tantivy BM25",
+      "status": "in_progress",
+      "blocked_by": null,
+      "note": "Waiting on UX review 2026-04-28 before finalizing highlight thresholds"
+    },
+    {
+      "id": "LIN-2109",
+      "title": "Symbol-aware boosting weights",
+      "status": "blocked",
+      "blocked_by": "design_spike",
+      "note": "Decide whether per-symbol-kind weights are user-config or hardcoded"
+    },
+    {
+      "id": "LIN-2114",
+      "title": "Remove sqlite-fts5 backend",
+      "status": "blocked",
+      "blocked_by": "runbook_review",
+      "note": "Cannot merge until on-call runbook updated and rollback signed off"
+    }
+  ],
+  "compile_state": {
+    "last_cargo_check_at": "2026-04-20T18:38:44Z",
+    "last_cargo_check_status": "ok",
+    "last_cargo_test_at": "2026-04-20T18:22:10Z",
+    "last_cargo_test_status": "failed",
+    "failing_tests": [
+      "harbor_core::query::planner::tests::plans_union_of_boosted_clauses",
+      "harbor_tui::widgets::results::tests::renders_bm25_score_badge"
+    ]
+  },
+  "agent_invocations": [
+    {"agent": "plan", "at": "2026-04-20T18:42:08Z", "summary": "Drafted plan for LIN-2107 BM25 ranking retune"},
+    {"agent": "build", "at": "2026-04-20T18:45:21Z", "summary": "Implemented plan step 1: score normalization helper"},
+    {"agent": "review", "at": "2026-04-20T18:49:55Z", "summary": "Flagged missing SAFETY comment in scorer.rs:73, no other blockers"}
+  ]
+}
