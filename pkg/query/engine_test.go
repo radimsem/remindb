@@ -283,8 +283,8 @@ func TestDelta(t *testing.T) {
 func TestFormat(t *testing.T) {
 	result := &Result{
 		Nodes: []ScoredNode{
-			{Node: &store.Node{NodeType: "heading", Label: "Title", Content: "hello world"}},
-			{Node: &store.Node{NodeType: "code", Label: "Example", Content: "x := 1"}},
+			{Node: &store.Node{NodeType: "heading", Label: "Title", Content: "hello world"}, Score: 1.25},
+			{Node: &store.Node{NodeType: "code", Label: "Example", Content: "x := 1"}, Score: 2.50},
 		},
 	}
 
@@ -293,7 +293,7 @@ func TestFormat(t *testing.T) {
 		t.Fatal("empty output")
 	}
 
-	expected := "[heading] Title\nhello world\n\n---\n\n[code] Example\nx := 1\n"
+	expected := "[heading] Title (score=1.25)\nhello world\n\n---\n\n[code] Example (score=2.50)\nx := 1\n"
 	if out != expected {
 		t.Errorf("Format =\n%q\nwant\n%q", out, expected)
 	}
@@ -306,17 +306,17 @@ func TestFormatCompact(t *testing.T) {
 				{Node: &store.Node{
 					ID: "abc123", NodeType: "heading", Label: "Auth Config",
 					SourceFile: "docs/auth.md", Temperature: 0.75, TokenCount: 42,
-				}},
+				}, Score: 1.80},
 				{Node: &store.Node{
 					ID: "def456", NodeType: "text", Label: "Rate limiting overview.",
 					SourceFile: "docs/api.md", Temperature: 0.30, TokenCount: 110,
-				}},
+				}, Score: 0.45},
 			},
 		}
 
 		out := FormatCompact(result)
-		expected := "[heading] Auth Config (id=abc123 file=docs/auth.md temp=0.75 tok=42)\n" +
-			"[text] Rate limiting overview. (id=def456 file=docs/api.md temp=0.30 tok=110)\n"
+		expected := "[heading] Auth Config (id=abc123 file=docs/auth.md score=1.80 temp=0.75 tok=42)\n" +
+			"[text] Rate limiting overview. (id=def456 file=docs/api.md score=0.45 temp=0.30 tok=110)\n"
 
 		if out != expected {
 			t.Errorf("FormatCompact =\n%q\nwant\n%q", out, expected)
