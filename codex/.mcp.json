@@ -1,0 +1,8 @@
+{
+    "command": "remindb",
+    "args": [
+        "serve"
+    ],
+    "env": {},
+    "transport": "stdio"
+}

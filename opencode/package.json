@@ -1,0 +1,30 @@
+{
+    "name": "@radimsem/remindb-opencode",
+    "version": "0.1.0",
+    "description": "OpenCode plugin that mounts the remindb MCP server as a workspace memory backend",
+    "type": "module",
+    "main": "plugin.ts",
+    "license": "MIT",
+    "repository": {
+        "type": "git",
+        "url": "https://github.com/radimsem/remindb",
+        "directory": "opencode"
+    },
+    "homepage": "https://github.com/radimsem/remindb",
+    "keywords": [
+        "remindb",
+        "opencode",
+        "opencode-plugin",
+        "mcp",
+        "memory",
+        "agentic"
+    ],
+    "files": [
+        "plugin.ts",
+        "opencode.json",
+        "README.md"
+    ],
+    "peerDependencies": {
+        "@opencode-ai/plugin": "*"
+    }
+}

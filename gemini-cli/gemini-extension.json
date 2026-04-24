@@ -1,0 +1,14 @@
+{
+    "name": "remindb",
+    "version": "0.1.0",
+    "description": "Token-efficient agentic memory database. Mounts remindb as an MCP server, exposing MemoryFetch, MemorySearch, MemoryWrite, MemoryCompile, MemoryDelta, MemorySummarize, MemoryHistory, and MemoryTree as tools over a compiled SQLite view of the workspace.",
+    "mcpServers": {
+        "remindb": {
+            "command": "remindb",
+            "args": [
+                "serve"
+            ]
+        }
+    },
+    "contextFileName": "GEMINI.md"
+}

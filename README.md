@@ -55,7 +55,7 @@ A few pieces hold it together:
 
 - **FTS5 search, not grep.** Search runs on SQLite's FTS5 virtual table, built at write time with a porter tokenizer over labels, content, and types. `MemorySearch` returns ranked anchors in milliseconds — no file rescans, no regex timeouts — and trims to whatever token budget the agent passes. Ask for 500 tokens of matches and that's exactly what you get back.
 
-- **Portable by design.** The entire memory is one `.db` file. Copy it to another machine, hand it to another agent, commit it into a repo, sync it across devices. No server, no daemon, no external state. Any MCP-capable agent — Claude Code, Codex, Gemini CLI, OpenClaw — can point `serve` at the same file and share the same knowledge.
+- **Portable by design.** The entire memory is one `.db` file. Copy it to another machine, hand it to another agent, commit it into a repo, sync it across devices. No server, no daemon, no external state. Any MCP-capable agent — Claude Code, Codex, Gemini CLI, OpenCode, OpenClaw — can point `serve` at the same file and share the same knowledge.
 
 ## Installation
 
@@ -237,7 +237,7 @@ remindb bench \
 
 ## MCP tools
 
-Eight tools, registered once, surfaced to any MCP-capable agent (Claude Code, Codex, Gemini CLI, openclaw, …).
+Eight tools, registered once, surfaced to any MCP-capable agent (Claude Code, Codex, Gemini CLI, OpenCode, OpenClaw, …).
 
 | Tool | Purpose |
 |------|---------|
@@ -250,9 +250,19 @@ Eight tools, registered once, surfaced to any MCP-capable agent (Claude Code, Co
 | **`MemorySummarize`** | Replaces a node's content with a shorter summary provided by the agent. Used when the temperature tracker flags a cold node for compaction. |
 | **`MemoryCompile`** | Compiles source files or a directory into the database from within a session. Same engine as the `compile` CLI. |
 
-### Claude Code integration
+### Agent integrations
 
-Add to your project's `.mcp.json`:
+Five ready-to-install plugin folders ship with the repo, one per supported coding agent. Each has a manifest matching that agent's spec, an MCP stanza, and a README with install commands, env-var conventions, and a concrete example that compiles the agent's own memory folder into remindb.
+
+| Agent | Folder | Install docs |
+|-------|--------|--------------|
+| Claude Code | [`claude-code/`](./claude-code/) | [claude-code/README.md](./claude-code/README.md) |
+| Gemini CLI | [`gemini-cli/`](./gemini-cli/) | [gemini-cli/README.md](./gemini-cli/README.md) |
+| Codex | [`codex/`](./codex/) | [codex/README.md](./codex/README.md) |
+| OpenCode | [`opencode/`](./opencode/) | [opencode/README.md](./opencode/README.md) |
+| OpenClaw | [`openclaw/`](./openclaw/) | [openclaw/README.md](./openclaw/README.md) |
+
+For any other MCP-capable agent, add this stanza to its MCP config by hand:
 
 ```json
 {

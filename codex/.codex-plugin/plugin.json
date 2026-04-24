@@ -1,0 +1,24 @@
+{
+    "name": "remindb",
+    "version": "0.1.0",
+    "description": "Token-efficient agentic memory database. Mounts remindb as an MCP server, exposing MemoryFetch, MemorySearch, MemoryWrite, MemoryCompile, MemoryDelta, MemorySummarize, MemoryHistory, and MemoryTree as tools over a compiled SQLite view of the workspace.",
+    "author": {
+        "name": "radimsem"
+    },
+    "homepage": "https://github.com/radimsem/remindb",
+    "repository": "https://github.com/radimsem/remindb",
+    "license": "MIT",
+    "keywords": [
+        "remindb",
+        "mcp",
+        "memory",
+        "agentic"
+    ],
+    "mcpServers": "./.mcp.json",
+    "interface": {
+        "displayName": "remindb",
+        "shortDescription": "Compiled SQLite memory for coding agents, exposed over MCP.",
+        "longDescription": "remindb compiles a workspace into a SQLite database and exposes eight token-budgeted MCP tools (MemoryFetch, MemorySearch, MemoryWrite, MemoryCompile, MemoryDelta, MemorySummarize, MemoryHistory, MemoryTree). Agents read and update a compiled view of the workspace instead of re-reading files, cutting tokens by 60–90% on typical dev loops.",
+        "category": "Productivity"
+    }
+}
