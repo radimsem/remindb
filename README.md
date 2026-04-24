@@ -258,13 +258,11 @@ The scenario suite (tree · 3 searches · fetch · delta) rolls up into three wo
 - **context gathering** — 3 × `MemorySearch` + `MemoryFetch` + `MemoryDelta`, token-weighted.
 - **total session** — sum of both.
 
-| Category | openclaw | claude-code | codex | gemini-cli | opencode | brain vault¹ | **avg** |
-|----------|---------:|------------:|------:|-----------:|---------:|-------------:|--------:|
-| context window | +30.9 % | +45.9 % | +57.0 % | +52.0 % | +50.8 % | +41.7 % | **+46.4 %** |
-| context gathering | +92.5 % | +94.1 % | +93.2 % | +92.5 % | +93.1 % | +99.3 % | **+94.1 %** |
-| **total session** | **+78.5 %** | **+84.8 %** | **+86.3 %** | **+84.1 %** | **+84.4 %** | **+81.0 %** | **+83.2 %** |
+<p align="center">
+  <img src="assets/bench.svg" alt="remindb token savings by scenario category" width="100%" />
+</p>
 
-<sub>¹ Obsidian vault (`~/Documents/Brain`): 117 markdown files, ~619k naive tokens, 3 190 compiled nodes.</sub>
+<sub>The `obsidian vault` row is a real vault at `~/Documents/Brain`: 117 markdown files, ~619k naive tokens, 3 190 compiled nodes.</sub>
 
 > [!NOTE]
 > **Corpus size moves the numbers in remindb's favour.** The plugin fixtures are ~3k–20k tokens each; the Brain vault is ~619k. As the corpus grows, the naive baseline scales linearly (more files to list, more bytes to grep, more prose to re-read), while remindb's answers stay bounded by the token budget you pass. That's why the vault's context-gathering row hits **99.3 %** — every search still returns ~800 tokens, but the baseline is now 15–20× larger.
