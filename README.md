@@ -19,43 +19,43 @@
 
 ---
 
-## The Problem
-
-An AI agent opens your project, sees a folder of notes, and does what an LLM does best: reads every file, again, from scratch. Each session starts at zero. Each `Read` and `Grep` burns thousands of tokens reproducing context the agent already had yesterday. There is no memory — only the context window the host rebuilt this morning.
-
-Long-context models don't fix this. A 1M-token window is still paid per call, still re-tokenized, and still can't tell yesterday's stale note from today's relevant one. Raw files are the wrong substrate for memory.
+<p align="center">
+  <img src="assets/arch.svg" alt="remindb architecture" width="100%" />
+</p>
 
 ## The Idea
 
-`remindb` is a single portable SQLite file your agents treat as long-term memory. It parses Markdown, YAML, JSON, JSONL, and TOON into a structured AST, stores each node with a content hash, encodes repetitive structures as TOON when it saves tokens, and exposes the whole thing through eight purpose-built MCP tools.
+Agents already have memory — `CLAUDE.md`, `AGENTS.md`, per-project notes folders. The problem isn't that nothing persists; it's how agents consume it. Every session re-reads the whole file, re-tokenizes every byte, regardless of what actually changed since yesterday. Each `Read` and `Grep` scans raw prose the agent has already processed dozens of times, burning thousands of tokens to reproduce context it had an hour ago. Long-context models don't fix this: a 1M-token window is still paid per call, and still can't tell yesterday's stale note from today's relevant one. Raw files are the wrong substrate for memory — not because they can't hold it, but because they force the agent to pay full freight on every read.
 
-A few pieces hold it together:
+`remindb` is a single portable SQLite file your agents treat as long-term memory. It parses text-based file formats (like JSON, YAML, and [TOON](https://github.com/toon-format/toon)) into a structured AST, stores each node with a content hash, encodes repetitive structures as TOON when it saves tokens, and exposes the whole thing through purpose-built MCP tools.
+
+### Features
 
 - **Memory Tree as the agent's index.** Instead of listing a directory and reading every file to orient, the agent calls `MemoryTree` once. Each entry is a typed node — `[heading]`, `[list]`, `[kv]`, `[table]`, `[preamble]`, `[text]`, `[code]` — with an ID, a short label, a temperature, and a token count. Think `ls -la` for memory: one call, a scannable index, hot stuff floats up.
 
   A slice of a real tree (as printed by `remindb inspect --tree`):
 
   ```
-  [preamble] Preamble: framework, language, project (id=3kGXxidmWBp file=CLAUDE.md temp=0.50 tok=14)
-  [heading] Project Instructions (id=6EuIVj5zt5j file=CLAUDE.md temp=0.75 tok=5)
-    [heading] Architecture (id=603qfsg4qd2 file=CLAUDE.md temp=0.88 tok=3)
-      [text] Next.js 15 conventions with a clear separation of data… (id=3GGuLAq3yNP file=CLAUDE.md temp=0.82 tok=111)
-      [list] 7-item list: app/, components/, lib/, db/, hooks/, types… (id=ITAKw5NVNPt file=CLAUDE.md temp=0.71 tok=228)
-    [heading] Data Model (id=FQwpXL4bm6Y file=CLAUDE.md temp=0.62 tok=3)
-      [list] 7-item list: products, variants, orders, carts, users, s… (id=Il8jcgTJOGt file=CLAUDE.md temp=0.55 tok=155)
-    [heading] Payment Integration (id=LTQZLSkPsDW file=CLAUDE.md temp=0.30 tok=5)
-      [text] Stripe Payment Intents; not legacy Checkout Sessions… (id=GLbXrUYs32G file=CLAUDE.md temp=0.24 tok=35)
-    [heading] Observability (id=2wkOdf47OjR file=CLAUDE.md temp=0.08 tok=4)
-      [list] 4-item list: Sentry · Vercel logs · OTel tracing · Prom… (id=C1HCYSAOkpu file=CLAUDE.md temp=0.08 tok=90)
+  [preamble] Preamble: framework, language, project (id=3kGXxidmWBp file=CLAUDE.md score=0.38 temp=0.50 tok=14)
+  [heading] Project Instructions (id=6EuIVj5zt5j file=CLAUDE.md score=0.58 temp=0.75 tok=5)
+    [heading] Architecture (id=603qfsg4qd2 file=CLAUDE.md score=0.91 temp=0.88 tok=3)
+      [text] Next.js 15 conventions with a clear separation of data… (id=3GGuLAq3yNP file=CLAUDE.md score=0.82 temp=0.82 tok=111)
+      [list] 7-item list: app/, components/, lib/, db/, hooks/, types… (id=ITAKw5NVNPt file=CLAUDE.md score=0.68 temp=0.71 tok=228)
+    [heading] Data Model (id=FQwpXL4bm6Y file=CLAUDE.md score=0.54 temp=0.62 tok=3)
+      [list] 7-item list: products, variants, orders, carts, users, s… (id=Il8jcgTJOGt file=CLAUDE.md score=0.48 temp=0.55 tok=155)
+    [heading] Payment Integration (id=LTQZLSkPsDW file=CLAUDE.md score=0.22 temp=0.30 tok=5)
+      [text] Stripe Payment Intents; not legacy Checkout Sessions… (id=GLbXrUYs32G file=CLAUDE.md score=0.18 temp=0.24 tok=35)
+    [heading] Observability (id=2wkOdf47OjR file=CLAUDE.md score=0.09 temp=0.08 tok=4)
+      [list] 4-item list: Sentry · Vercel logs · OTel tracing · Prom… (id=C1HCYSAOkpu file=CLAUDE.md score=0.08 temp=0.08 tok=90)
   ```
 
   A fresh compile starts every node at `temp=0.50`; the spread above is what an agent sees after it's been reading for a while. "Architecture" is hot because the agent keeps coming back to it; "Observability" is nearly cold and will show up on the next round of summarization nudges.
 
-- **Temperature — what's hot vs. cold.** Each node has a temperature between 0 and 1. Reads bump it up (`T += 0.15`), a background tick cools everything down (`T = T · e^(-λ·Δt)`). Ideas the agent keeps returning to stay warm and rank higher; notes nobody touches drift toward the cold threshold and get flagged for summarization. Ranking uses `score = relevance × (0.3 + 0.7 × temperature)` — cold nodes don't disappear, they just stop crowding the top of the results.
+- **Temperature — what's hot vs. cold.** Each node carries a temperature that rises when the agent reads it and decays over time. Ideas the agent keeps returning to stay warm and rank higher; notes nobody touches drift toward the cold threshold and get flagged for summarization. Cold nodes don't disappear, they just stop crowding the top of the results.
 
 - **Git-style versioning.** Every `compile` or `MemoryWrite` lands a snapshot — a linear parent chain with a `cursor_hash` that fingerprints the whole DB state. Per-node diffs (`add` / `mod` / `rem`, with old and new content) sit alongside. `MemoryDelta` then hands the agent *only* what changed since its last cursor — a tiny resync instead of a whole-file re-read.
 
-- **TOON encoding at rest.** Arrays of uniform objects (configs, tables, list-of-dicts) store ~40% smaller in [TOON](https://github.com/johannschopplich/toon) than in plain YAML or JSON. The parser tries both representations for each structured node, keeps whichever wins by ≥15%, and records the choice in a `format` column. The query layer decodes on read. Irregular prose stays as plain text — TOON has nothing to offer there, so we don't pretend.
+- **TOON encoding at rest.** Arrays of uniform objects (configs, tables, list-of-dicts) store ~40% smaller in TOON than in plain YAML or JSON. The parser tries both representations for each structured node, keeps whichever wins by ≥15%, and records the choice in a `format` column. The query layer decodes on read. Irregular prose stays as plain text — TOON has nothing to offer there, so we don't pretend.
 
 - **FTS5 search, not grep.** Search runs on SQLite's FTS5 virtual table, built at write time with a porter tokenizer over labels, content, and types. `MemorySearch` returns ranked anchors in milliseconds — no file rescans, no regex timeouts — and trims to whatever token budget the agent passes. Ask for 500 tokens of matches and that's exactly what you get back.
 
@@ -107,10 +107,6 @@ remindb --help
 
 Two phases, one SQLite file between them. The compiler runs offline and turns source files into versioned nodes; the MCP runtime runs online and answers the agent in milliseconds. The `.db` is the whole handoff — copy it, commit it, sync it.
 
-<p align="center">
-  <img src="assets/arch.svg" alt="remindb architecture" width="100%" />
-</p>
-
 | Layer | Responsibility |
 |-------|----------------|
 | **Parser** | One dispatcher, format-specific stages for Markdown, YAML, JSON/JSONL, TOON. Emits a unified `[]*ContextNode` tree with `id`, `parent_id`, `label`, `content`, `node_type`, `depth`, `token_count`, `content_hash`. |
@@ -118,8 +114,8 @@ Two phases, one SQLite file between them. The compiler runs offline and turns so
 | **Diff Engine** | Compares the fresh AST against the last snapshot, produces `add`/`mod`/`rem` deltas, hashes the full state into a new `cursor_hash`. |
 | **Emitter** | Writes nodes, diffs, and the new snapshot in one transaction; maintains the FTS5 index via triggers. |
 | **Store** | SQLite with WAL mode. Tables: `nodes`, `snapshots`, `diffs`, `cursors`, plus the `nodes_fts` virtual table. |
-| **Query Engine** | Token-budgeted context assembly. Traverses ancestors and descendants via `parent_id`, ranks with `relevance × (0.3 + 0.7 × temperature)`, formats output. |
-| **Temperature** | Access boost on read, exponential decay on a tick. Tunables: `DecayRate=0.05`, `AccessBoost=0.15`, `ColdThreshold=0.1`, `TickInterval=10m`. |
+| **Query Engine** | Token-budgeted context assembly. Traverses ancestors and descendants via `parent_id`, ranks by relevance weighted by temperature, formats output. |
+| **Temperature** | Access boost on read, decay on a tick. Cold nodes get flagged for summarization. |
 | **MCP Server** | `modelcontextprotocol/go-sdk` over stdio. Registers eight tools, dispatches to the query engine, and notifies clients when nodes cross the cold threshold. |
 | **Rescan Loop** | Optional background goroutine that polls the source directory and triggers incremental recompilation without bringing the server down. |
 
@@ -250,7 +246,7 @@ and MemoryFetch on the top hit. Explain what you learned and which files it came
 
 ## Benchmarks
 
-Token counts are measured against the naive baseline an agent falls back to without a memory layer: list the directory, read every matching file, grep through it. Numbers come from `./scripts/bench-agents.sh` over the five plugin fixtures in `testdata/`, plus a one-off compile of a real Obsidian vault (117 markdown files across AI concepts, market briefs, security notes, and MOCs — ~619k naive tokens end-to-end).
+Token counts are measured against the naive baseline an agent falls back to without a memory layer: list the directory, read every matching file, grep through it. Numbers come from `./scripts/bench-agents.sh` over the five plugin fixtures in `testdata/`, plus a one-off compile of a real Obsidian vault (~100 markdown files across AI concepts, market briefs, security notes, and MOCs — ~600k naive tokens end-to-end).
 
 The scenario suite (tree · 3 searches · fetch · delta) rolls up into three workflow categories:
 
@@ -258,16 +254,16 @@ The scenario suite (tree · 3 searches · fetch · delta) rolls up into three wo
 - **context gathering** — 3 × `MemorySearch` + `MemoryFetch` + `MemoryDelta`, token-weighted.
 - **total session** — sum of both.
 
+> [!NOTE]
+> **Corpus size moves the numbers in remindb's favour.** The plugin fixtures are ~3k–20k tokens each; the vault is ~600k. As the corpus grows, the naive baseline scales linearly (more files to list, more bytes to grep, more prose to re-read), while remindb's answers stay bounded by the token budget you pass. That's why the vault's context-gathering row hits **99.3 %** — every search still returns ~800 tokens, but the baseline is now 15–20× larger.
+>
+> The scenario list is also intentionally short. A real 30-minute agent session does dozens of orient/search/fetch/write/re-orient cycles, and the same search often fires three or four times as the agent loops on a problem. Each of those calls compounds toward **90 %+ full-session savings** on realistic corpora.
+
 <p align="center">
   <img src="assets/bench.svg" alt="remindb token savings by scenario category" width="100%" />
 </p>
 
-<sub>The `obsidian vault` row is a real vault at `~/Documents/Brain`: 117 markdown files, ~619k naive tokens, 3 190 compiled nodes.</sub>
-
-> [!NOTE]
-> **Corpus size moves the numbers in remindb's favour.** The plugin fixtures are ~3k–20k tokens each; the Brain vault is ~619k. As the corpus grows, the naive baseline scales linearly (more files to list, more bytes to grep, more prose to re-read), while remindb's answers stay bounded by the token budget you pass. That's why the vault's context-gathering row hits **99.3 %** — every search still returns ~800 tokens, but the baseline is now 15–20× larger.
->
-> The scenario list is also intentionally short. A real 30-minute agent session does dozens of orient/search/fetch/write/re-orient cycles, and the same search often fires three or four times as the agent loops on a problem. Each of those calls compounds toward **90 %+ full-session savings** on realistic corpora.
+<sub>The `obsidian vault` row is a real vault: ~100 markdown files, ~600k naive tokens.</sub>
 
 Reproduce the table yourself:
 
