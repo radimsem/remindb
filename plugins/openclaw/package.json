@@ -1,30 +1,30 @@
 {
-    "name": "@radimsem/remindb-opencode",
+    "name": "@radimsem/remindb-openclaw",
     "version": "0.1.0",
-    "description": "OpenCode plugin that mounts the remindb MCP server as a workspace memory backend",
-    "type": "module",
-    "main": "plugin.ts",
+    "description": "OpenClaw plugin that mounts the remindb MCP server as a workspace memory backend",
+    "main": "index.ts",
     "license": "MIT",
     "repository": {
         "type": "git",
         "url": "https://github.com/radimsem/remindb",
-        "directory": "opencode"
+        "directory": "plugins/openclaw"
     },
     "homepage": "https://github.com/radimsem/remindb",
     "keywords": [
         "remindb",
-        "opencode",
-        "opencode-plugin",
+        "openclaw",
+        "openclaw-plugin",
         "mcp",
         "memory",
         "agentic"
     ],
     "files": [
-        "plugin.ts",
-        "opencode.json",
+        "index.ts",
+        "openclaw.plugin.json",
+        ".mcp.json",
         "README.md"
     ],
     "peerDependencies": {
-        "@opencode-ai/plugin": "*"
+        "remindb": ">=0.1.0"
     }
 }

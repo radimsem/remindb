@@ -47,14 +47,14 @@ Re-run whenever you want a fresh baseline; `serve` keeps the DB current after th
 Via OpenClaw CLI:
 
 ```bash
-openclaw plugins install ./openclaw
+openclaw plugins install ./plugins/openclaw
 ```
 
 Or manually:
 
 ```bash
 mkdir -p ~/.openclaw/extensions/remindb
-cp openclaw/index.ts openclaw/openclaw.plugin.json openclaw/.mcp.json ~/.openclaw/extensions/remindb/
+cp plugins/openclaw/index.ts plugins/openclaw/openclaw.plugin.json plugins/openclaw/.mcp.json ~/.openclaw/extensions/remindb/
 ```
 
 ### 4. Export the workspace env vars

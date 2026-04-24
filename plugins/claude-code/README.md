@@ -56,7 +56,7 @@ Pick one of:
 **Local checkout** (for plugin development):
 
 ```bash
-claude --plugin-dir ./claude-code
+claude --plugin-dir ./plugins/claude-code
 ```
 
 After either path, confirm the server is connected:

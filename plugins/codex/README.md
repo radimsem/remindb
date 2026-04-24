@@ -46,7 +46,7 @@ Or point at any other workspace you want agents to see — a docs tree, a notes 
 ### 3. Add the plugin from GitHub
 
 ```bash
-codex plugin marketplace add radimsem/remindb --sparse codex
+codex plugin marketplace add radimsem/remindb --sparse plugins/codex
 codex plugin install remindb
 ```
 

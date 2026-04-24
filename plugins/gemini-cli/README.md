@@ -46,13 +46,13 @@ Or point at any other workspace you want agents to see — a docs tree, a notes 
 ### 3. Install the extension from GitHub
 
 ```bash
-gemini extensions install https://github.com/radimsem/remindb --path gemini-cli
+gemini extensions install https://github.com/radimsem/remindb --path plugins/gemini-cli
 ```
 
 Or pin to a ref:
 
 ```bash
-gemini extensions install https://github.com/radimsem/remindb --path gemini-cli --ref v0.1.0
+gemini extensions install https://github.com/radimsem/remindb --path plugins/gemini-cli --ref v0.1.0
 ```
 
 The CLI clones the repository into `~/.gemini/extensions/remindb/`. Use `gemini extensions update remindb` to sync.

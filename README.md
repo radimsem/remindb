@@ -260,11 +260,11 @@ Five ready-to-install plugin folders ship with the repo, one per supported codin
 
 | Agent | Folder | Install docs |
 |-------|--------|--------------|
-| Claude Code | [`claude-code/`](./claude-code/) | [claude-code/README.md](./claude-code/README.md) |
-| Gemini CLI | [`gemini-cli/`](./gemini-cli/) | [gemini-cli/README.md](./gemini-cli/README.md) |
-| Codex | [`codex/`](./codex/) | [codex/README.md](./codex/README.md) |
-| OpenCode | [`opencode/`](./opencode/) | [opencode/README.md](./opencode/README.md) |
-| OpenClaw | [`openclaw/`](./openclaw/) | [openclaw/README.md](./openclaw/README.md) |
+| Claude Code | [`plugins/claude-code/`](./plugins/claude-code/) | [plugins/claude-code/README.md](./plugins/claude-code/README.md) |
+| Gemini CLI | [`plugins/gemini-cli/`](./plugins/gemini-cli/) | [plugins/gemini-cli/README.md](./plugins/gemini-cli/README.md) |
+| Codex | [`plugins/codex/`](./plugins/codex/) | [plugins/codex/README.md](./plugins/codex/README.md) |
+| OpenCode | [`plugins/opencode/`](./plugins/opencode/) | [plugins/opencode/README.md](./plugins/opencode/README.md) |
+| OpenClaw | [`plugins/openclaw/`](./plugins/openclaw/) | [plugins/openclaw/README.md](./plugins/openclaw/README.md) |
 
 Pair the plugin with the companion [`efficient-memo`](./skills/efficient-memo/) skill — it teaches the agent the FTS5 query format, token-budget conventions, and the `MemoryTree → MemorySearch → MemoryFetch` chain so you don't re-explain them each session. Drop the folder into your agent's user-scope skills directory (Claude Code: `~/.claude/skills/efficient-memo/`; OpenClaw: the equivalent user skills path). Agents without a native skill loader can paste `SKILL.md` into their `AGENTS.md` / system-prompt equivalent.
 
