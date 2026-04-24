@@ -36,22 +36,24 @@ Agents already have memory — `CLAUDE.md`, `AGENTS.md`, per-project notes folde
   A slice of a real tree (as printed by `remindb inspect --tree`):
 
   ```
-  [preamble] Preamble: framework, language, project (id=3kGXxidmWBp file=CLAUDE.md score=0.38 temp=0.50 tok=14)
-  [heading] Project Instructions (id=6EuIVj5zt5j file=CLAUDE.md score=0.58 temp=0.75 tok=5)
-    [heading] Architecture (id=603qfsg4qd2 file=CLAUDE.md score=0.91 temp=0.88 tok=3)
-      [text] Next.js 15 conventions with a clear separation of data… (id=3GGuLAq3yNP file=CLAUDE.md score=0.82 temp=0.82 tok=111)
-      [list] 7-item list: app/, components/, lib/, db/, hooks/, types… (id=ITAKw5NVNPt file=CLAUDE.md score=0.68 temp=0.71 tok=228)
-    [heading] Data Model (id=FQwpXL4bm6Y file=CLAUDE.md score=0.54 temp=0.62 tok=3)
-      [list] 7-item list: products, variants, orders, carts, users, s… (id=Il8jcgTJOGt file=CLAUDE.md score=0.48 temp=0.55 tok=155)
-    [heading] Payment Integration (id=LTQZLSkPsDW file=CLAUDE.md score=0.22 temp=0.30 tok=5)
-      [text] Stripe Payment Intents; not legacy Checkout Sessions… (id=GLbXrUYs32G file=CLAUDE.md score=0.18 temp=0.24 tok=35)
-    [heading] Observability (id=2wkOdf47OjR file=CLAUDE.md score=0.09 temp=0.08 tok=4)
-      [list] 4-item list: Sentry · Vercel logs · OTel tracing · Prom… (id=C1HCYSAOkpu file=CLAUDE.md score=0.08 temp=0.08 tok=90)
+  [preamble] Preamble: framework, language, project (id=3kGXxidmWBp file=CLAUDE.md temp=0.50 tok=14)
+  [heading] Project Instructions (id=6EuIVj5zt5j file=CLAUDE.md temp=0.75 tok=5)
+    [heading] Architecture (id=603qfsg4qd2 file=CLAUDE.md temp=0.88 tok=3)
+      [text] Next.js 15 conventions with a clear separation of data… (id=3GGuLAq3yNP file=CLAUDE.md temp=0.82 tok=111)
+      [list] 7-item list: app/, components/, lib/, db/, hooks/, types… (id=ITAKw5NVNPt file=CLAUDE.md temp=0.71 tok=228)
+    [heading] Data Model (id=FQwpXL4bm6Y file=CLAUDE.md temp=0.62 tok=3)
+      [list] 7-item list: products, variants, orders, carts, users, s… (id=Il8jcgTJOGt file=CLAUDE.md temp=0.55 tok=155)
+    [heading] Payment Integration (id=LTQZLSkPsDW file=CLAUDE.md temp=0.30 tok=5)
+      [text] Stripe Payment Intents; not legacy Checkout Sessions… (id=GLbXrUYs32G file=CLAUDE.md temp=0.24 tok=35)
+    [heading] Observability (id=2wkOdf47OjR file=CLAUDE.md temp=0.08 tok=4)
+      [list] 4-item list: Sentry · Vercel logs · OTel tracing · Prom… (id=C1HCYSAOkpu file=CLAUDE.md temp=0.08 tok=90)
   ```
 
   A fresh compile starts every node at `temp=0.50`; the spread above is what an agent sees after it's been reading for a while. "Architecture" is hot because the agent keeps coming back to it; "Observability" is nearly cold and will show up on the next round of summarization nudges.
 
 - **Temperature — what's hot vs. cold.** Each node carries a temperature that rises when the agent reads it and decays over time. Ideas the agent keeps returning to stay warm and rank higher; notes nobody touches drift toward the cold threshold and get flagged for summarization. Cold nodes don't disappear, they just stop crowding the top of the results.
+
+- **Dynamic in-band summarization.** When a node crosses the cold threshold, the MCP server pushes a notification straight to the agent — "this node has gone cold, consider compacting it." The agent calls `MemorySummarize` with a shorter rewrite and the node's footprint shrinks in place, without losing its anchor in the tree or its version history. No scheduled sweep, no external worker; compaction happens in-band, driven by how the agent actually uses the memory.
 
 - **Git-style versioning.** Every `compile` or `MemoryWrite` lands a snapshot — a linear parent chain with a `cursor_hash` that fingerprints the whole DB state. Per-node diffs (`add` / `mod` / `rem`, with old and new content) sit alongside. `MemoryDelta` then hands the agent *only* what changed since its last cursor — a tiny resync instead of a whole-file re-read.
 
@@ -105,7 +107,7 @@ remindb --help
 
 ## Architecture
 
-Two phases, one SQLite file between them. The compiler runs offline and turns source files into versioned nodes; the MCP runtime runs online and answers the agent in milliseconds. The `.db` is the whole handoff — copy it, commit it, sync it.
+Two phases, one SQLite file between them. The compiler turns source files into versioned nodes at ingest time; the MCP runtime answers the agent in milliseconds on every tool call. The `.db` is the whole handoff — copy it, commit it, sync it.
 
 | Layer | Responsibility |
 |-------|----------------|
@@ -116,7 +118,7 @@ Two phases, one SQLite file between them. The compiler runs offline and turns so
 | **Store** | SQLite with WAL mode. Tables: `nodes`, `snapshots`, `diffs`, `cursors`, plus the `nodes_fts` virtual table. |
 | **Query Engine** | Token-budgeted context assembly. Traverses ancestors and descendants via `parent_id`, ranks by relevance weighted by temperature, formats output. |
 | **Temperature** | Access boost on read, decay on a tick. Cold nodes get flagged for summarization. |
-| **MCP Server** | `modelcontextprotocol/go-sdk` over stdio. Registers eight tools, dispatches to the query engine, and notifies clients when nodes cross the cold threshold. |
+| **MCP Server** | `modelcontextprotocol/go-sdk` over stdio. Registers the `Memory*` tool suite, dispatches to the query engine, and notifies clients when nodes cross the cold threshold. |
 | **Rescan Loop** | Optional background goroutine that polls the source directory and triggers incremental recompilation without bringing the server down. |
 
 ## CLI
@@ -195,7 +197,7 @@ remindb bench \
 
 ## MCP tools
 
-Eight tools, registered once, surfaced to any MCP-capable agent (Claude Code, Codex, Gemini CLI, OpenCode, OpenClaw, …).
+A `Memory*` tool suite, registered once, surfaced to any MCP-capable agent (Claude Code, Codex, Gemini CLI, OpenCode, OpenClaw, …).
 
 | Tool | Purpose |
 |------|---------|
@@ -220,7 +222,14 @@ Five ready-to-install plugin folders ship with the repo, one per supported codin
 | OpenCode | [`plugins/opencode/`](./plugins/opencode/) | [plugins/opencode/README.md](./plugins/opencode/README.md) |
 | OpenClaw | [`plugins/openclaw/`](./plugins/openclaw/) | [plugins/openclaw/README.md](./plugins/openclaw/README.md) |
 
-Pair the plugin with the companion [`efficient-memo`](./skills/efficient-memo/) skill — it teaches the agent the FTS5 query format, token-budget conventions, and the `MemoryTree → MemorySearch → MemoryFetch` chain so you don't re-explain them each session. Drop the folder into your agent's user-scope skills directory (Claude Code: `~/.claude/skills/efficient-memo/`; OpenClaw: the equivalent user skills path). Agents without a native skill loader can paste `SKILL.md` into their `AGENTS.md` / system-prompt equivalent.
+> [!TIP]
+> **Pair the plugin with the companion [`efficient-memo`](./skills/efficient-memo/) skill.** It teaches the agent the FTS5 query format, token-budget conventions, and the `MemoryTree → MemorySearch → MemoryFetch` chain so you don't re-explain them each session. Drop the folder into your agent's user-scope skills directory (Claude Code: `~/.claude/skills/efficient-memo/`; OpenClaw: the equivalent user skills path). Agents without a native skill loader can paste `SKILL.md` into their `AGENTS.md` / system-prompt equivalent.
+>
+> Invoke it in-session to prime the agent before a memory-heavy task — in Claude Code:
+>
+> ```
+> /efficient-memo
+> ```
 
 For any other MCP-capable agent, add this stanza to its MCP config by hand:
 
