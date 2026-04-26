@@ -1,4 +1,4 @@
-.PHONY: build run test fmt lint tidy
+.PHONY: build run test fuzz test-all fmt lint tidy
 
 build:
 	go build ./...
@@ -8,6 +8,12 @@ run:
 
 test:
 	go test ./...
+
+fuzz:
+	./scripts/fuzz.sh
+
+test-all:
+	./scripts/test.sh
 
 fmt:
 	gofmt -w .
