@@ -1,5 +1,5 @@
 ---
-description: Use when the session has access to a remindb MCP server (tools prefixed remindb__ like MemoryTree, MemorySearch, MemoryFetch, MemoryWrite, MemoryDelta, MemoryHistory, MemorySummarize, MemoryCompile). Teaches how the server is structured, the FTS5 search-query format with its automatic OR rewrite, token-budgeted search and fetch, snapshot-aware writes, and delta resync that replace raw file reads and grep.
+description: Use when the session has access to a remindb MCP server (tools prefixed remindb__ like MemoryTree, MemorySearch, MemoryFetch, MemoryWrite, MemoryDelta, MemoryHistory, MemorySummarize, MemoryCompile). Teaches how the server is structured, the FTS5 search-query format with its automatic OR rewrite, token-budgeted search and fetch, snapshot-aware writes, delta resync that replace raw file reads and grep, and the warning-level cold-node notifications the server pushes to nudge MemorySummarize.
 ---
 
 # Efficient remindb MCP usage
@@ -17,7 +17,9 @@ The smallest unit of memory is a **node**. Every node has:
 - A `label` — a short, scannable title (first meaningful line, ≤80 chars).
 - A `node_type` — one of `heading`, `list`, `kv`, `table`, `preamble`, `text`, `code`. Types hint at shape, not behavior.
 - A `token_count` — estimated cl100k-base tokens. The query layer uses this to honor budgets.
-- A `temperature` in `[0.0, 1.0]` — how "warm" the node is. Reads boost it (`+0.15`, capped at 1.0); a background tick cools everything (`λ=0.05` per 10 minutes). Cold threshold is `0.1`.
+- A `temperature` in `[0.0, 1.0]` — how "warm" the node is. Reads boost it (`+0.15`, capped at 1.0 by SQL `min(1.0, …)`). A background tick (default every 5 minutes) decays everything by `factor = exp(-0.05 × elapsed_hours)` — roughly 5% per hour. Two thresholds gate downstream behavior, both default to `0.1`:
+  - `ColdThreshold` — used by `GetColdNodes` and the search ranking floor; nodes below it are "cold".
+  - `NotifyThreshold` — used by the server to decide whether to push a cold-node notification (see *Notifications* below). Distinct from `ColdThreshold` so operators can run a tighter alerting band than the cold-set query.
 
 ### Snapshots
 
@@ -30,6 +32,22 @@ Every snapshot carries per-node diffs: `add`, `mod`, or `rem`, with old and new 
 ### Ranking
 
 Search results are ranked by `score = relevance × (0.3 + 0.7 × temperature)`. Relevance is FTS5's BM25-like rank; temperature is the warmth above. A very cold node with a great keyword match still surfaces; a warm node with a weak match also surfaces. The budget trims results from the bottom after ranking.
+
+### Notifications
+
+After each tick the server pushes a cold-node nudge to every connected client session that has called `SetLoggingLevel`. The transport is the MCP `notifications/message` channel — *not* server-side stderr — with `level: "warning"` and `logger: "remindb.temperature"`. The payload is:
+
+```json
+{
+  "message": "Cold nodes detected; consider summarizing via MemorySummarize",
+  "suggested_action": "MemorySummarize",
+  "nodes": [
+    { "id": "<11-char base62>", "label": "...", "file": "...", "temperature": 0.07 }
+  ]
+}
+```
+
+The server dedups: a node is notified once when it crosses below `NotifyThreshold` and is then suppressed until it warms above `NotifyThreshold` and re-cools (a hysteresis band so a node oscillating around the line doesn't spam). Treat one of these notifications as a direct cue to call `MemorySummarize` on the listed `id`s — see *Summarize a cold node*.
 
 ### Budgets
 
@@ -166,13 +184,24 @@ Returns a list of `[op] node_id (snapshot N)` lines. Fetch the specific nodes yo
 
 ### Summarize a cold node
 
-The server cools untouched nodes over time. When a node crosses the cold threshold (`0.1`) it's a candidate for compaction — long prose that nobody reads, condensed into a smaller summary:
+The server cools untouched nodes over time. When a node drops below `NotifyThreshold` it gets pushed to your session as an MCP logging notification (see *Notifications* in the mental model):
+
+- `level: "warning"`
+- `logger: "remindb.temperature"`
+- `data.message: "Cold nodes detected; consider summarizing via MemorySummarize"`
+- `data.suggested_action: "MemorySummarize"`
+- `data.nodes: [{id, label, file, temperature}, …]`
+
+When you see this notification, take it as the system's compaction signal — long prose that nobody is reading, condense it. For each entry in `nodes`:
 
 ```
-remindb__MemorySummarize(node_id="<id>", summary="<compressed version>")
+remindb__MemoryFetch(anchor="<id>", budget=1500)        # read what's there
+remindb__MemorySummarize(node_id="<id>", summary="…")   # replace with the condensed version
 ```
 
-The node's content is replaced, the token count shrinks, the label becomes `"Summary: <first line>"`.
+`MemorySummarize` replaces the node's content in place, recomputes `token_count`, and rewrites the label to `"Summary: <first line>"` (first line truncated to 70 chars, prefix included). Type, parent, and source file are preserved. Every call creates a snapshot, so the prior wording is recoverable via `MemoryHistory`.
+
+Notifications are deduplicated server-side, so you won't see the same node again until it warms above `NotifyThreshold` and re-cools — there's no harm in deferring summarization, but no further reminder either.
 
 ### Recompile when the source drifts
 
@@ -204,3 +233,5 @@ Returns snapshot-ordered `add`/`mod`/`rem` entries with truncated old and new co
 - Don't re-read the whole tree on resume. Use `MemoryDelta` with the last snapshot id.
 - Don't edit anchor IDs — they're content-addressed. Let remindb assign them.
 - Don't confuse **snapshot id** (int64, passed to `MemoryDelta`) with **cursor_hash** (xxhash64 string, a fingerprint for equality comparison only).
+- Don't ignore a `level: "warning"` / `logger: "remindb.temperature"` notification. It's the server's only summarization cue and won't fire again for the same node until it warms and re-cools. Walk the `nodes` array and call `MemorySummarize` on each `id`.
+- Don't confuse `ColdThreshold` with `NotifyThreshold`. Both default to `0.1`, but they're independent knobs — `ColdThreshold` drives the cold-node *query*, `NotifyThreshold` drives the *push*. A deployment can tune them separately.
