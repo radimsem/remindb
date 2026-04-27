@@ -93,7 +93,10 @@ func runServe(cmd *cobra.Command, _ []string) error {
 	})
 
 	if sourceDir != "" {
-		rescan := remindb.NewRescanLoop(st, sourceDir, rescanInterval, logger)
+		rescan, err := remindb.NewRescanLoop(st, sourceDir, rescanInterval, logger)
+		if err != nil {
+			return err
+		}
 		g.Go(func() error {
 			rescan.Run(ctx)
 			return nil

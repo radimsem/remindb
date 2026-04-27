@@ -8,6 +8,7 @@ import (
 	"path/filepath"
 
 	"github.com/radimsem/remindb/internal/fileext"
+	"github.com/radimsem/remindb/internal/ignore"
 	"github.com/radimsem/remindb/pkg/store"
 )
 
@@ -32,6 +33,11 @@ func stageBench(ctx context.Context, userDBPath, overrideDir string) (*benchStag
 		return nil, err
 	}
 
+	matcher, err := ignore.Load(userDir)
+	if err != nil {
+		return nil, fmt.Errorf("failed to load: %s: %w", ignore.FileName, err)
+	}
+
 	tmpRoot, err := os.MkdirTemp("", "remindb-bench-*")
 	if err != nil {
 		return nil, fmt.Errorf("failed to create: tmp dir: %w", err)
@@ -48,7 +54,7 @@ func stageBench(ctx context.Context, userDBPath, overrideDir string) (*benchStag
 		return nil, err
 	}
 
-	if err := copySourceTree(userDir, stage.srcDir); err != nil {
+	if err := copySourceTree(userDir, stage.srcDir, matcher); err != nil {
 		stage.cleanup()
 		return nil, err
 	}
@@ -123,21 +129,35 @@ func copyFile(src, dst string) error {
 }
 
 // Mirror every parsable file from source dir into dst.
-func copySourceTree(src, dst string) error {
+func copySourceTree(src, dst string, matcher *ignore.Matcher) error {
 	return filepath.WalkDir(src, func(path string, d os.DirEntry, err error) error {
 		if err != nil {
 			return err
-		}
-		if d.IsDir() {
-			return nil
-		}
-		if !fileext.Supported(path) {
-			return nil
 		}
 
 		rel, err := filepath.Rel(src, path)
 		if err != nil {
 			return fmt.Errorf("failed to resolve: relative path for %s: %w", path, err)
+		}
+		relSlash := filepath.ToSlash(rel)
+
+		if d.IsDir() {
+			if path != src && fileext.ShouldSkipDir(d.Name()) {
+				return filepath.SkipDir
+			}
+			if matcher.Match(relSlash, true) {
+				return filepath.SkipDir
+			}
+			return nil
+		}
+		if relSlash == ignore.FileName {
+			return nil
+		}
+		if !fileext.Supported(path) {
+			return nil
+		}
+		if matcher.Match(relSlash, false) {
+			return nil
 		}
 
 		target := filepath.Join(dst, rel)

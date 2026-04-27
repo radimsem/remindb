@@ -10,9 +10,21 @@ import (
 	"testing"
 	"time"
 
+	"github.com/radimsem/remindb/internal/ignore"
 	"github.com/radimsem/remindb/internal/testutil"
 	"github.com/radimsem/remindb/pkg/compiler"
+	"github.com/radimsem/remindb/pkg/store"
 )
+
+func mustRescan(t *testing.T, st *store.Store, dir string, interval time.Duration, logger *slog.Logger) *RescanLoop {
+	t.Helper()
+	r, err := NewRescanLoop(st, dir, interval, logger)
+
+	if err != nil {
+		t.Fatalf("NewRescanLoop: %v", err)
+	}
+	return r
+}
 
 func TestRescanLoop_LogsWalkErrors(t *testing.T) {
 	dir := t.TempDir()
@@ -28,7 +40,7 @@ func TestRescanLoop_LogsWalkErrors(t *testing.T) {
 	logger := slog.New(slog.NewTextHandler(&buf, &slog.HandlerOptions{Level: slog.LevelWarn}))
 
 	st := testutil.OpenTestDB(t)
-	r := NewRescanLoop(st, dir, time.Minute, logger)
+	r := mustRescan(t, st, dir, time.Minute, logger)
 	r.now = func() time.Time { return time.Now().Add(time.Hour) }
 	r.scan(context.Background())
 
@@ -51,7 +63,7 @@ func TestRescanLoop_SkipsHiddenDirs(t *testing.T) {
 	writeFile(t, hidden, "prefs.json", `{"hidden": true}`)
 
 	st := testutil.OpenTestDB(t)
-	r := NewRescanLoop(st, dir, time.Minute, nil)
+	r := mustRescan(t, st, dir, time.Minute, nil)
 	r.now = func() time.Time { return time.Now().Add(time.Hour) }
 	r.scan(context.Background())
 
@@ -70,7 +82,7 @@ func TestRescanLoop_DetectsChanges(t *testing.T) {
 	writeFile(t, dir, "doc.md", "# Original\n\nContent.\n")
 
 	st := testutil.OpenTestDB(t)
-	r := NewRescanLoop(st, dir, time.Minute, nil)
+	r := mustRescan(t, st, dir, time.Minute, nil)
 	r.now = func() time.Time { return time.Now().Add(time.Hour) }
 
 	ctx := context.Background()
@@ -106,7 +118,7 @@ func TestRescanLoop_DebouncesMidSave(t *testing.T) {
 	dir := t.TempDir()
 
 	st := testutil.OpenTestDB(t)
-	r := NewRescanLoop(st, dir, time.Minute, nil)
+	r := mustRescan(t, st, dir, time.Minute, nil)
 
 	// Freeze "now" so the file's mtime is always inside the settle window.
 	frozen := time.Now()
@@ -135,7 +147,7 @@ func TestRescanLoop_CommitsMtimesOnlyAfterSuccess(t *testing.T) {
 	writeFile(t, dir, "bad.json", `{"unterminated`)
 
 	st := testutil.OpenTestDB(t)
-	r := NewRescanLoop(st, dir, time.Minute, nil)
+	r := mustRescan(t, st, dir, time.Minute, nil)
 	r.now = func() time.Time { return time.Now().Add(time.Hour) }
 
 	ctx := context.Background()
@@ -160,7 +172,7 @@ func TestRescanLoop_ReconcilesDeletedFiles(t *testing.T) {
 	writeFile(t, dir, "gone.md", "# Gone\n\nBody.\n")
 
 	st := testutil.OpenTestDB(t)
-	r := NewRescanLoop(st, dir, time.Minute, nil)
+	r := mustRescan(t, st, dir, time.Minute, nil)
 	r.now = func() time.Time { return time.Now().Add(time.Hour) }
 
 	ctx := context.Background()
@@ -207,7 +219,7 @@ func TestRescanLoop_RecordsDeletionsInSnapshot(t *testing.T) {
 	writeFile(t, dir, "gone.md", "# Gone\n\nBody.\n")
 
 	st := testutil.OpenTestDB(t)
-	r := NewRescanLoop(st, dir, time.Minute, nil)
+	r := mustRescan(t, st, dir, time.Minute, nil)
 	r.now = func() time.Time { return time.Now().Add(time.Hour) }
 
 	ctx := context.Background()
@@ -266,7 +278,7 @@ func TestRescanLoop_SkipsPurgeOnWalkError(t *testing.T) {
 	writeFile(t, dir, "keep.md", "# Keep\n\nBody.\n")
 
 	st := testutil.OpenTestDB(t)
-	r := NewRescanLoop(st, dir, time.Minute, nil)
+	r := mustRescan(t, st, dir, time.Minute, nil)
 	r.now = func() time.Time { return time.Now().Add(time.Hour) }
 
 	ctx := context.Background()
@@ -315,7 +327,7 @@ func TestRescanLoop_NewFile(t *testing.T) {
 	dir := t.TempDir()
 
 	st := testutil.OpenTestDB(t)
-	r := NewRescanLoop(st, dir, time.Minute, nil)
+	r := mustRescan(t, st, dir, time.Minute, nil)
 	r.now = func() time.Time { return time.Now().Add(time.Hour) }
 
 	ctx := context.Background()
@@ -337,7 +349,7 @@ func TestRescanLoop_ScanBlocksOnOpMu(t *testing.T) {
 	writeFile(t, dir, "doc.md", "# Doc\n\nBody.\n")
 
 	st := testutil.OpenTestDB(t)
-	r := NewRescanLoop(st, dir, time.Minute, nil)
+	r := mustRescan(t, st, dir, time.Minute, nil)
 	r.now = func() time.Time { return time.Now().Add(time.Hour) }
 
 	st.OpMu.Lock()
@@ -379,7 +391,7 @@ func TestRescanLoop_RunCatchesStaleEditsAtStartup(t *testing.T) {
 
 	// Long interval — ticker must not fire during the test, so only the
 	// startup reconcile can catch the edit.
-	r := NewRescanLoop(st, dir, time.Hour, nil)
+	r := mustRescan(t, st, dir, time.Hour, nil)
 	r.now = func() time.Time { return time.Now().Add(time.Hour) }
 
 	runCtx, cancel := context.WithTimeout(ctx, 200*time.Millisecond)
@@ -402,6 +414,42 @@ func TestRescanLoop_RunCatchesStaleEditsAtStartup(t *testing.T) {
 	}
 	if !foundUpdated {
 		t.Error("startup reconcile did not apply edit made while serve was down")
+	}
+}
+
+func TestRescanLoop_RespectsIgnore(t *testing.T) {
+	dir := t.TempDir()
+	writeFile(t, dir, "kept.md", "# Kept\n")
+	writeFile(t, dir, "session.jsonl", `{"event":"chat"}`)
+	writeFile(t, dir, ignore.FileName, "*.jsonl\n")
+
+	st := testutil.OpenTestDB(t)
+	r := mustRescan(t, st, dir, time.Minute, nil)
+	r.now = func() time.Time { return time.Now().Add(time.Hour) }
+
+	r.scan(context.Background())
+
+	for path := range r.modTimes {
+		if strings.HasSuffix(path, ".jsonl") {
+			t.Errorf("rescan tracked excluded jsonl file: %s", path)
+		}
+	}
+	if len(r.modTimes) != 1 {
+		t.Errorf("modTimes = %d, want 1 (kept.md only)", len(r.modTimes))
+	}
+}
+
+func TestNewRescanLoop_FailsOnMalformedIgnore(t *testing.T) {
+	dir := t.TempDir()
+	writeFile(t, dir, ignore.FileName, "!negation\n")
+
+	st := testutil.OpenTestDB(t)
+	_, err := NewRescanLoop(st, dir, time.Minute, nil)
+	if err == nil {
+		t.Fatal("expected error for malformed ignore file")
+	}
+	if !strings.Contains(err.Error(), ignore.FileName) {
+		t.Errorf("error should mention %s, got: %v", ignore.FileName, err)
 	}
 }
 

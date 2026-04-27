@@ -7,6 +7,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/radimsem/remindb/internal/ignore"
 	"github.com/radimsem/remindb/internal/testutil"
 )
 
@@ -233,6 +234,64 @@ func TestCompileDir_SkipsHiddenDirs(t *testing.T) {
 	}
 	if result.Added == 0 {
 		t.Error("expected visible file to contribute nodes")
+	}
+}
+
+func TestCompileDir_RespectsIgnore(t *testing.T) {
+	st := testutil.OpenTestDB(t)
+	ctx := context.Background()
+	dir := t.TempDir()
+
+	writeFile(t, dir, "kept.md", "# Kept\n\nVisible.\n")
+	writeFile(t, dir, "session.jsonl", `{"event":"chat"}`)
+
+	subdir := filepath.Join(dir, "sessions")
+	if err := os.MkdirAll(subdir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	writeFile(t, subdir, "log.json", `{"id":1}`)
+
+	writeFile(t, dir, ignore.FileName, "*.jsonl\nsessions/\n")
+
+	result, err := CompileDir(ctx, st, dir, "ignore-test")
+	if err != nil {
+		t.Fatalf("CompileDir: %v", err)
+	}
+
+	nodes, err := st.GetAllNodes(ctx)
+	if err != nil {
+		t.Fatalf("GetAllNodes: %v", err)
+	}
+	for _, n := range nodes {
+		if strings.HasSuffix(n.SourceFile, ".jsonl") {
+			t.Errorf("indexed excluded jsonl file: %s", n.SourceFile)
+		}
+		if strings.Contains(n.SourceFile, "sessions"+string(filepath.Separator)) {
+			t.Errorf("indexed file in excluded dir: %s", n.SourceFile)
+		}
+		if filepath.Base(n.SourceFile) == ignore.FileName {
+			t.Errorf("indexed the ignore file itself: %s", n.SourceFile)
+		}
+	}
+	if result.Added == 0 {
+		t.Error("expected kept.md to contribute nodes")
+	}
+}
+
+func TestCompileDir_MalformedIgnore(t *testing.T) {
+	st := testutil.OpenTestDB(t)
+	ctx := context.Background()
+	dir := t.TempDir()
+
+	writeFile(t, dir, "doc.md", "# Hi\n")
+	writeFile(t, dir, ignore.FileName, "!nope\n")
+
+	_, err := CompileDir(ctx, st, dir, "bad-ignore")
+	if err == nil {
+		t.Fatal("expected error for malformed ignore file")
+	}
+	if !strings.Contains(err.Error(), ignore.FileName) {
+		t.Errorf("error should mention %s, got: %v", ignore.FileName, err)
 	}
 }
 

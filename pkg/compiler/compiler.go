@@ -9,6 +9,7 @@ import (
 	"path/filepath"
 
 	"github.com/radimsem/remindb/internal/fileext"
+	"github.com/radimsem/remindb/internal/ignore"
 	"github.com/radimsem/remindb/internal/tempfile"
 	"github.com/radimsem/remindb/pkg/diff"
 	"github.com/radimsem/remindb/pkg/emitter"
@@ -32,6 +33,8 @@ type options struct {
 	compileRoot string
 	temps       map[string]*float64
 	logger      *slog.Logger
+	ignore      *ignore.Matcher
+	ignoreSet   bool
 }
 
 func WithPaths(p []string) Option {
@@ -52,6 +55,13 @@ func WithTemps(t map[string]*float64) Option {
 
 func WithLogger(l *slog.Logger) Option {
 	return func(o *options) { o.logger = l }
+}
+
+func WithIgnore(m *ignore.Matcher) Option {
+	return func(o *options) {
+		o.ignore = m
+		o.ignoreSet = true
+	}
 }
 
 func Compile(ctx context.Context, st *store.Store, opts ...Option) (*Result, error) {
@@ -124,21 +134,48 @@ func seedTemp(nodes []*parser.ContextNode, t *float64) {
 }
 
 func CompileDir(ctx context.Context, st *store.Store, dir, message string, opts ...Option) (*Result, error) {
-	var paths []string
+	var o options
+	for _, opt := range opts {
+		opt(&o)
+	}
 
+	matcher := o.ignore
+	if !o.ignoreSet {
+		m, err := ignore.Load(dir)
+		if err != nil {
+			return nil, fmt.Errorf("failed to load: %s: %w", ignore.FileName, err)
+		}
+		matcher = m
+	}
+
+	var paths []string
 	err := filepath.WalkDir(dir, func(path string, d os.DirEntry, err error) error {
 		if err != nil {
 			return err
 		}
+
+		rel, _ := filepath.Rel(dir, path)
+		rel = filepath.ToSlash(rel)
+
 		if d.IsDir() {
 			if path != dir && fileext.ShouldSkipDir(d.Name()) {
 				return filepath.SkipDir
 			}
+			if matcher.Match(rel, true) {
+				return filepath.SkipDir
+			}
 			return nil
 		}
-		if fileext.Supported(path) {
-			paths = append(paths, path)
+		if rel == ignore.FileName {
+			return nil
 		}
+		if !fileext.Supported(path) {
+			return nil
+		}
+		if matcher.Match(rel, false) {
+			return nil
+		}
+		paths = append(paths, path)
 		return nil
 	})
 	if err != nil {

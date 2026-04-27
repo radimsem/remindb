@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"github.com/radimsem/remindb/internal/fileext"
+	"github.com/radimsem/remindb/internal/ignore"
 	"github.com/radimsem/remindb/pkg/compiler"
 	"github.com/radimsem/remindb/pkg/diff"
 	"github.com/radimsem/remindb/pkg/emitter"
@@ -30,15 +31,22 @@ type RescanLoop struct {
 	now      func() time.Time
 	modTimes map[string]time.Time
 	logger   *slog.Logger
+	ignore   *ignore.Matcher
 }
 
-func NewRescanLoop(st *store.Store, dir string, interval time.Duration, logger *slog.Logger) *RescanLoop {
+func NewRescanLoop(st *store.Store, dir string, interval time.Duration, logger *slog.Logger) (*RescanLoop, error) {
 	if interval <= 0 {
 		interval = defaultRescanInterval
 	}
 	if logger == nil {
 		logger = slog.New(slog.DiscardHandler)
 	}
+
+	matcher, err := ignore.Load(dir)
+	if err != nil {
+		return nil, fmt.Errorf("failed to load: %s: %w", ignore.FileName, err)
+	}
+
 	return &RescanLoop{
 		store:    st,
 		dir:      dir,
@@ -47,7 +55,8 @@ func NewRescanLoop(st *store.Store, dir string, interval time.Duration, logger *
 		now:      time.Now,
 		modTimes: make(map[string]time.Time),
 		logger:   logger,
-	}
+		ignore:   matcher,
+	}, nil
 }
 
 func (r *RescanLoop) Run(ctx context.Context) {
@@ -81,13 +90,26 @@ func (r *RescanLoop) scan(ctx context.Context) {
 			r.logger.Warn("rescan: walk error", "path", path, "err", err)
 			return err
 		}
+
+		rel, _ := filepath.Rel(r.dir, path)
+		rel = filepath.ToSlash(rel)
+
 		if d.IsDir() {
 			if path != r.dir && fileext.ShouldSkipDir(d.Name()) {
 				return filepath.SkipDir
 			}
+			if r.ignore.Match(rel, true) {
+				return filepath.SkipDir
+			}
+			return nil
+		}
+		if rel == ignore.FileName {
 			return nil
 		}
 		if !fileext.Supported(path) {
+			return nil
+		}
+		if r.ignore.Match(rel, false) {
 			return nil
 		}
 
