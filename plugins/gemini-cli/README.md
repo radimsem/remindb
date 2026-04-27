@@ -79,22 +79,16 @@ gemini mcp list
 
 You should see `remindb` with the full `Memory*` tool suite.
 
-### 4. Point remindb at your workspace via `~/.gemini/extensions/remindb/.env`
+### 4. Export the workspace env vars
 
-`remindb serve` reads `REMINDB_DB` and `REMINDB_SOURCE` as fallbacks for its `--db` and `--source` flags. Gemini CLI auto-sources a `.env` file from the extension's own folder when it spawns MCP subprocesses, so drop the workspace paths there:
+`remindb serve` reads `REMINDB_DB` and `REMINDB_SOURCE` as fallbacks for its `--db` and `--source` flags. The extension's `gemini-extension.json` declares both as `${VAR}` passthroughs in its `mcpServers.remindb.env` block, and Gemini CLI expands `$VAR` / `${VAR}` (POSIX, all platforms) at launch — so export them in the shell that launches Gemini CLI:
 
 ```bash
-printf '%s\n' \
-    "REMINDB_DB=$HOME/.cache/remindb/gemini.db" \
-    "REMINDB_SOURCE=$HOME/.gemini" \
-    > ~/.gemini/extensions/remindb/.env
+export REMINDB_DB=$HOME/.cache/remindb/gemini.db
+export REMINDB_SOURCE=$HOME/.gemini
 ```
 
-Swap the two paths for a different workspace (e.g., `~/notes` + `~/.cache/remindb/notes.db`) whenever you want Gemini to read a different tree.
-
-This scopes the env vars to Gemini's spawned subprocess, survives `gemini extensions update remindb` (update preserves `.env`), and lets you switch sources by editing one file and restarting Gemini CLI.
-
-Prefer a shell-inherited env instead? Export the same pair in `~/.bashrc` / `~/.zshrc` / fish equivalent and restart Gemini CLI from that shell.
+Put them in `~/.bashrc` / `~/.zshrc` / fish equivalent to make the mapping permanent, or scope them to a single session to switch workspaces between runs. Undefined variables resolve to empty strings, and `remindb` then falls back to a relative `memory.db` in Gemini's cwd — so set both before launching, not after.
 
 ## Tools exposed
 

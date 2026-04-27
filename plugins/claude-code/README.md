@@ -78,32 +78,22 @@ After either path, confirm the server is connected:
 
 You should see `remindb` listed with the full `Memory*` tool suite.
 
-### 4. Point remindb at your workspace via `~/.claude/mcp.json`
+### 4. Export the workspace env vars
 
-`remindb serve` reads `REMINDB_DB` and `REMINDB_SOURCE` as fallbacks for its `--db` and `--source` flags. The cleanest place to set them for Claude Code is the user-level MCP override file at `~/.claude/mcp.json`, which Claude Code merges on top of every plugin's bundled `.mcp.json` without mutating the plugin itself:
+`remindb serve` reads `REMINDB_DB` and `REMINDB_SOURCE` as fallbacks for its `--db` and `--source` flags. The plugin's bundled `.mcp.json` declares both as `${VAR}` passthroughs into the spawned subprocess, so export them in the shell that launches Claude Code:
 
-```json
-{
-    "mcpServers": {
-        "remindb": {
-            "env": {
-                "REMINDB_DB": "${HOME}/.cache/remindb/claude.db",
-                "REMINDB_SOURCE": "${HOME}/.claude/projects"
-            }
-        }
-    }
-}
+```bash
+export REMINDB_DB=$HOME/.cache/remindb/claude.db
+export REMINDB_SOURCE=$HOME/.claude/projects
 ```
 
-Claude Code expands `${VAR}` (with braces) in `.mcp.json` values — bare `$HOME` is treated as a literal string and won't work.
+Put them in `~/.bashrc` / `~/.zshrc` / fish equivalent to make the mapping permanent, or scope them to a single session to switch workspaces between runs. Undefined `${VAR}` references in the bundled `.mcp.json` resolve to empty strings, and `remindb` then falls back to a relative `memory.db` in Claude Code's cwd — so set both before launching, not after.
 
-This scopes the env vars to Claude Code's spawned subprocess, survives `/plugin update remindb`, and lets you switch sources by editing one file and running `/reload-plugins`.
-
-Prefer a shell-inherited env instead? Export the same pair in `~/.bashrc` / `~/.zshrc` / fish equivalent and restart Claude Code from that shell.
+A same-named server in user-scope `~/.claude.json` *replaces* the plugin's bundled entry per Claude Code's MCP precedence rules (it does not merge), so don't try to inject env there.
 
 ## Configuration
 
-The plugin itself has no runtime options. `remindb serve` resolves its DB and source paths from `REMINDB_DB` and `REMINDB_SOURCE` at launch; explicit `--db` / `--source` flags in `~/.claude/mcp.json` override the env vars if you need per-bundle pinning.
+The plugin itself has no runtime options. `remindb serve` resolves its DB and source paths from `REMINDB_DB` and `REMINDB_SOURCE` at launch.
 
 ## Tools exposed
 

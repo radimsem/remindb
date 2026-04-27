@@ -72,21 +72,27 @@ codex mcp list
 
 You should see `remindb` listed with the full `Memory*` tool suite.
 
-### 4. Point remindb at your workspace via `~/.codex/config.toml`
+### 4. Export the workspace env vars
 
-`remindb serve` reads `REMINDB_DB` and `REMINDB_SOURCE` as fallbacks for its `--db` and `--source` flags. The cleanest place to set them for Codex is `~/.codex/config.toml`, which Codex merges into every plugin-launched MCP subprocess without mutating the cached plugin:
+`remindb serve` reads `REMINDB_DB` and `REMINDB_SOURCE` as fallbacks for its `--db` and `--source` flags. Codex propagates the launching shell's environment to plugin-spawned MCP subprocesses, so export them in the shell that launches Codex:
 
-```toml
-[plugins.remindb.mcpServers.remindb.env]
-REMINDB_DB = "/home/you/.cache/remindb/codex.db"
-REMINDB_SOURCE = "/home/you/.codex"
+```bash
+export REMINDB_DB=$HOME/.cache/remindb/codex.db
+export REMINDB_SOURCE=$HOME/.codex
 ```
 
-Replace `/home/you` with your `$HOME`. Codex's `config.toml` has no documented env-var expansion, so shell-style `$HOME` is treated as a literal string — use absolute paths here, or drop this block and rely on the shell-inherited env fallback below.
+Put them in `~/.bashrc` / `~/.zshrc` / fish equivalent to make the mapping permanent, or scope them to a single session to switch workspaces between runs.
 
-This scopes the env vars to Codex's spawned subprocess, survives `codex plugin update remindb`, and lets you switch sources by editing one file and restarting Codex.
+If shell-rc isn't an option, sidestep the plugin entirely and define a top-level `[mcp_servers.remindb]` block in `~/.codex/config.toml` instead — Codex's `[plugins.<name>]` table accepts only `enabled` and performs no `${VAR}` / `$VAR` / `{env:VAR}` expansion in either `config.toml` or the plugin's bundled `.mcp.json`, so there is no first-class way to inject env into a plugin-bundled MCP server from user config:
 
-Prefer a shell-inherited env instead? Export the same pair in `~/.bashrc` / `~/.zshrc` / fish equivalent and restart Codex from that shell.
+```toml
+[mcp_servers.remindb]
+command = "remindb"
+args = ["serve"]
+env = { REMINDB_DB = "/home/you/.cache/remindb/codex.db", REMINDB_SOURCE = "/home/you/.codex" }
+```
+
+Replace `/home/you` with your absolute `$HOME` — `config.toml` does not expand it. This registers `remindb` as a user-defined MCP server, not a plugin server, so the plugin can stay disabled or removed entirely if you take this path.
 
 ## Tools exposed
 

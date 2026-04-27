@@ -7,7 +7,11 @@
             "command": "remindb",
             "args": [
                 "serve"
-            ]
+            ],
+            "env": {
+                "REMINDB_DB": "${REMINDB_DB}",
+                "REMINDB_SOURCE": "${REMINDB_SOURCE}"
+            }
         }
     },
     "contextFileName": "GEMINI.md"
