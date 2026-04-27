@@ -2,7 +2,7 @@
 
 Mounts the [remindb](https://github.com/radimsem/remindb) MCP server as a workspace memory backend for Gemini CLI agents.
 
-Agents get eight `remindb__*` tools — `MemoryFetch`, `MemorySearch`, `MemoryWrite`, `MemoryCompile`, `MemoryDelta`, `MemorySummarize`, `MemoryHistory`, `MemoryTree` — backed by a compiled SQLite view of the workspace.
+Agents get the full `remindb__Memory*` tool suite — backed by a compiled SQLite view of the workspace.
 
 ## How it works
 
@@ -17,19 +17,19 @@ The extension ships a `gemini-extension.json` with an inlined `mcpServers` entry
 The binary must be on `$PATH`:
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/radimsem/remindb/master/install.sh | sh
+curl -fsSL https://raw.githubusercontent.com/radimsem/remindb/main/install.sh | bash
 ```
 
 On Windows:
 
 ```powershell
-iwr -useb https://raw.githubusercontent.com/radimsem/remindb/master/install.ps1 | iex
+iwr -useb https://raw.githubusercontent.com/radimsem/remindb/main/install.ps1 | iex
 ```
 
 Verify:
 
 ```bash
-remindb --help
+remindb --version
 ```
 
 ### 2. Compile a source directory
@@ -63,7 +63,7 @@ Confirm the server is connected:
 gemini mcp list
 ```
 
-You should see `remindb` with eight `MemoryXxx` tools.
+You should see `remindb` with the full `Memory*` tool suite.
 
 ### 4. Point remindb at your workspace via `~/.gemini/extensions/remindb/.env`
 
@@ -84,18 +84,7 @@ Prefer a shell-inherited env instead? Export the same pair in `~/.bashrc` / `~/.
 
 ## Tools exposed
 
-| Tool | Purpose |
-|------|---------|
-| `remindb__MemoryTree` | Structural overview of the compiled workspace |
-| `remindb__MemorySearch` | Full-text search within a token budget |
-| `remindb__MemoryFetch` | Context around an anchor node within a token budget |
-| `remindb__MemoryWrite` | Write or update content at an anchor, creating a snapshot |
-| `remindb__MemoryDelta` | Changes since a given snapshot |
-| `remindb__MemorySummarize` | Replace a node's content with a provided summary |
-| `remindb__MemoryHistory` | Browse version history for a node |
-| `remindb__MemoryCompile` | Re-compile source files or a directory |
-
-See the [remindb README](https://github.com/radimsem/remindb#readme) for token-savings benchmarks per tool.
+The plugin surfaces the full `remindb` `Memory*` tool suite under the `remindb__` namespace. See the [main README](https://github.com/radimsem/remindb#mcp-tools) for the canonical tool list and token-savings benchmarks per tool.
 
 ## License
 

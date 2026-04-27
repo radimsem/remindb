@@ -2,7 +2,7 @@
 
 Mounts the [remindb](https://github.com/radimsem/remindb) MCP server as a workspace memory backend for OpenCode agents.
 
-Agents get eight `remindb__*` tools — `MemoryFetch`, `MemorySearch`, `MemoryWrite`, `MemoryCompile`, `MemoryDelta`, `MemorySummarize`, `MemoryHistory`, `MemoryTree` — backed by a compiled SQLite view of the workspace.
+Agents get the full `remindb__Memory*` tool suite — backed by a compiled SQLite view of the workspace.
 
 ## How it works
 
@@ -18,19 +18,19 @@ OpenCode configures MCP servers in `opencode.json` under the top-level `mcp` obj
 The binary must be on `$PATH`:
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/radimsem/remindb/master/install.sh | sh
+curl -fsSL https://raw.githubusercontent.com/radimsem/remindb/main/install.sh | bash
 ```
 
 On Windows:
 
 ```powershell
-iwr -useb https://raw.githubusercontent.com/radimsem/remindb/master/install.ps1 | iex
+iwr -useb https://raw.githubusercontent.com/radimsem/remindb/main/install.ps1 | iex
 ```
 
 Verify:
 
 ```bash
-remindb --help
+remindb --version
 ```
 
 ### 2. Compile a source directory
@@ -51,7 +51,7 @@ Pick one of:
 **Project-level** (recommended — one workspace per repo):
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/radimsem/remindb/master/opencode/opencode.json \
+curl -fsSL https://raw.githubusercontent.com/radimsem/remindb/main/plugins/opencode/opencode.json \
     -o .opencode/opencode.json
 ```
 
@@ -59,7 +59,7 @@ curl -fsSL https://raw.githubusercontent.com/radimsem/remindb/master/opencode/op
 
 ```bash
 mkdir -p ~/.config/opencode
-curl -fsSL https://raw.githubusercontent.com/radimsem/remindb/master/opencode/opencode.json \
+curl -fsSL https://raw.githubusercontent.com/radimsem/remindb/main/plugins/opencode/opencode.json \
     -o ~/.config/opencode/opencode.json
 ```
 
@@ -94,7 +94,7 @@ Confirm the server is connected:
 opencode mcp list
 ```
 
-You should see `remindb` listed with eight `MemoryXxx` tools.
+You should see `remindb` listed with the full `Memory*` tool suite.
 
 ### 4. Point remindb at your workspace via `opencode.json`
 
@@ -132,18 +132,7 @@ Then export the pair in `~/.bashrc` / `~/.zshrc` / fish equivalent and restart O
 
 ## Tools exposed
 
-| Tool | Purpose |
-|------|---------|
-| `remindb__MemoryTree` | Structural overview of the compiled workspace |
-| `remindb__MemorySearch` | Full-text search within a token budget |
-| `remindb__MemoryFetch` | Context around an anchor node within a token budget |
-| `remindb__MemoryWrite` | Write or update content at an anchor, creating a snapshot |
-| `remindb__MemoryDelta` | Changes since a given snapshot |
-| `remindb__MemorySummarize` | Replace a node's content with a provided summary |
-| `remindb__MemoryHistory` | Browse version history for a node |
-| `remindb__MemoryCompile` | Re-compile source files or a directory |
-
-See the [remindb README](https://github.com/radimsem/remindb#readme) for token-savings benchmarks per tool.
+The plugin surfaces the full `remindb` `Memory*` tool suite under the `remindb__` namespace. See the [main README](https://github.com/radimsem/remindb#mcp-tools) for the canonical tool list and token-savings benchmarks per tool.
 
 ## License
 

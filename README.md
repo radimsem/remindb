@@ -102,7 +102,7 @@ go build -o ~/.local/bin/remindb ./cmd/remindb
 Verify:
 
 ```bash
-remindb --help
+remindb --version
 ```
 
 ## Architecture
@@ -246,7 +246,7 @@ For any other MCP-capable agent, add this stanza to its MCP config by hand:
 }
 ```
 
-On startup, the agent sees eight `Memory*` tools alongside its usual toolbox. A reasonable first prompt:
+On startup, the agent sees the full `Memory*` tool suite alongside its usual toolbox. A reasonable first prompt:
 
 ```
 Call MemoryTree to orient. Then call MemorySearch for "<topic>" with budget 1000
