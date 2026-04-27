@@ -213,6 +213,8 @@ remindb__MemoryCompile(path="<file or subdir>", message="<optional snapshot note
 
 Prefer narrow paths. Compiling one file is milliseconds; compiling the entire source tree is slow and creates a large snapshot.
 
+If a `.remindb.ignore` file lives at the source root, `MemoryCompile` (and the background rescan) honors it — same gitignore-style minimal subset (literal names, `*` wildcards, trailing `/` for dir-only, `**` for any-segment-count, `#` comments). Patterns subtract from the supported-extension allow-list; they cannot re-include `node_modules` or dotfiles. Operators set this once; the agent doesn't author the file.
+
 ### Inspect history before rewriting
 
 Before overwriting a node, check how it evolved:

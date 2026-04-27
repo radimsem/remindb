@@ -147,6 +147,20 @@ remindb compile ./docs/architecture.md --db project.db
 | `--db PATH` | Target database. Default: derived from the source directory name, else `memory.db`. |
 | `-m, --message` | Snapshot message (defaults to `compile:<path>`). |
 
+#### Filtering with `.remindb.ignore`
+
+Drop a `.remindb.ignore` file at the source root to exclude paths from `compile`, the `serve` rescan loop, the `MemoryCompile` MCP tool, and `bench`. Gitignore-style minimal subset — patterns, comments, blank lines.
+
+```
+# .remindb.ignore
+*.jsonl              # session logs are large and unhelpful
+sessions/            # any directory called sessions, at any depth
+**/cache/**          # nested cache trees
+cache/scratch.md     # exact relative path
+```
+
+Supported: literal basenames, `*` wildcards, trailing `/` for dir-only, `**` for any-segment-count, `#` comments. Unsupported patterns (`!negation`, `[char ranges]`, `?`, leading `/`, `\` escapes) fail the command at startup with a line-numbered error.
+
 ### `serve`
 
 Starts the MCP server on stdio. When `--source` is set, remindb runs an initial compile (if the DB is empty) and keeps a background rescan loop running.
