@@ -18,6 +18,22 @@ jobs:
         with:
           fetch-depth: 0
 
+      - name: Verify plugin manifest versions match tag
+        run: |
+          expected="${GITHUB_REF_NAME#v}"
+          for f in plugins/claude-code/.claude-plugin/plugin.json \
+                   plugins/codex/.codex-plugin/plugin.json \
+                   plugins/gemini-cli/gemini-extension.json \
+                   plugins/openclaw/openclaw.plugin.json \
+                   plugins/opencode/package.json \
+                   plugins/openclaw/package.json; do
+            actual="$(jq -r '.version' "$f")"
+            if [ "$actual" != "$expected" ]; then
+              echo "::error file=$f::version $actual != tag $expected (run scripts/bump-version.sh $GITHUB_REF_NAME and recommit before tagging)"
+              exit 1
+            fi
+          done
+
       - name: Set up Go
         uses: actions/setup-go@v5
         with:
