@@ -8,6 +8,7 @@ import (
 	"os"
 	"path"
 	"path/filepath"
+	"slices"
 	"strings"
 )
 
@@ -59,9 +60,7 @@ func Load(dir string) (*Matcher, error) {
 	return &Matcher{patterns: patterns}, nil
 }
 
-// Match reports whether relPath is excluded. relPath is relative to the source
-// root, slash-separated. isDir distinguishes dir patterns (trailing "/") from
-// file patterns. A nil receiver returns false.
+// Report whether relPath is excluded.
 func (m *Matcher) Match(relPath string, isDir bool) bool {
 	if m == nil || len(m.patterns) == 0 {
 		return false
@@ -111,10 +110,8 @@ func parsePattern(raw string) (pattern, error) {
 	}
 
 	segs := strings.Split(s, "/")
-	for _, seg := range segs {
-		if seg == "" {
-			return pattern{}, fmt.Errorf("empty path segment (consecutive slashes): %s", raw)
-		}
+	if slices.Contains(segs, "") {
+		return pattern{}, fmt.Errorf("empty path segment (consecutive slashes): %s", raw)
 	}
 	p.segments = segs
 
@@ -140,6 +137,7 @@ func matchPath(patSegs, pathSegs []string) bool {
 		}
 		return false
 	}
+
 	if len(pathSegs) == 0 {
 		return false
 	}
