@@ -1,10 +1,13 @@
 .PHONY: build run test fuzz test-all fmt lint tidy
 
+VERSION := $(shell git describe --tags --always --dirty 2>/dev/null || echo dev)
+LDFLAGS := -X main.version=$(VERSION)
+
 build:
-	go build ./...
+	go build -ldflags "$(LDFLAGS)" ./...
 
 run:
-	go run ./cmd/remindb
+	go run -ldflags "$(LDFLAGS)" ./cmd/remindb
 
 test:
 	go test ./...
