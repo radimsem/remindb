@@ -65,7 +65,10 @@ func runServe(cmd *cobra.Command, _ []string) error {
 		"rescan_interval", rescanInterval,
 		"tick_interval", cfg.TickInterval,
 		"verbose", verbose,
+		"version", version,
 	)
+
+	go checkLatestVersion(ctx, version, logger)
 
 	if sourceDir != "" {
 		if err := remindb.MaybeInitialCompile(ctx, st, sourceDir, logger); err != nil {
