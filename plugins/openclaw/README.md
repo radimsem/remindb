@@ -32,9 +32,26 @@ Verify:
 remindb --version
 ```
 
-### 2. Compile your workspace
+### 2. Compile your workspace or agent state folder
 
-remindb needs a SQLite file populated from your workspace before the agent can read from it:
+remindb needs a SQLite file populated from a source tree before the agent can read from it. A natural source for OpenClaw is its own state folder at `~/.openclaw/` — `openclaw.json`, hook scripts under `hooks/<id>/`, agent workspaces under `workspace/` (and `workspace-*`), and skill definitions under `skills/`. Indexing it lets OpenClaw query its own persistent context through remindb instead of grepping the dot folder.
+
+`~/.openclaw/` also accumulates per-agent session transcripts under `agents/<id>/sessions/`, plus `credentials/`, `sandboxes/`, and `sandbox/` — runtime state that bloats the index and includes secrets. Drop a `.remindb.ignore` at `~/.openclaw/` to filter them out — gitignore-style minimal subset (`*`, `**`, trailing `/`, `#` comments; no `!` negation, no `[abc]` ranges):
+
+```bash
+mkdir -p ~/.cache/remindb
+cat > ~/.openclaw/.remindb.ignore <<'EOF'
+# Compile only curated context; skip session transcripts and runtime state.
+*.jsonl              # session transcripts
+**/sessions/         # per-agent session subtrees (agents/<id>/sessions/)
+credentials/         # oauth.json — never index secrets
+sandboxes/           # sandbox runtime state
+sandbox/             # sandbox config (containers.json)
+EOF
+remindb compile ~/.openclaw --db ~/.cache/remindb/openclaw.db
+```
+
+The same `.remindb.ignore` is honored by `serve`'s background rescan and the `MemoryCompile` MCP tool — set it once, all paths agree. Or point at any other workspace you want agents to see:
 
 ```bash
 remindb compile /path/to/workspace --db /path/to/workspace.db

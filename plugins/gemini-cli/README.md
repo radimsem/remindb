@@ -34,14 +34,23 @@ remindb --version
 
 ### 2. Compile a source directory
 
-remindb needs a SQLite file populated from a source tree before the agent can read from it. A natural source for Gemini CLI is its own state folder at `~/.gemini/` — `GEMINI.md` context files, per-project shadow-git snapshots under `~/.gemini/history/<project_hash>`, and conversation checkpoints under `~/.gemini/tmp/<project_hash>/checkpoints`. Indexing it lets Gemini query its own persistent context through remindb instead of grepping the dot folder:
+remindb needs a SQLite file populated from a source tree before the agent can read from it. A natural source for Gemini CLI is its own state folder at `~/.gemini/` — `GEMINI.md` (the global `/memory add` target) and any custom command markdown under `commands/`. Indexing it lets Gemini query its own persistent context through remindb instead of grepping the dot folder.
+
+`~/.gemini/` also holds per-project session chats and shadow-git checkpoints under `tmp/<project_hash>/` and `history/<project_hash>/` — heavyweight transient state that bloats the index. Drop a `.remindb.ignore` at `~/.gemini/` to filter them out.
 
 ```bash
 mkdir -p ~/.cache/remindb
+cat > ~/.gemini/.remindb.ignore <<'EOF'
+# Compile only curated context; skip session state and credentials.
+tmp/                 # tmp/<project_hash>/{chats,checkpoints}
+history/             # shadow-git checkpoint repos (one per project)
+*.jsonl              # any session jsonl
+oauth_creds.json     # credentials — never index secrets
+EOF
 remindb compile ~/.gemini --db ~/.cache/remindb/gemini.db
 ```
 
-Or point at any other workspace you want agents to see — a docs tree, a notes repo, a project directory.
+The same `.remindb.ignore` is honored by `serve`'s background rescan and the `MemoryCompile` MCP tool — set it once, all paths agree. Or point at any other workspace you want agents to see — a docs tree, a notes repo, a project directory.
 
 ### 3. Install the extension from GitHub
 

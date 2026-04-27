@@ -32,14 +32,22 @@ remindb --version
 
 ### 2. Compile a source directory
 
-remindb needs a SQLite file populated from a source tree before the agent can read from it. A natural source for Claude Code is its own memory folder at `~/.claude/` — `CLAUDE.md` files, per-project auto memory under `~/.claude/projects/<project>/memory/`, and user-level rules. Indexing it lets Claude query its own persistent context through remindb instead of grepping the dot folder:
+remindb needs a SQLite file populated from a source tree before the agent can read from it. A natural source for Claude Code is its per-project auto-memory at `~/.claude/projects/<project>/memory/` — markdown files Claude has accumulated about each repo it works in. Indexing them across all projects lets Claude query its own persistent memory through remindb instead of grepping the dot folder.
+
+`~/.claude/projects/<project>/` sits next to several other artifacts that don't belong in long-term memory: session-log `.jsonl` files, plus `subagents/` and `tool-results/` subtrees under each session UUID directory. Drop a `.remindb.ignore` at `~/.claude/projects/` to filter them out — so the only thing the compiler ingests is `memory/*.md` per project:
 
 ```bash
 mkdir -p ~/.cache/remindb
-remindb compile ~/.claude --db ~/.cache/remindb/claude.db
+cat > ~/.claude/projects/.remindb.ignore <<'EOF'
+# Compile only per-project memory/ markdown; skip the surrounding telemetry.
+*.jsonl              # session logs (large, low value)
+subagents/           # per-session subagent traces (any depth)
+tool-results/        # per-session tool outputs (any depth)
+EOF
+remindb compile ~/.claude/projects --db ~/.cache/remindb/claude.db
 ```
 
-Or point at any other workspace you want agents to see — a docs tree, a notes repo, a project directory. Re-run whenever you want a fresh baseline; `serve` keeps the DB current after that.
+The same `.remindb.ignore` is honored by `serve`'s background rescan and the `MemoryCompile` MCP tool — set it once, all paths agree. If Claude Code adds a new sibling-of-`memory/` artifact in a future release, append it to the file and recompile. Or point at any other workspace you want agents to see — a docs tree, a notes repo, a project directory. Re-run whenever you want a fresh baseline; `serve` keeps the DB current after that.
 
 ### 3. Install the plugin
 
@@ -76,7 +84,7 @@ You should see `remindb` listed with the full `Memory*` tool suite.
         "remindb": {
             "env": {
                 "REMINDB_DB": "${HOME}/.cache/remindb/claude.db",
-                "REMINDB_SOURCE": "${HOME}/.claude"
+                "REMINDB_SOURCE": "${HOME}/.claude/projects"
             }
         }
     }

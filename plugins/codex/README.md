@@ -34,14 +34,22 @@ remindb --version
 
 ### 2. Compile a source directory
 
-remindb needs a SQLite file populated from a source tree before the agent can read from it. A natural source for Codex is its own state folder at `~/.codex/` — user-level `AGENTS.md` / `AGENTS.override.md`, session transcripts in `history.jsonl`, logs under `log/`, and `config.toml`. Indexing it lets Codex query its own persistent context through remindb instead of grepping the dot folder:
+remindb needs a SQLite file populated from a source tree before the agent can read from it. A natural source for Codex is its own state folder at `~/.codex/` — custom slash-command prompts under `prompts/`, persistent context under `memories/` and `memories_extensions/`, and any user-authored `skills/`. Indexing it lets Codex query its own persistent context through remindb instead of grepping the dot folder.
+
+`~/.codex/` also accumulates session-rollout `.jsonl` files under `sessions/YYYY/MM/DD/`, an `archived_sessions/` subtree, and a top-level `history.jsonl` — large transcripts that bloat the index without adding agent-memory value. Drop a `.remindb.ignore` at `~/.codex/` to filter them out.
 
 ```bash
 mkdir -p ~/.cache/remindb
+cat > ~/.codex/.remindb.ignore <<'EOF'
+# Compile only curated context; skip session rollouts and history.
+*.jsonl              # history.jsonl + per-day session rollouts
+sessions/            # rollout subtree under YYYY/MM/DD
+archived_sessions/   # archived rollout subtree
+EOF
 remindb compile ~/.codex --db ~/.cache/remindb/codex.db
 ```
 
-Or point at any other workspace you want agents to see — a docs tree, a notes repo, a project directory.
+The same `.remindb.ignore` is honored by `serve`'s background rescan and the `MemoryCompile` MCP tool — set it once, all paths agree. Or point at any other workspace you want agents to see — a docs tree, a notes repo, a project directory.
 
 ### 3. Add the plugin from GitHub
 
