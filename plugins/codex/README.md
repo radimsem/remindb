@@ -40,12 +40,16 @@ remindb needs a SQLite file populated from a source tree before the agent can re
 
 ```bash
 mkdir -p ~/.cache/remindb
-cat > ~/.codex/.remindb.ignore <<'EOF'
-# Compile only curated context; skip session rollouts and history.
-*.jsonl              # history.jsonl + per-day session rollouts
-sessions/            # rollout subtree under YYYY/MM/DD
-archived_sessions/   # archived rollout subtree
-EOF
+printf '%s\n' \
+    '# Compile only curated context; skip session rollouts and history.' \
+    '' \
+    '# history.jsonl + per-day session rollouts.' \
+    '*.jsonl' \
+    '# Rollout subtree under YYYY/MM/DD.' \
+    'sessions/' \
+    '# Archived rollout subtree.' \
+    'archived_sessions/' \
+    > ~/.codex/.remindb.ignore
 remindb compile ~/.codex --db ~/.cache/remindb/codex.db
 ```
 

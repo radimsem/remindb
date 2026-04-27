@@ -40,13 +40,18 @@ remindb needs a SQLite file populated from a source tree before the agent can re
 
 ```bash
 mkdir -p ~/.cache/remindb
-cat > ~/.gemini/.remindb.ignore <<'EOF'
-# Compile only curated context; skip session state and credentials.
-tmp/                 # tmp/<project_hash>/{chats,checkpoints}
-history/             # shadow-git checkpoint repos (one per project)
-*.jsonl              # any session jsonl
-oauth_creds.json     # credentials — never index secrets
-EOF
+printf '%s\n' \
+    '# Compile only curated context; skip session state and credentials.' \
+    '' \
+    '# tmp/<project_hash>/{chats,checkpoints}.' \
+    'tmp/' \
+    '# Shadow-git checkpoint repos (one per project).' \
+    'history/' \
+    '# Any session jsonl.' \
+    '*.jsonl' \
+    '# Credentials — never index secrets.' \
+    'oauth_creds.json' \
+    > ~/.gemini/.remindb.ignore
 remindb compile ~/.gemini --db ~/.cache/remindb/gemini.db
 ```
 
@@ -79,10 +84,10 @@ You should see `remindb` with the full `Memory*` tool suite.
 `remindb serve` reads `REMINDB_DB` and `REMINDB_SOURCE` as fallbacks for its `--db` and `--source` flags. Gemini CLI auto-sources a `.env` file from the extension's own folder when it spawns MCP subprocesses, so drop the workspace paths there:
 
 ```bash
-cat <<EOF > ~/.gemini/extensions/remindb/.env
-REMINDB_DB=$HOME/.cache/remindb/gemini.db
-REMINDB_SOURCE=$HOME/.gemini
-EOF
+printf '%s\n' \
+    "REMINDB_DB=$HOME/.cache/remindb/gemini.db" \
+    "REMINDB_SOURCE=$HOME/.gemini" \
+    > ~/.gemini/extensions/remindb/.env
 ```
 
 Swap the two paths for a different workspace (e.g., `~/notes` + `~/.cache/remindb/notes.db`) whenever you want Gemini to read a different tree.

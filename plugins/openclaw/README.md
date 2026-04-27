@@ -40,14 +40,20 @@ remindb needs a SQLite file populated from a source tree before the agent can re
 
 ```bash
 mkdir -p ~/.cache/remindb
-cat > ~/.openclaw/.remindb.ignore <<'EOF'
-# Compile only curated context; skip session transcripts and runtime state.
-*.jsonl              # session transcripts
-**/sessions/         # per-agent session subtrees (agents/<id>/sessions/)
-credentials/         # oauth.json — never index secrets
-sandboxes/           # sandbox runtime state
-sandbox/             # sandbox config (containers.json)
-EOF
+printf '%s\n' \
+    '# Compile only curated context; skip session transcripts and runtime state.' \
+    '' \
+    '# Session transcripts.' \
+    '*.jsonl' \
+    '# Per-agent session subtrees (agents/<id>/sessions/).' \
+    '**/sessions/' \
+    '# oauth.json — never index secrets.' \
+    'credentials/' \
+    '# Sandbox runtime state.' \
+    'sandboxes/' \
+    '# Sandbox config (containers.json).' \
+    'sandbox/' \
+    > ~/.openclaw/.remindb.ignore
 remindb compile ~/.openclaw --db ~/.cache/remindb/openclaw.db
 ```
 

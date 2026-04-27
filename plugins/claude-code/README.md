@@ -38,12 +38,16 @@ remindb needs a SQLite file populated from a source tree before the agent can re
 
 ```bash
 mkdir -p ~/.cache/remindb
-cat > ~/.claude/projects/.remindb.ignore <<'EOF'
-# Compile only per-project memory/ markdown; skip the surrounding telemetry.
-*.jsonl              # session logs (large, low value)
-subagents/           # per-session subagent traces (any depth)
-tool-results/        # per-session tool outputs (any depth)
-EOF
+printf '%s\n' \
+    '# Compile only per-project memory/ markdown; skip the surrounding telemetry.' \
+    '' \
+    '# Session logs (large, low value).' \
+    '*.jsonl' \
+    '# Per-session subagent traces (any depth).' \
+    'subagents/' \
+    '# Per-session tool outputs (any depth).' \
+    'tool-results/' \
+    > ~/.claude/projects/.remindb.ignore
 remindb compile ~/.claude/projects --db ~/.cache/remindb/claude.db
 ```
 
