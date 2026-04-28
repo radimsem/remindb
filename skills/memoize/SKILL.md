@@ -1,10 +1,10 @@
 ---
-description: Write memory to a remindb MCP server with Markdown that indexes well into the node tree. Covers shape rules for good indexing, search-first updates, cold-node summarization, and source recompile. Pair with `efficient-memo` for reads.
+description: Write memory to a remindb MCP server with Markdown that indexes well into the node tree. Covers shape rules for good indexing, search-first updates, cold-node summarization, and source recompile. Pair with `remind` for reads.
 ---
 
 # Memoize — write to remindb so it indexes well
 
-This skill owns the **write path** of remindb's MCP surface: `MemoryWrite`, `MemorySummarize`, `MemoryCompile`. It assumes you already know the read-side mental model (nodes, snapshots, IDs, ranking, notifications, budgets) — that's `efficient-memo`'s job. If those terms aren't loaded, read `efficient-memo` first.
+This skill owns the **write path** of remindb's MCP surface: `MemoryWrite`, `MemorySummarize`, `MemoryCompile`. It assumes you already know the read-side mental model (nodes, snapshots, IDs, ranking, notifications, budgets) — that's `remind`'s job. If those terms aren't loaded, read `remind` first.
 
 ## Why payload shape matters
 
@@ -129,7 +129,7 @@ remindb__MemoryWrite(anchor="<node_id>", payload="<full replacement>")
 
 ### Search-first rule
 
-Before creating a new node, search for an existing anchor on the same topic via `efficient-memo`'s `MemorySearch`. Updating beats creating because:
+Before creating a new node, search for an existing anchor on the same topic via `remind`'s `MemorySearch`. Updating beats creating because:
 
 - The existing parent / type / source / children stay attached.
 - The temperature history is preserved (a fresh node starts at the default warmth).
@@ -143,7 +143,7 @@ Every write creates a snapshot. Don't write per-keystroke or per-token. If you h
 
 ## Summarize a cold node — the notification handoff
 
-`efficient-memo` describes the notification: `level: "warning"`, `logger: "remindb.temperature"`, `data.message: "Cold nodes detected; consider summarizing via MemorySummarize"`, `data.nodes: [{id, label, file, temperature}, …]`.
+`remind` describes the notification: `level: "warning"`, `logger: "remindb.temperature"`, `data.message: "Cold nodes detected; consider summarizing via MemorySummarize"`, `data.nodes: [{id, label, file, temperature}, …]`.
 
 When you see one, walk the `nodes` array and compact each one here:
 

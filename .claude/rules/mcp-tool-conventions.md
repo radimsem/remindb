@@ -262,9 +262,9 @@ Two public skills under `skills/` form the client contract for what tools exist 
 
 | Tool kind | Skill to update |
 |---|---|
-| Read tools (`MemoryTree`, `MemorySearch`, `MemoryFetch`, `MemoryDelta`, `MemoryHistory`) | **`skills/efficient-memo/SKILL.md`** |
+| Read tools (`MemoryTree`, `MemorySearch`, `MemoryFetch`, `MemoryDelta`, `MemoryHistory`) | **`skills/remind/SKILL.md`** |
 | Write tools (`MemoryWrite`, `MemorySummarize`, `MemoryCompile`) | **`skills/memoize/SKILL.md`** |
-| A tool whose change crosses the boundary (e.g., new shared concept, mental-model field, threshold name) | **Both** — `efficient-memo` owns the mental model, `memoize` owns the write workflow that depends on it |
+| A tool whose change crosses the boundary (e.g., new shared concept, mental-model field, threshold name) | **Both** — `remind` owns the mental model, `memoize` owns the write workflow that depends on it |
 
 For each affected skill:
 
@@ -288,7 +288,7 @@ Tool exists in code but invisible to its public skill = invisible to future Clau
 - `log.Fatal` / `os.Exit` from a tool body.
 - Logging the full payload, summary text, node content, or any user-supplied body.
 - Wrapping the error with `%s` instead of `%w`.
-- Adding/renaming/removing a tool without updating its public skill (`skills/efficient-memo/SKILL.md` for read tools, `skills/memoize/SKILL.md` for write tools, both when the change crosses the read/write boundary).
+- Adding/renaming/removing a tool without updating its public skill (`skills/remind/SKILL.md` for read tools, `skills/memoize/SKILL.md` for write tools, both when the change crosses the read/write boundary).
 - Wrapping `Store.OpMu` in helper methods like `LockOp` / `UnlockOp` (memory: "no wrapper methods around sync primitives").
 
 ---

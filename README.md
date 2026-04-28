@@ -237,7 +237,7 @@ Five ready-to-install plugin folders ship with the repo, one per supported codin
 | OpenClaw | [`plugins/openclaw/`](./plugins/openclaw/) | [plugins/openclaw/README.md](./plugins/openclaw/README.md) |
 
 > [!TIP]
-> **Pair the plugin with the two companion skills** — [`efficient-memo`](./skills/efficient-memo/) (read path) and [`memoize`](./skills/memoize/) (write path). They teach the agent the MCP tool suite so you don't re-explain it each session. Per-agent install instructions live in [`skills/README.md`](./skills/).
+> **Pair the plugin with the two companion skills** — [`remind`](./skills/remind/) (read path) and [`memoize`](./skills/memoize/) (write path). They teach the agent the MCP tool suite so you don't re-explain it each session. Per-agent install instructions live in [`skills/README.md`](./skills/).
 
 For any other MCP-capable agent, add this to its MCP config by hand:
 

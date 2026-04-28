@@ -22,7 +22,7 @@ Pipeline: `parser → transformer → emitter → store`. Read side: `query → 
 - `cmd/remindb/` — CLI: `serve`, `compile`, `inspect`, `bench`
 - `migrations/` — `0001_init.sql`, `0002_*.sql`, applied via embed.FS in `migrations.go`
 - `internal/` — bench, contentid, fileext, mcptest, tempfile, testutil, tokens
-- `skills/efficient-memo/`, `skills/memoize/` — **public** skills shipped to MCP clients: `efficient-memo` is the read path + mental model, `memoize` is the write path + Markdown-shape rules (distinct from `.claude/skills/`)
+- `skills/remind/`, `skills/memoize/` — **public** skills shipped to MCP clients: `remind` is the read path + mental model, `memoize` is the write path + Markdown-shape rules (distinct from `.claude/skills/`)
 - `plugins/` — per-agent plugin folders (claude-code, gemini-cli, codex, opencode)
 - Top-level: `integration_test.go`, `mcp_integration_test.go`, `bench_test.go`
 
@@ -31,7 +31,7 @@ Pipeline: `parser → transformer → emitter → store`. Read side: `query → 
 | Question | Source |
 |---|---|
 | End-to-end product story, architecture, benchmarks | `README.md` |
-| How clients call the MCP read tools (the contract) | `skills/efficient-memo/SKILL.md` |
+| How clients call the MCP read tools (the contract) | `skills/remind/SKILL.md` |
 | How clients author content for MCP write tools (the contract) | `skills/memoize/SKILL.md` |
 | Go style, naming, error/log/concurrency idioms | `.claude/rules/go-concise.md` |
 | Commit, sign, branch, push rules | `.claude/rules/git-versioning.md` |
@@ -45,7 +45,7 @@ These zones have either an external contract or a silent-drift hazard. Don't cha
 
 ### MCP tool surface (`pkg/mcp/tools/`, `pkg/mcp/server.go`)
 
-The eight `Memory*` tools are a contract shipped to clients via two public skills: `skills/efficient-memo/SKILL.md` (read tools — `MemoryTree`, `MemorySearch`, `MemoryFetch`, `MemoryDelta`, `MemoryHistory`) and `skills/memoize/SKILL.md` (write tools — `MemoryWrite`, `MemorySummarize`, `MemoryCompile`). Renaming, removing, or changing semantics breaks every client and desyncs the relevant public skill. Use the **`add-mcp-tool` skill** for any new/modified tool, follow `.claude/rules/mcp-tool-conventions.md`, and dispatch the **`mcp-surface-reviewer` agent** before merge.
+The eight `Memory*` tools are a contract shipped to clients via two public skills: `skills/remind/SKILL.md` (read tools — `MemoryTree`, `MemorySearch`, `MemoryFetch`, `MemoryDelta`, `MemoryHistory`) and `skills/memoize/SKILL.md` (write tools — `MemoryWrite`, `MemorySummarize`, `MemoryCompile`). Renaming, removing, or changing semantics breaks every client and desyncs the relevant public skill. Use the **`add-mcp-tool` skill** for any new/modified tool, follow `.claude/rules/mcp-tool-conventions.md`, and dispatch the **`mcp-surface-reviewer` agent** before merge.
 
 ### SQLite schema & migrations (`migrations/`, `pkg/store/`)
 
@@ -53,7 +53,7 @@ Migrations are forward-only, applied at startup, and FTS5 triggers must stay in 
 
 ### Temperature policy (`pkg/temperature/Config`)
 
-`DecayRate`, `AccessBoost`, `ColdThreshold`, `NotifyThreshold`, `TickInterval` are documented numerically in `skills/efficient-memo/SKILL.md` (mental model) and the summarization workflow they trigger lives in `skills/memoize/SKILL.md`. Changing any one shifts search ranking, the cold-set query, *and* the client notification stream — both public skills drift silently. Use the **`tune-temperature-policy` skill**.
+`DecayRate`, `AccessBoost`, `ColdThreshold`, `NotifyThreshold`, `TickInterval` are documented numerically in `skills/remind/SKILL.md` (mental model) and the summarization workflow they trigger lives in `skills/memoize/SKILL.md`. Changing any one shifts search ranking, the cold-set query, *and* the client notification stream — both public skills drift silently. Use the **`tune-temperature-policy` skill**.
 
 ### Snapshot atomicity
 
@@ -102,7 +102,7 @@ Benchmarks: `scripts/bench-agents.sh` runs the cross-agent token-savings table r
 ## What this file is NOT
 
 - **Not** a Go style guide → `.claude/rules/go-concise.md` owns that.
-- **Not** the MCP contract spec → `.claude/rules/mcp-tool-conventions.md` + `skills/efficient-memo/SKILL.md` (read) + `skills/memoize/SKILL.md` (write).
+- **Not** the MCP contract spec → `.claude/rules/mcp-tool-conventions.md` + `skills/remind/SKILL.md` (read) + `skills/memoize/SKILL.md` (write).
 - **Not** a how-to for adding parsers/tools/queries → the `.claude/skills/` workflow each owns its own checklist.
 - **Not** a changelog or task tracker → use commits and the conversation, not this file.
 
