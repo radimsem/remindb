@@ -8,6 +8,8 @@ import (
 	gomcp "github.com/modelcontextprotocol/go-sdk/mcp"
 	"github.com/radimsem/remindb/internal/contentid"
 	"github.com/radimsem/remindb/internal/tokens"
+	"github.com/radimsem/remindb/pkg/diff"
+	"github.com/radimsem/remindb/pkg/parser"
 )
 
 type SummarizeInput struct {
@@ -21,24 +23,36 @@ func (d *Deps) HandleSummarize(ctx context.Context, _ *gomcp.CallToolRequest, in
 	d.Store.OpMu.Lock()
 	defer d.Store.OpMu.Unlock()
 
-	node, err := d.Store.GetNode(ctx, input.NodeID)
+	existing, err := d.Store.GetNode(ctx, input.NodeID)
 	if err != nil {
 		return nil, nil, fmt.Errorf("failed to get node: %s: %w", input.NodeID, err)
 	}
 
-	contentHash := contentid.ContentHash(input.Summary)
+	oldTokens := existing.TokenCount
+	tokenCount := tokens.Estimate(input.Summary)
 
-	oldTokens := node.TokenCount
-	node.Content = input.Summary
-	node.ContentHash = contentHash
-	node.TokenCount = tokens.Estimate(input.Summary)
-	node.Label = "Summary: " + firstLine(input.Summary, 70)
-
-	if err := d.Store.UpsertNode(ctx, node); err != nil {
-		return nil, nil, fmt.Errorf("failed to update node: %w", err)
+	prev := map[string]diff.NodeState{
+		input.NodeID: {Hash: existing.ContentHash, Content: existing.Content},
 	}
 
-	msg := fmt.Sprintf("summarized node %s (%d → %d tokens)", input.NodeID, oldTokens, node.TokenCount)
+	node := &parser.ContextNode{
+		ID:          existing.ID,
+		ParentID:    existing.ParentID,
+		SourceFile:  existing.SourceFile,
+		NodeType:    parser.NodeType(existing.NodeType),
+		Depth:       existing.Depth,
+		Label:       "Summary: " + firstLine(input.Summary, 70),
+		Content:     input.Summary,
+		Format:      existing.Format,
+		TokenCount:  tokenCount,
+		ContentHash: contentid.ContentHash(input.Summary),
+	}
+
+	if err := emitNodeChange(ctx, d.Store, node, prev, "summarize:"+input.NodeID); err != nil {
+		return nil, nil, fmt.Errorf("failed to summarize: %w", err)
+	}
+
+	msg := fmt.Sprintf("summarized node %s (%d → %d tokens)", input.NodeID, oldTokens, tokenCount)
 	return &gomcp.CallToolResult{
 		Content: []gomcp.Content{&gomcp.TextContent{Text: msg}},
 	}, nil, nil

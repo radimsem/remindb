@@ -9,7 +9,6 @@ import (
 	"github.com/radimsem/remindb/internal/contentid"
 	"github.com/radimsem/remindb/internal/tokens"
 	"github.com/radimsem/remindb/pkg/diff"
-	"github.com/radimsem/remindb/pkg/emitter"
 	"github.com/radimsem/remindb/pkg/parser"
 )
 
@@ -67,16 +66,7 @@ func (d *Deps) HandleWrite(ctx context.Context, _ *gomcp.CallToolRequest, input 
 		}
 	}
 
-	roots := []*parser.ContextNode{node}
-	deltas := diff.Diff(roots, prev)
-	cursorHash := diff.CursorHash(roots)
-
-	if err := emitter.Emit(ctx, d.Store,
-		emitter.WithRoots(roots),
-		emitter.WithDeltas(deltas),
-		emitter.WithCursorHash(cursorHash),
-		emitter.WithMessage("write:"+nodeID),
-	); err != nil {
+	if err := emitNodeChange(ctx, d.Store, node, prev, "write:"+nodeID); err != nil {
 		return nil, nil, fmt.Errorf("failed to write: %w", err)
 	}
 

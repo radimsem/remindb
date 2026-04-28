@@ -189,6 +189,39 @@ func TestHandleSummarize(t *testing.T) {
 	if got.Content != "short summary" {
 		t.Errorf("Content = %q, want 'short summary'", got.Content)
 	}
+
+	// summary must produce exactly one snapshot
+	snaps, err := st.ListSnapshots(ctx, 10)
+	if err != nil {
+		t.Fatalf("ListSnapshots: %v", err)
+	}
+	if len(snaps) != 1 {
+		t.Fatalf("snapshots = %d, want 1", len(snaps))
+	}
+	if want := "summarize:node0001"; snaps[0].Message != want {
+		t.Errorf("snapshot.Message = %q, want %q", snaps[0].Message, want)
+	}
+
+	diffs, err := st.GetDiffsBySnapshot(ctx, snaps[0].ID)
+	if err != nil {
+		t.Fatalf("GetDiffsBySnapshot: %v", err)
+	}
+	if len(diffs) != 1 {
+		t.Fatalf("diffs = %d, want 1", len(diffs))
+	}
+	dr := diffs[0]
+	if dr.Op != "mod" {
+		t.Errorf("diff.Op = %q, want 'mod'", dr.Op)
+	}
+	if dr.NodeID != "node0001" {
+		t.Errorf("diff.NodeID = %q, want 'node0001'", dr.NodeID)
+	}
+	if dr.OldContent != "very long original content that needs summarizing" {
+		t.Errorf("diff.OldContent = %q, want pre-summarize content", dr.OldContent)
+	}
+	if dr.NewContent != "short summary" {
+		t.Errorf("diff.NewContent = %q, want 'short summary'", dr.NewContent)
+	}
 }
 
 func TestHandleHistory(t *testing.T) {
