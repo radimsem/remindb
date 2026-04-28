@@ -4,7 +4,7 @@ Routing map for Claude. Points at the rule, skill, agent, or file that owns the 
 
 ## Project at a glance
 
-`remindb` — token-efficient agentic memory database. Single SQLite file, MCP server on top. Go 1.23+. Pre-implementation stage, solo dev, **linear history on `main`** (no branches, no merges, signed commits — see `.claude/rules/git-versioning.md`).
+`remindb` — token-efficient agentic memory database. Single SQLite file, MCP server on top. Go 1.23+. Pre-implementation stage, solo dev. **`dev` is the integration trunk; `main` is a fast-forward-only pointer to the latest stable tag.** Topic branches (`feat/`, `fix/`, `chore/`, `docs/`) off `dev`, rc tags on `dev`, stable cuts ff `main` to the tagged commit; lazy `release/vX.Y` branches handle patches to non-current minors; subject-only signed commits everywhere — see `.claude/rules/git-versioning.md`.
 
 Pipeline: `parser → transformer → emitter → store`. Read side: `query → mcp/tools`. Background: `temperature` ticker decays/notifies.
 
@@ -34,7 +34,7 @@ Pipeline: `parser → transformer → emitter → store`. Read side: `query → 
 | How clients call the MCP read tools (the contract) | `skills/remind/SKILL.md` |
 | How clients author content for MCP write tools (the contract) | `skills/memoize/SKILL.md` |
 | Go style, naming, error/log/concurrency idioms | `.claude/rules/go-concise.md` |
-| Commit, sign, branch, push rules | `.claude/rules/git-versioning.md` |
+| Commit, sign, branch, tag, push, release rules | `.claude/rules/git-versioning.md` |
 | MCP tool contract (signature, locking, returns) | `.claude/rules/mcp-tool-conventions.md` |
 | `slog` levels, fields, what never logs | `.claude/rules/logging-conventions.md` |
 | User & feedback memory across sessions | `.claude/projects/-home-radimsem-personal-projects-remindb/memory/MEMORY.md` (auto-loaded) |
@@ -69,7 +69,7 @@ Read tools (`Search`, `Fetch`, `Tree`, `Delta`, `History`) **never** take `Store
 
 ### Pre-implementation stage — no compatibility shims
 
-Solo, linear `main`, no published clients yet. Don't add deprecation paths, version gates, or backwards-compat wrappers. Just change the code and update the rule/skill that documents it.
+Solo, linear `dev`, no published clients yet. Don't add deprecation paths, version gates, or backwards-compat wrappers. Just change the code and update the rule/skill that documents it.
 
 ## Workflow shortcuts — task → skill
 
