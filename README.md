@@ -237,15 +237,9 @@ Five ready-to-install plugin folders ship with the repo, one per supported codin
 | OpenClaw | [`plugins/openclaw/`](./plugins/openclaw/) | [plugins/openclaw/README.md](./plugins/openclaw/README.md) |
 
 > [!TIP]
-> **Pair the plugin with the companion [`efficient-memo`](./skills/efficient-memo/) skill.** It teaches the agent the FTS5 query format, token-budget conventions, and the `MemoryTree → MemorySearch → MemoryFetch` chain so you don't re-explain them each session. Drop the folder into your agent's user-scope skills directory (Claude Code: `~/.claude/skills/efficient-memo/`; OpenClaw: the equivalent user skills path). Agents without a native skill loader can paste `SKILL.md` into their `AGENTS.md` / system-prompt equivalent.
->
-> Invoke it in-session to prime the agent before a memory-heavy task — in Claude Code:
->
-> ```
-> /efficient-memo
-> ```
+> **Pair the plugin with the two companion skills** — [`efficient-memo`](./skills/efficient-memo/) (read path) and [`memoize`](./skills/memoize/) (write path). They teach the agent the MCP tool suite so you don't re-explain it each session. Per-agent install instructions live in [`skills/README.md`](./skills/).
 
-For any other MCP-capable agent, add this stanza to its MCP config by hand:
+For any other MCP-capable agent, add this to its MCP config by hand:
 
 ```json
 {

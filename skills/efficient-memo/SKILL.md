@@ -1,10 +1,12 @@
 ---
-description: Use when the session has access to a remindb MCP server (tools prefixed remindb__ like MemoryTree, MemorySearch, MemoryFetch, MemoryWrite, MemoryDelta, MemoryHistory, MemorySummarize, MemoryCompile). Teaches how the server is structured, the FTS5 search-query format with its automatic OR rewrite, token-budgeted search and fetch, snapshot-aware writes, delta resync that replace raw file reads and grep, and the warning-level cold-node notifications the server pushes to nudge MemorySummarize.
+description: Read memory from a remindb MCP server — orient, search, fetch, resync. Covers the node/snapshot/temperature model and FTS5 query syntax. Pair with `memoize` for writes.
 ---
 
-# Efficient remindb MCP usage
+# Efficient remindb MCP usage — read side
 
 remindb is a compiled SQLite view of a workspace, served over MCP as eight `Memory*` tools. It's long-term memory for your session — call it instead of re-reading files or grepping.
+
+This skill covers the **read path** and the shared mental model. For *writing* memory (authoring payloads, updating nodes, summarizing cold nodes, recompiling source), pair this with the **`memoize`** skill — it owns `MemoryWrite`, `MemorySummarize`, and `MemoryCompile` plus the Markdown-shape rules that determine how well your writes index.
 
 ## Mental model
 
@@ -47,7 +49,7 @@ After each tick the server pushes a cold-node nudge to every connected client se
 }
 ```
 
-The server dedups: a node is notified once when it crosses below `NotifyThreshold` and is then suppressed until it warms above `NotifyThreshold` and re-cools (a hysteresis band so a node oscillating around the line doesn't spam). Treat one of these notifications as a direct cue to call `MemorySummarize` on the listed `id`s — see *Summarize a cold node*.
+The server dedups: a node is notified once when it crosses below `NotifyThreshold` and is then suppressed until it warms above `NotifyThreshold` and re-cools (a hysteresis band so a node oscillating around the line doesn't spam). Treat one of these notifications as a direct cue to call `MemorySummarize` on the listed `id`s — the **`memoize`** skill owns the summarization workflow (read what's there with `MemoryFetch`, then replace it with `MemorySummarize`).
 
 ### Budgets
 
@@ -125,7 +127,7 @@ query: "rate AND limiter AND redis"
   → passed through, requires all three
 ```
 
-## The four core patterns
+## The three read patterns
 
 ### 1. Orient: tree first, always
 
@@ -149,27 +151,7 @@ context = remindb__MemoryFetch(anchor=hits[0].id, budget=500, depth=32)
 
 `MemoryFetch`'s `depth` controls how many levels of descendants are included (1–128, default 32). Leave at default unless you know the subtree is huge.
 
-### 3. Persist: MemoryWrite
-
-When the user asks you to remember something, or you discover a non-obvious fact worth keeping:
-
-```
-# Update an existing node
-remindb__MemoryWrite(anchor="<node_id>", payload="<full replacement content>")
-
-# Create a new text node
-remindb__MemoryWrite(payload="<content>")   # anchor omitted → new node
-```
-
-Rules:
-
-- `payload` is the whole content. The label is auto-derived from the first line (≤80 chars) — put the scannable title on line one.
-- `anchor=""` or omitted → creates a new text node (type `text`, depth 1, source `mcp:write`). Content-addressed ID is derived from the payload.
-- `anchor=<existing_id>` → replaces that node's content. Type, parent, and source are preserved.
-- One logical note per call. Every write creates a snapshot.
-- Prefer updating an existing node over creating a new one. Search first for a plausible anchor.
-
-### 4. Resync: MemoryDelta
+### 3. Resync: MemoryDelta
 
 When resuming a session or after external writes, use the last snapshot `id` you saw to get only what changed:
 
@@ -180,50 +162,23 @@ remindb__MemoryDelta(since_snapshot=0)     # all changes ever (rarely what you w
 
 Returns a list of `[op] node_id (snapshot N)` lines. Fetch the specific nodes you care about if you need content. `since_snapshot=0` returns every diff in history — expensive. Keep the last snapshot id from a prior tree/search/write result.
 
-## Maintenance patterns
+## Inspect history before rewriting
 
-### Summarize a cold node
-
-The server cools untouched nodes over time. When a node drops below `NotifyThreshold` it gets pushed to your session as an MCP logging notification (see *Notifications* in the mental model):
-
-- `level: "warning"`
-- `logger: "remindb.temperature"`
-- `data.message: "Cold nodes detected; consider summarizing via MemorySummarize"`
-- `data.suggested_action: "MemorySummarize"`
-- `data.nodes: [{id, label, file, temperature}, …]`
-
-When you see this notification, take it as the system's compaction signal — long prose that nobody is reading, condense it. For each entry in `nodes`:
-
-```
-remindb__MemoryFetch(anchor="<id>", budget=1500)        # read what's there
-remindb__MemorySummarize(node_id="<id>", summary="…")   # replace with the condensed version
-```
-
-`MemorySummarize` replaces the node's content in place, recomputes `token_count`, and rewrites the label to `"Summary: <first line>"` (first line truncated to 70 chars, prefix included). Type, parent, and source file are preserved. Every call creates a snapshot, so the prior wording is recoverable via `MemoryHistory`.
-
-Notifications are deduplicated server-side, so you won't see the same node again until it warms above `NotifyThreshold` and re-cools — there's no harm in deferring summarization, but no further reminder either.
-
-### Recompile when the source drifts
-
-If files on disk changed outside remindb's rescan loop (external edit, disabled watcher, fresh `git pull`):
-
-```
-remindb__MemoryCompile(path="<file or subdir>", message="<optional snapshot note>")
-```
-
-Prefer narrow paths. Compiling one file is milliseconds; compiling the entire source tree is slow and creates a large snapshot.
-
-If a `.remindb.ignore` file lives at the source root, `MemoryCompile` (and the background rescan) honors it — same gitignore-style minimal subset (literal names, `*` wildcards, trailing `/` for dir-only, `**` for any-segment-count, `#` comments). Patterns subtract from the supported-extension allow-list; they cannot re-include `node_modules` or dotfiles. Operators set this once; the agent doesn't author the file.
-
-### Inspect history before rewriting
-
-Before overwriting a node, check how it evolved:
+Before overwriting a node (a `memoize`-side action), check how it evolved:
 
 ```
 remindb__MemoryHistory(anchor="<node_id>", depth=10)
 ```
 
-Returns snapshot-ordered `add`/`mod`/`rem` entries with truncated old and new content. Use it to roll back (re-write the `old` payload), or to cite prior wording.
+Returns snapshot-ordered `add`/`mod`/`rem` entries with truncated old and new content. Use it to roll back (re-write the `old` payload via `memoize`'s `MemoryWrite`), or to cite prior wording.
+
+## Handing off to `memoize`
+
+This skill stops where mutation begins. Three triggers send you to `memoize`:
+
+- **The user asks you to remember, save, or note something.** → `memoize` for `MemoryWrite` and the Markdown-shape rules that determine how well the new content indexes.
+- **A `level: "warning"` / `logger: "remindb.temperature"` notification arrives.** → `memoize` for the `MemoryFetch` → `MemorySummarize` compaction workflow.
+- **Source files on disk drifted from the database** (external edit, disabled watcher, fresh `git pull`). → `memoize` for `MemoryCompile`.
 
 ## Anti-patterns — do not
 
@@ -231,9 +186,8 @@ Returns snapshot-ordered `add`/`mod`/`rem` entries with truncated old and new co
 - Don't send full sentences as queries. Keyword lists rank better under the OR rewrite.
 - Don't call `MemoryTree` before every search — it's expensive. One call per orientation.
 - Don't omit the budget. The server will use a default, but you lose control over cost.
-- Don't write per-token or per-keystroke. Batch into one coherent `MemoryWrite`.
 - Don't re-read the whole tree on resume. Use `MemoryDelta` with the last snapshot id.
 - Don't edit anchor IDs — they're content-addressed. Let remindb assign them.
 - Don't confuse **snapshot id** (int64, passed to `MemoryDelta`) with **cursor_hash** (xxhash64 string, a fingerprint for equality comparison only).
-- Don't ignore a `level: "warning"` / `logger: "remindb.temperature"` notification. It's the server's only summarization cue and won't fire again for the same node until it warms and re-cools. Walk the `nodes` array and call `MemorySummarize` on each `id`.
+- Don't ignore a `level: "warning"` / `logger: "remindb.temperature"` notification. It's the server's only summarization cue and won't fire again for the same node until it warms and re-cools. Hand off to `memoize` and call `MemorySummarize` on each `id`.
 - Don't confuse `ColdThreshold` with `NotifyThreshold`. Both default to `0.1`, but they're independent knobs — `ColdThreshold` drives the cold-node *query*, `NotifyThreshold` drives the *push*. A deployment can tune them separately.

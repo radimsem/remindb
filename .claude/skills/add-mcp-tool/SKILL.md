@@ -14,7 +14,7 @@ Tools live in `pkg/mcp/tools/` as one file per tool. Each tool is a method on `*
 | `pkg/mcp/tools/<tool>.go` | New file — `XxxInput` struct + `HandleXxx` method on `*Deps` |
 | `pkg/mcp/server.go` | Add a `mcp.AddTool(srv, ...)` entry to `registerTools` |
 | `pkg/mcp/tools/tools_test.go` | Test using `mcptest.NewEnv` from `internal/mcptest` |
-| `skills/efficient-memo/SKILL.md` | Add the new tool to the inventory and any pattern section it belongs in |
+| `skills/efficient-memo/SKILL.md` *(read tools)* or `skills/memoize/SKILL.md` *(write tools)* | Add the new tool to the inventory and any pattern section it belongs in |
 
 ## Tool file template
 
@@ -110,13 +110,21 @@ func TestExample_HappyPath(t *testing.T) {
 
 ## The docs sync — easy to skip, easy to regret
 
-`skills/efficient-memo/SKILL.md` is the contract with future Claude sessions about what tools exist. When you add a tool:
+Two public skills under `skills/` are the contract with future Claude sessions about what tools exist. Pick the one that matches the tool's side:
+
+| Tool kind | Skill to update |
+|---|---|
+| Read (`MemoryTree`, `MemorySearch`, `MemoryFetch`, `MemoryDelta`, `MemoryHistory`) | `skills/efficient-memo/SKILL.md` |
+| Write (`MemoryWrite`, `MemorySummarize`, `MemoryCompile`) | `skills/memoize/SKILL.md` |
+| Crosses the boundary (introduces a new mental-model concept used on both sides) | Both |
+
+For each affected skill, when you add a tool:
 
 1. Update the frontmatter `description` tool list.
-2. Update the opening line ("served over MCP as eight `Memory*` tools" → nine, etc.).
-3. Add at least one example call into the relevant pattern section (Orient / Look up / Persist / Resync / Maintenance).
+2. Update the opening / inventory paragraph to reflect the new surface.
+3. Add at least one example call into the relevant pattern section.
 
-Skipping this means future sessions won't know the tool exists. The skill is the API contract, not just docs.
+Skipping this means future sessions won't know the tool exists. The skills are the API contract, not just docs.
 
 ## Quick reference
 
@@ -124,7 +132,10 @@ Skipping this means future sessions won't know the tool exists. The skill is the
 1. pkg/mcp/tools/<tool>.go        (Input struct + Handle method on *Deps)
 2. pkg/mcp/server.go              (mcp.AddTool entry in registerTools)
 3. pkg/mcp/tools/tools_test.go    (env := mcptest.NewEnv(t); env.CallTool(...))
-4. skills/efficient-memo/SKILL.md (inventory + at least one example call)
+4. skills/efficient-memo/SKILL.md   (read tools)
+   OR
+   skills/memoize/SKILL.md          (write tools)
+   OR both, when the change crosses the read/write boundary
 5. go test ./pkg/mcp/...          (must pass)
 ```
 
@@ -134,11 +145,12 @@ Skipping this means future sessions won't know the tool exists. The skill is the
 - **Forgetting the named `err` return.** `defer d.logCall(..., &err, ...)` captures `err` by pointer. If the function signature uses an unnamed error or shadows `err` with `:=`, the deferred log shows `<nil>` for failed calls.
 - **Returning `nil, nil, nil` on the no-result path.** Return an empty `*mcp.CallToolResult` with a text body like `"no results"` — clients expect text, not a missing content array. See `pkg/mcp/tools/search.go` and the `query.FormatCompact` "no results" string.
 - **Passing the raw payload as a log attr.** Use byte-count (`"payload_bytes", len(input.Payload)`) — payloads can be MB, and `slog` will serialize the whole thing.
-- **Skipping the efficient-memo update.** Tool exists in code but invisible to agents. Test: a fresh session reading the skill should be able to use the new tool from the description alone.
+- **Skipping the public-skill update.** Tool exists in code but invisible to agents. Read tools must show up in `skills/efficient-memo/SKILL.md`; write tools in `skills/memoize/SKILL.md`. Test: a fresh session reading the relevant skill should be able to use the new tool from the description alone.
 
 ## Cross-references
 
 - `.claude/rules/go-concise.md` — error wrapping, naming, locking discipline, no-wrapper-methods rule
 - `.claude/rules/git-versioning.md` — one commit per logical change; the four code edits ship together as `feat(mcp): add MemoryExample tool`, the docs sync as a follow-up `docs(skill): document MemoryExample` if it grew large, otherwise bundled
 - `.claude/skills/add-store-query/SKILL.md` — if the new tool needs a query the store doesn't have yet, do that skill first
-- `skills/efficient-memo/SKILL.md` — the docs target you must update
+- `skills/efficient-memo/SKILL.md` — docs target for **read-side** tools (`MemoryTree`, `MemorySearch`, `MemoryFetch`, `MemoryDelta`, `MemoryHistory`)
+- `skills/memoize/SKILL.md` — docs target for **write-side** tools (`MemoryWrite`, `MemorySummarize`, `MemoryCompile`)
