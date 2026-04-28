@@ -1,8 +1,6 @@
-# remindb Plugin for OpenClaw
+# remindb for OpenClaw
 
-Mounts the [remindb](https://github.com/radimsem/remindb) MCP server as a workspace memory backend for OpenClaw agents.
-
-Agents get the full `remindb__Memory*` tool suite — backed by a compiled SQLite view of the workspace.
+Drops [remindb](https://github.com/radimsem/remindb) into OpenClaw as an MCP server. The agent picks up the full `remindb__Memory*` tool suite, backed by a compiled SQLite view of whatever workspace you point it at.
 
 ## How it works
 
@@ -14,7 +12,7 @@ Tools are namespaced by OpenClaw on load, so `MemoryFetch` becomes `remindb__Mem
 
 ### 1. Install the remindb binary
 
-The binary must be on `$PATH`:
+It needs to be on `$PATH`:
 
 ```bash
 curl -fsSL https://raw.githubusercontent.com/radimsem/remindb/main/install.sh | bash
@@ -34,9 +32,11 @@ remindb --version
 
 ### 2. Compile your workspace or agent state folder
 
-remindb needs a SQLite file populated from a source tree before the agent can read from it. A natural source for OpenClaw is its own state folder at `~/.openclaw/` — `openclaw.json`, hook scripts under `hooks/<id>/`, agent workspaces under `workspace/` (and `workspace-*`), and skill definitions under `skills/`. Indexing it lets OpenClaw query its own persistent context through remindb instead of grepping the dot folder.
+remindb needs a SQLite file built from a source tree before the agent can read from it.
 
-`~/.openclaw/` also accumulates per-agent session transcripts under `agents/<id>/sessions/`, plus `credentials/`, `sandboxes/`, and `sandbox/` — runtime state that bloats the index and includes secrets. Drop a `.remindb.ignore` at `~/.openclaw/` to filter them out — gitignore-style minimal subset (`*`, `**`, trailing `/`, `#` comments; no `!` negation, no `[abc]` ranges):
+A natural source for OpenClaw is its own state folder at `~/.openclaw/` — `openclaw.json`, hook scripts under `hooks/<id>/`, agent workspaces under `workspace/` (and `workspace-*`), and skill definitions under `skills/`. Indexing it lets OpenClaw query its own persistent context through remindb instead of grepping the dot folder.
+
+`~/.openclaw/` also accumulates per-agent session transcripts under `agents/<id>/sessions/`, plus `credentials/`, `sandboxes/`, and `sandbox/` — runtime state that bloats the index and includes secrets. Drop a `.remindb.ignore` at `~/.openclaw/` to filter them out (gitignore-style minimal subset: `*`, `**`, trailing `/`, `#` comments; no `!` negation, no `[abc]` ranges):
 
 ```bash
 mkdir -p ~/.cache/remindb
@@ -57,13 +57,13 @@ printf '%s\n' \
 remindb compile ~/.openclaw --db ~/.cache/remindb/openclaw.db
 ```
 
-The same `.remindb.ignore` is honored by `serve`'s background rescan and the `MemoryCompile` MCP tool — set it once, all paths agree. Or point at any other workspace you want agents to see:
+The same `.remindb.ignore` is honored by `serve`'s background rescan and the `MemoryCompile` tool — set it once, all paths agree. Or point at any other workspace you want the agent to see:
 
 ```bash
 remindb compile /path/to/workspace --db /path/to/workspace.db
 ```
 
-Re-run whenever you want a fresh baseline; `serve` keeps the DB current after that.
+Re-run `compile` whenever you want a fresh baseline; `serve` keeps the DB current after that.
 
 ### 3. Install the plugin
 
@@ -73,14 +73,14 @@ Via OpenClaw CLI:
 openclaw plugins install ./plugins/openclaw
 ```
 
-Or manually:
+Or by hand:
 
 ```bash
 mkdir -p ~/.openclaw/extensions/remindb
 cp plugins/openclaw/index.ts plugins/openclaw/openclaw.plugin.json plugins/openclaw/.mcp.json ~/.openclaw/extensions/remindb/
 ```
 
-### 4. Export the workspace env vars
+### 4. Point remindb at your workspace
 
 `remindb serve` reads two env vars as fallbacks for its `--db` and `--source` flags. Export them in the shell that launches OpenClaw so the spawned subprocess inherits them:
 
@@ -89,7 +89,7 @@ export REMINDB_DB=/absolute/path/to/workspace.db
 export REMINDB_SOURCE=/absolute/path/to/workspace
 ```
 
-Put them in `~/.bashrc` / `~/.zshrc` / fish equivalent to make the mapping permanent, or scope them to a single session to switch workspaces between runs. Re-export and restart the gateway whenever the agent should target a different workspace.
+Stick them in `~/.bashrc` / `~/.zshrc` / your fish equivalent to make it permanent, or scope to a single session if you want to switch workspaces between runs. Re-export and restart the gateway whenever the agent should target a different workspace.
 
 ### 5. Restart the gateway
 
@@ -99,7 +99,7 @@ openclaw gateway restart
 
 ## Configuration
 
-Alternatively enable the plugin and pin its config in `openclaw.json`:
+You can also enable the plugin and pin its config in `openclaw.json`:
 
 ```json5
 {
@@ -117,7 +117,7 @@ The plugin itself has no runtime options. `remindb serve` resolves its DB and so
 
 ## Tools exposed
 
-The plugin surfaces the full `remindb` `Memory*` tool suite under the `remindb__` namespace. See the [main README](https://github.com/radimsem/remindb#mcp-tools) for the canonical tool list and token-savings benchmarks per tool.
+The plugin surfaces the full `remindb` `Memory*` tool suite under the `remindb__` namespace. See the [main README](https://github.com/radimsem/remindb#mcp-tools) for the canonical tool list and per-tool token-savings benchmarks.
 
 ## License
 

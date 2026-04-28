@@ -1,8 +1,6 @@
-# remindb Plugin for Codex
+# remindb for Codex
 
-Mounts the [remindb](https://github.com/radimsem/remindb) MCP server as a workspace memory backend for OpenAI Codex agents.
-
-Agents get the full `remindb__Memory*` tool suite — backed by a compiled SQLite view of the workspace.
+Drops [remindb](https://github.com/radimsem/remindb) into OpenAI Codex as an MCP server. The agent picks up the full `remindb__Memory*` tool suite, backed by a compiled SQLite view of whatever workspace you point it at.
 
 ## How it works
 
@@ -14,7 +12,7 @@ All tool logic lives in the Go binary; the plugin is a thin wrapper.
 
 ### 1. Install the remindb binary
 
-The binary must be on `$PATH`:
+It needs to be on `$PATH`:
 
 ```bash
 curl -fsSL https://raw.githubusercontent.com/radimsem/remindb/main/install.sh | bash
@@ -34,9 +32,11 @@ remindb --version
 
 ### 2. Compile a source directory
 
-remindb needs a SQLite file populated from a source tree before the agent can read from it. A natural source for Codex is its own state folder at `~/.codex/` — custom slash-command prompts under `prompts/`, persistent context under `memories/` and `memories_extensions/`, and any user-authored `skills/`. Indexing it lets Codex query its own persistent context through remindb instead of grepping the dot folder.
+remindb needs a SQLite file built from a source tree before the agent can read from it.
 
-`~/.codex/` also accumulates session-rollout `.jsonl` files under `sessions/YYYY/MM/DD/`, an `archived_sessions/` subtree, and a top-level `history.jsonl` — large transcripts that bloat the index without adding agent-memory value. Drop a `.remindb.ignore` at `~/.codex/` to filter them out.
+A natural source for Codex is its own state folder at `~/.codex/` — custom slash-command prompts under `prompts/`, persistent context under `memories/` and `memories_extensions/`, and any user-authored `skills/`. Indexing it lets Codex query its own persistent context through remindb instead of grepping the dot folder.
+
+`~/.codex/` also accumulates session-rollout `.jsonl` files under `sessions/YYYY/MM/DD/`, an `archived_sessions/` subtree, and a top-level `history.jsonl` — large transcripts that bloat the index without adding agent-memory value. Drop a `.remindb.ignore` at `~/.codex/` to filter them out:
 
 ```bash
 mkdir -p ~/.cache/remindb
@@ -53,7 +53,7 @@ printf '%s\n' \
 remindb compile ~/.codex --db ~/.cache/remindb/codex.db
 ```
 
-The same `.remindb.ignore` is honored by `serve`'s background rescan and the `MemoryCompile` MCP tool — set it once, all paths agree. Or point at any other workspace you want agents to see — a docs tree, a notes repo, a project directory.
+The same `.remindb.ignore` is honored by `serve`'s background rescan and the `MemoryCompile` tool — set it once, all paths agree. Or point at any other workspace you want the agent to see — a docs tree, a notes repo, a project directory.
 
 ### 3. Add the plugin from GitHub
 
@@ -62,7 +62,7 @@ codex plugin marketplace add radimsem/remindb --sparse plugins/codex
 codex plugin install remindb
 ```
 
-The plugin is cached at `~/.codex/plugins/cache/remindb/remindb/<version>/`. On/off state lives in `~/.codex/config.toml`.
+The plugin gets cached at `~/.codex/plugins/cache/remindb/remindb/<version>/`. On/off state lives in `~/.codex/config.toml`.
 
 Confirm the server is connected:
 
@@ -72,7 +72,7 @@ codex mcp list
 
 You should see `remindb` listed with the full `Memory*` tool suite.
 
-### 4. Export the workspace env vars
+### 4. Point remindb at your workspace
 
 `remindb serve` reads `REMINDB_DB` and `REMINDB_SOURCE` as fallbacks for its `--db` and `--source` flags. Codex propagates the launching shell's environment to plugin-spawned MCP subprocesses, so export them in the shell that launches Codex:
 
@@ -81,9 +81,11 @@ export REMINDB_DB=$HOME/.cache/remindb/codex.db
 export REMINDB_SOURCE=$HOME/.codex
 ```
 
-Put them in `~/.bashrc` / `~/.zshrc` / fish equivalent to make the mapping permanent, or scope them to a single session to switch workspaces between runs.
+Stick them in `~/.bashrc` / `~/.zshrc` / your fish equivalent to make it permanent, or scope to a single session if you want to switch workspaces between runs.
 
-If shell-rc isn't an option, sidestep the plugin entirely and define a top-level `[mcp_servers.remindb]` block in `~/.codex/config.toml` instead — Codex's `[plugins.<name>]` table accepts only `enabled` and performs no `${VAR}` / `$VAR` / `{env:VAR}` expansion in either `config.toml` or the plugin's bundled `.mcp.json`, so there is no first-class way to inject env into a plugin-bundled MCP server from user config:
+If shell-rc isn't an option for you, sidestep the plugin entirely and define a top-level `[mcp_servers.remindb]` block in `~/.codex/config.toml` instead.
+
+Why the workaround? Codex's `[plugins.<name>]` table only accepts `enabled` and does no `${VAR}` / `$VAR` / `{env:VAR}` expansion in either `config.toml` or the plugin's bundled `.mcp.json`. There's no first-class way to inject env into a plugin-bundled MCP server from user config. So:
 
 ```toml
 [mcp_servers.remindb]
@@ -96,7 +98,7 @@ Replace `/home/you` with your absolute `$HOME` — `config.toml` does not expand
 
 ## Tools exposed
 
-The plugin surfaces the full `remindb` `Memory*` tool suite under the `remindb__` namespace. See the [main README](https://github.com/radimsem/remindb#mcp-tools) for the canonical tool list and token-savings benchmarks per tool.
+The plugin surfaces the full `remindb` `Memory*` tool suite under the `remindb__` namespace. See the [main README](https://github.com/radimsem/remindb#mcp-tools) for the canonical tool list and per-tool token-savings benchmarks.
 
 ## License
 
