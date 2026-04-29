@@ -11,10 +11,11 @@
 </p>
 
 <p align="center">
-  <a href="LICENSE"><img src="https://img.shields.io/badge/license-MIT-blue" alt="License" /></a>
-  <img src="https://img.shields.io/badge/go-1.23%2B-00ADD8" alt="Go 1.23+" />
-  <img src="https://img.shields.io/badge/storage-SQLite-003B57" alt="SQLite" />
-  <img src="https://img.shields.io/badge/protocol-MCP-6f42c1" alt="MCP" />
+  <a href="https://github.com/radimsem/remindb/actions/workflows/ci.yml"><img src="https://github.com/radimsem/remindb/actions/workflows/ci.yml/badge.svg?branch=main" alt="CI" /></a>
+  <a href="https://github.com/radimsem/remindb/releases/latest"><img src="https://img.shields.io/github/v/release/radimsem/remindb?label=release&color=00ADD8" alt="Latest release" /></a>
+  <a href="https://goreportcard.com/report/github.com/radimsem/remindb"><img src="https://goreportcard.com/badge/github.com/radimsem/remindb" alt="Go Report Card" /></a>
+  <a href="LICENSE"><img src="https://img.shields.io/github/license/radimsem/remindb?color=blue" alt="License" /></a>
+  <img src="https://img.shields.io/github/go-mod/go-version/radimsem/remindb" alt="Go version" />
 </p>
 
 ---
@@ -307,5 +308,11 @@ MIT — see [`LICENSE`](LICENSE).
 I'm a college student building agentic AI tooling in the evenings and weekends between classes. `remindb` is free, MIT-licensed, and will stay that way — no telemetry.
 
 If this saved you tokens (or saved you from reading the same 100 files for the hundredth time), even a small tip helps a lot.
+
+<p align="center">
+  <a href="https://buymeacoffee.com/radimsem"><img src="https://img.shields.io/badge/Buy%20me%20a%20coffee-FFDD00?logo=buymeacoffee&logoColor=black" alt="Buy me a coffee" /></a>
+</p>
+
+Or send BTC to `bc1qwyxsx7sledl4pru8y5ykd54fevsklytrv95ual`.
 
 Thanks for reading this far. If you end up using `remindb` in anger, I'd love to hear what you built — open an issue with a short story, or drop a star. Both matter more than you'd think.
