@@ -3,6 +3,7 @@ package mcp
 import (
 	"context"
 	"fmt"
+	"io/fs"
 	"log/slog"
 	"maps"
 	"os"
@@ -29,6 +30,7 @@ type RescanLoop struct {
 	interval time.Duration
 	settle   time.Duration
 	now      func() time.Time
+	walkFn   func(root string, fn fs.WalkDirFunc) error
 	modTimes map[string]time.Time
 	logger   *slog.Logger
 	ignore   *ignore.Matcher
@@ -53,6 +55,7 @@ func NewRescanLoop(st *store.Store, dir string, interval time.Duration, logger *
 		interval: interval,
 		settle:   defaultSettleTime,
 		now:      time.Now,
+		walkFn:   filepath.WalkDir,
 		modTimes: make(map[string]time.Time),
 		logger:   logger,
 		ignore:   matcher,
@@ -85,7 +88,7 @@ func (r *RescanLoop) scan(ctx context.Context) {
 	pending := make(map[string]time.Time)
 	now := r.now()
 
-	walkErr := filepath.WalkDir(r.dir, func(path string, d os.DirEntry, err error) error {
+	walkErr := r.walkFn(r.dir, func(path string, d os.DirEntry, err error) error {
 		if err != nil {
 			r.logger.Warn("rescan: walk error", "path", path, "err", err)
 			return err

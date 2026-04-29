@@ -3,6 +3,8 @@ package mcp
 import (
 	"bytes"
 	"context"
+	"errors"
+	"io/fs"
 	"log/slog"
 	"os"
 	"path/filepath"
@@ -30,18 +32,16 @@ func TestRescanLoop_LogsWalkErrors(t *testing.T) {
 	dir := t.TempDir()
 	writeFile(t, dir, "ok.md", "# OK\n")
 
-	unreadable := filepath.Join(dir, "nope")
-	if err := os.MkdirAll(unreadable, 0o000); err != nil {
-		t.Fatal(err)
-	}
-	t.Cleanup(func() { _ = os.Chmod(unreadable, 0o755) })
-
 	var buf bytes.Buffer
 	logger := slog.New(slog.NewTextHandler(&buf, &slog.HandlerOptions{Level: slog.LevelWarn}))
 
 	st := testutil.OpenTestDB(t)
 	r := mustRescan(t, st, dir, time.Minute, logger)
 	r.now = func() time.Time { return time.Now().Add(time.Hour) }
+
+	r.walkFn = func(root string, fn fs.WalkDirFunc) error {
+		return fn(filepath.Join(root, "nope"), nil, errors.New("forced walk error"))
+	}
 	r.scan(context.Background())
 
 	if !strings.Contains(buf.String(), "level=WARN") {
@@ -294,15 +294,11 @@ func TestRescanLoop_SkipsPurgeOnWalkError(t *testing.T) {
 
 	snapsBefore, _ := st.ListSnapshots(ctx, 10)
 
-	// Block the walk by removing read permission on the root.
-	if err := os.Chmod(dir, 0o000); err != nil {
-		t.Fatal(err)
+	r.walkFn = func(root string, fn fs.WalkDirFunc) error {
+		return errors.New("forced walk failure")
 	}
-	t.Cleanup(func() { _ = os.Chmod(dir, 0o755) })
 
 	r.scan(ctx)
-
-	_ = os.Chmod(dir, 0o755)
 
 	after, err := st.GetNodesByFile(ctx, "keep.md")
 	if err != nil {
