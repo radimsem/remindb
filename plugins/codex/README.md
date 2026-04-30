@@ -4,7 +4,7 @@ Drops [remindb](https://github.com/radimsem/remindb) into OpenAI Codex as an MCP
 
 ## How it works
 
-Codex loads `.codex-plugin/plugin.json` as the plugin manifest. The manifest's `mcpServers` field points at `.mcp.json`, which Codex uses to spawn `remindb serve` over stdio.
+Codex treats `plugins/codex/` as a marketplace catalog (`.agents/plugins/marketplace.json`) that lists one plugin, `remindb/`. The plugin's `.codex-plugin/plugin.json` points at sibling `.mcp.json`, which Codex uses to spawn `remindb serve` over stdio.
 
 All tool logic lives in the Go binary; the plugin is a thin wrapper.
 
@@ -34,43 +34,30 @@ remindb --version
 
 remindb needs a SQLite file built from a source tree before the agent can read from it.
 
-A natural source for Codex is its own state folder at `~/.codex/` — custom slash-command prompts under `prompts/`, persistent context under `memories/` and `memories_extensions/`, and any user-authored `skills/`. Indexing it lets Codex query its own persistent context through remindb instead of grepping the dot folder.
-
-`~/.codex/` also accumulates session-rollout `.jsonl` files under `sessions/YYYY/MM/DD/`, an `archived_sessions/` subtree, and a top-level `history.jsonl` — large transcripts that bloat the index without adding agent-memory value. Drop a `.remindb.ignore` at `~/.codex/` to filter them out:
+A natural source for Codex is its own persistent context at `~/.codex/memories/` — markdown files Codex accumulates as long-term memory across sessions. Indexing them lets Codex query its own memory through remindb instead of grepping the dot folder.
 
 ```bash
 mkdir -p ~/.cache/remindb
-printf '%s\n' \
-    '# Compile only curated context; skip session rollouts and history.' \
-    '' \
-    '# history.jsonl + per-day session rollouts.' \
-    '*.jsonl' \
-    '# Rollout subtree under YYYY/MM/DD.' \
-    'sessions/' \
-    '# Archived rollout subtree.' \
-    'archived_sessions/' \
-    > ~/.codex/.remindb.ignore
-remindb compile ~/.codex --db ~/.cache/remindb/codex.db
+remindb compile ~/.codex/memories --db ~/.cache/remindb/codex.db
 ```
 
-The same `.remindb.ignore` is honored by `serve`'s background rescan and the `MemoryCompile` tool — set it once, all paths agree. Or point at any other workspace you want the agent to see — a docs tree, a notes repo, a project directory.
+`memories/` is pure user content, so no `.remindb.ignore` is needed. Skills under `~/.codex/skills/` and slash-command prompts under `~/.codex/prompts/` are deliberately *not* indexed — Codex already loads them as live instructions, so re-indexing them in remindb would double-count. Or point at any other workspace you want the agent to see — a docs tree, a notes repo, a project directory.
 
 ### 3. Add the plugin from GitHub
 
 ```bash
 codex plugin marketplace add radimsem/remindb --sparse plugins/codex
-codex plugin install remindb
 ```
 
-The plugin gets cached at `~/.codex/plugins/cache/remindb/remindb/<version>/`. On/off state lives in `~/.codex/config.toml`.
+That single command does both jobs: the marketplace's `policy.installation: INSTALLED_BY_DEFAULT` makes Codex install the bundled plugin in the same step. The plugin caches at `~/.codex/plugins/cache/remindb/remindb/<version>/`; the marketplace registration lives in `~/.codex/config.toml`.
 
-Confirm the server is connected:
+Confirm the server is connected by launching Codex and running the `/mcp` slash command in the TUI:
 
-```bash
-codex mcp list
+```
+/mcp
 ```
 
-You should see `remindb` listed with the full `Memory*` tool suite.
+You should see `remindb` listed with the full `Memory*` tool suite. (The `codex mcp` CLI subcommand only manages *external* MCP servers added via `codex mcp add`; plugin-bundled MCP servers surface only inside the TUI.)
 
 ### 4. Point remindb at your workspace
 
@@ -78,7 +65,7 @@ You should see `remindb` listed with the full `Memory*` tool suite.
 
 ```bash
 export REMINDB_DB=$HOME/.cache/remindb/codex.db
-export REMINDB_SOURCE=$HOME/.codex
+export REMINDB_SOURCE=$HOME/.codex/memories
 ```
 
 Stick them in `~/.bashrc` / `~/.zshrc` / your fish equivalent to make it permanent, or scope to a single session if you want to switch workspaces between runs.
@@ -91,7 +78,7 @@ Why the workaround? Codex's `[plugins.<name>]` table only accepts `enabled` and 
 [mcp_servers.remindb]
 command = "remindb"
 args = ["serve"]
-env = { REMINDB_DB = "/home/you/.cache/remindb/codex.db", REMINDB_SOURCE = "/home/you/.codex" }
+env = { REMINDB_DB = "/home/you/.cache/remindb/codex.db", REMINDB_SOURCE = "/home/you/.codex/memories" }
 ```
 
 Replace `/home/you` with your absolute `$HOME` — `config.toml` does not expand it. This registers `remindb` as a user-defined MCP server, not a plugin server, so the plugin can stay disabled or removed entirely if you take this path.

@@ -19,7 +19,7 @@ The [`plugins/<agent>/`](../plugins/) folders install the MCP server. The skills
 |---|---|---|
 | **[Claude Code](../plugins/claude-code/)** | Yes | Copy both folders into `~/.claude/skills/`. Invoke per session via `/remind` or `/memoize`. |
 | **[OpenClaw](../plugins/openclaw/)** | Yes | Copy both folders into `~/.openclaw/skills/`. Restart the gateway: `openclaw gateway restart`. |
-| **[Codex](../plugins/codex/)** | No (use context) | Append both `SKILL.md` files to a markdown file under `~/.codex/memories/` (or `~/.codex/memories_extensions/`). |
+| **[Codex](../plugins/codex/)** | Yes | Copy both folders into `~/.codex/skills/`. Restart the Codex TUI to pick them up. |
 | **[Gemini CLI](../plugins/gemini-cli/)** | No (use context) | Append both `SKILL.md` files to `~/.gemini/GEMINI.md`. |
 | **[OpenCode](../plugins/opencode/)** | No (use context) | Append both `SKILL.md` files to `~/.config/opencode/AGENTS.md` (global) or `.opencode/AGENTS.md` (per-project). |
 
@@ -30,6 +30,8 @@ For any agent with a native skill loader:
 ```bash
 git clone https://github.com/radimsem/remindb /tmp/remindb
 cp -r /tmp/remindb/skills/{remind,memoize} ~/.claude/skills/   # Claude Code
+# or
+cp -r /tmp/remindb/skills/{remind,memoize} ~/.codex/skills/    # Codex
 # or
 cp -r /tmp/remindb/skills/{remind,memoize} ~/.openclaw/skills/ # OpenClaw
 ```

@@ -1,0 +1,20 @@
+{
+    "name": "remindb",
+    "interface": {
+        "displayName": "remindb"
+    },
+    "plugins": [
+        {
+            "name": "remindb",
+            "source": {
+                "source": "local",
+                "path": "./remindb"
+            },
+            "policy": {
+                "installation": "INSTALLED_BY_DEFAULT",
+                "authentication": "ON_INSTALL"
+            },
+            "category": "Productivity"
+        }
+    ]
+}
