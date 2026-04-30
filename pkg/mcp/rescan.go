@@ -80,9 +80,6 @@ func (r *RescanLoop) Run(ctx context.Context) {
 }
 
 func (r *RescanLoop) scan(ctx context.Context) {
-	r.store.OpMu.Lock()
-	defer r.store.OpMu.Unlock()
-
 	var changed []string
 	seen := make(map[string]bool, len(r.modTimes))
 	pending := make(map[string]time.Time)
@@ -157,6 +154,11 @@ func (r *RescanLoop) scan(ctx context.Context) {
 		}
 		deleted = append(deleted, rel)
 	}
+
+	// Lock only around store mutations.
+	r.store.OpMu.Lock()
+	defer r.store.OpMu.Unlock()
+
 	r.reconcileDeleted(ctx, deleted)
 
 	if len(changed) == 0 {
