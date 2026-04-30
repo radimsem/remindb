@@ -3,6 +3,8 @@ package store
 import (
 	"context"
 	"database/sql"
+	"path/filepath"
+	"strings"
 	"sync"
 	"testing"
 	"time"
@@ -346,6 +348,43 @@ func TestBoostTemperature(t *testing.T) {
 	got, _ = st.GetNode(ctx, "aaaaaaaa")
 	if got.Temperature != 1.0 {
 		t.Errorf("Temperature = %f, want 1.0 (capped)", got.Temperature)
+	}
+}
+
+// Verify foreign_keys=ON applies to every connection in the file-backed pool.
+func TestOpen_FileBackedEnforcesForeignKeys(t *testing.T) {
+	dbPath := filepath.Join(t.TempDir(), "fk.db")
+	st, err := Open(dbPath)
+	if err != nil {
+		t.Fatalf("Open: %v", err)
+	}
+	t.Cleanup(func() { _ = st.Close() })
+
+	if err := st.Migrate(context.Background()); err != nil {
+		t.Fatalf("Migrate: %v", err)
+	}
+
+	ctx := context.Background()
+
+	// Run several upserts concurrently to fan out across pool connections.
+	const N = 8
+	errs := make(chan error, N)
+	for i := range N {
+		go func() {
+			n := testNode("orphan_x", "ghost_parent")
+			n.ID = n.ID + string(rune('a'+i))
+			errs <- st.UpsertNode(ctx, n)
+		}()
+	}
+
+	gotViolation := false
+	for range N {
+		if err := <-errs; err != nil && strings.Contains(err.Error(), "FOREIGN KEY") {
+			gotViolation = true
+		}
+	}
+	if !gotViolation {
+		t.Error("expected FOREIGN KEY violation on at least one connection; foreign_keys may be OFF in the pool")
 	}
 }
 

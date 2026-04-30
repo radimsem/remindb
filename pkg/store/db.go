@@ -18,26 +18,37 @@ type Store struct {
 }
 
 func Open(path string) (*Store, error) {
-	db, err := sql.Open("sqlite", path)
+	inMemory := path == ":memory:"
+
+	dsn := path
+	if !inMemory {
+		dsn = "file:" + path +
+			"?_pragma=journal_mode(WAL)" +
+			"&_pragma=synchronous(NORMAL)" +
+			"&_pragma=busy_timeout(5000)" +
+			"&_pragma=foreign_keys(ON)"
+	}
+
+	db, err := sql.Open("sqlite", dsn)
 	if err != nil {
 		return nil, err
 	}
 
-	// In-memory databases are per-connection. Limit to one connection so
-	// concurrent goroutines share the same schema and data.
-	if path == ":memory:" {
+	if inMemory {
+		// In-memory databases are per-connection. Pin to one so concurrent
+		// goroutines share the same schema and data.
 		db.SetMaxOpenConns(1)
-	}
 
-	for _, pragma := range []string{
-		"PRAGMA journal_mode=WAL",
-		"PRAGMA synchronous=NORMAL",
-		"PRAGMA busy_timeout=5000",
-		"PRAGMA foreign_keys=ON",
-	} {
-		if _, err := db.Exec(pragma); err != nil {
-			_ = db.Close()
-			return nil, err
+		for _, pragma := range []string{
+			"PRAGMA journal_mode=WAL",
+			"PRAGMA synchronous=NORMAL",
+			"PRAGMA busy_timeout=5000",
+			"PRAGMA foreign_keys=ON",
+		} {
+			if _, err := db.Exec(pragma); err != nil {
+				_ = db.Close()
+				return nil, err
+			}
 		}
 	}
 
