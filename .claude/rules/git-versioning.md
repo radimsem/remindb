@@ -4,7 +4,7 @@ Rules for managing repository state with `git` in `remindb`.
 
 **Use when:** committing, branching, tagging, merging, or any operation that writes to `.git`.
 
-**Branching model:** `dev` is the integration trunk; `main` is a fast-forward-only pointer to the latest stable release tag. Topic branches (`feat/`, `fix/`, `chore/`, `docs/`) fork from `dev` and squash-merge back into `dev`. Pre-release tags (`vX.Y.Z-rc.N`) live on `dev`. Stable tags (`vX.Y.Z`) are cut on `dev`, then `main` is fast-forwarded to that commit. Patches to non-current minors live on lazily-created `release/vX.Y` branches and never merge back. Commit messages are subject-only — no descriptive body.
+**Branching model:** `dev` is the integration trunk; `main` is a release-marker branch — one squash commit per published release, signed by GitHub's web-flow key via a PR from `dev`. Topic branches (`feat/`, `fix/`, `chore/`, `docs/`) fork from `dev` and squash-merge back into `dev`. Pre-release tags (`vX.Y.Z-rc.N`) live on `dev`. Stable tags (`vX.Y.Z`) are cut on `dev` (where the actual code lives); a `dev` → `main` PR is then squash-merged via GitHub to record the release on `main`. Patches to non-current minors live on lazily-created `release/vX.Y` branches and never merge back. Commit messages are subject-only — no descriptive body, except for the release squash commits on `main`, whose body holds the release notes.
 
 **Priority when rules conflict:** signed provenance > atomic commits > clean linear history > speed.
 
@@ -33,6 +33,10 @@ git log -1 --show-signature
 A correct run prints `Good signature` (GPG) or `Good "…" signature` (SSH).
 If the output shows `gpg: skipped`, `No signature`, or `error: …`, the commit is **unsigned** — `git reset --soft HEAD~1`, fix config, recommit. Do not push unsigned work.
 
+### Exception: release squash commits on `main`
+
+The squash commit GitHub creates when merging a `dev` → `main` release PR is signed by GitHub's web-flow GPG key, not by your personal key. That signature is verifiable (`git log -1 --show-signature` on `main` prints `Good "GitHub <noreply@github.com>" signature`) and satisfies the branch ruleset's "Require signed commits". Every commit you author locally — on `dev`, topic branches, or `release/*` — must still be signed by your own key per above.
+
 ---
 
 ## 2. Branching Model ★
@@ -41,43 +45,42 @@ Four kinds of branches.
 
 | Branch | Purpose | Lifespan |
 |---|---|---|
-| `main` | Stable pointer; HEAD always at the latest stable release tag | Forever |
+| `main` | Release-marker branch — one squash commit per release, signed by GitHub's web-flow key via PR from `dev` | Forever |
 | `dev` | Integration trunk; rc tags, topic-branch merges, and direct small commits converge here | Forever |
 | `<prefix>/<slug>` | Topic branch — one change in flight, forked off `dev`. `<prefix>` ∈ `feat`, `fix`, `chore`, `docs` (see §3) | Until squash-merged into `dev` |
 | `release/vX.Y` | Patch line for a non-current minor, forked lazily off `vX.Y.0` | Until v(X.Y) goes EOL |
 
 ```
-   main pointer       dev (integration trunk; always advancing)        feat/toml-parser
-   ────────────       ──────────────────────────────────────────       ────────────────
+   main (release markers)               dev (integration trunk; always advancing)
+   ──────────────────────               ──────────────────────────────────────────
 
-                      o  feat: yaml parser
-                      │
-   [main ───────────► o  ◄── v0.2.0]   ── stable cut: tag on dev,
-                      │                   then `git switch main && git merge --ff-only dev`
-                      │
-                      ├──── fork ────────►  o  start TOML
-                      │                     │
-                      │                     o  AST shaping
-                      │                     │
-                      │                     o  register .toml
-                      │ ◄── squash-merge ───┘
-                      o  feat(parser): toml
-                      │
-                      o  ◄── v0.3.0-rc.1   [tag on dev only; main untouched]
-                      │
-                      o  fix(compiler): race in workspace scan
-                      │
-                      o  ◄── v0.3.0-rc.2
-                      │
-   [main ───────────► o  ◄── v0.3.0]   ── ff main forward to this commit
-                      │
-                      o  feat(mcp): 0.4 work begins  [main stays at v0.3.0]
-                      ▼
+                                        o  feat: yaml parser
+                                        │
+   ●  release: v0.2.0  ◄── squash PR ── o  ◄── v0.2.0
+   │  (signed web-flow)                 │
+   │                                    ├──── fork ────────►  o  start TOML
+   │                                    │                     │
+   │                                    │                     o  AST shaping
+   │                                    │                     │
+   │                                    │                     o  register .toml
+   │                                    │ ◄── squash-merge ───┘
+   │                                    o  feat(parser): toml
+   │                                    │
+   │                                    o  ◄── v0.3.0-rc.1   [main untouched]
+   │                                    │
+   │                                    o  fix(compiler): race in workspace scan
+   │                                    │
+   │                                    o  ◄── v0.3.0-rc.2
+   │                                    │
+   ●  release: v0.3.0  ◄── squash PR ── o  ◄── v0.3.0
+   │  (signed web-flow)                 │
+   │                                    o  feat(mcp): 0.4 work begins  [main stays at v0.3.0]
+   ▼                                    ▼
 ```
 
-Direct commits land on `dev`, never on `main`. `main` only moves via `git merge --ff-only` from `dev` (at minor cuts) or from `release/vX.Y` (at Case A patches — see §7). Any commit appearing on `main` that isn't already an ancestor of `dev` is a mistake. See §11.
+Direct commits land on `dev`, never on `main`. `main` only moves when a `dev` → `main` release PR is squash-merged via GitHub at a stable cut (§7) or at a Case A patch (§8). The branch ruleset enforces this: direct pushes to `main` are blocked. Each commit on `main` corresponds to exactly one published release.
 
-`dev`, `main`, and every `release/*` are linear by construction — squash-merges and fast-forwards never produce merge commits. Cherry-picks add commits one at a time; never reorder.
+`dev`, `main`, and every `release/*` are linear by construction — squash-merges (locally on `dev` for topic branches, via GitHub PR for `main`) never produce merge commits, and `release/*` branches grow only via cherry-pick. After a release, `main`'s tip SHA differs from `dev`'s tip SHA; the canonical SHA for any release is the tag on `dev`, not `main`'s tip.
 
 ---
 
@@ -245,6 +248,10 @@ git commit -s -m "fix(parser): skip BOM only at byte 0"
 
 The `Co-Authored-By` trailer is required on every commit Claude authors. Use the running model name (e.g., `Opus 4.7`) — see auto-memory.
 
+### Exception: release squash commits on `main`
+
+The squash commit GitHub creates from a `dev` → `main` release PR uses the PR title as its subject (`release: vX.Y.Z`) and the PR body as the commit body. The body is where release notes live — bullet list of highlights, breaking changes, notable contributors. This is the only place a descriptive body is sanctioned; everywhere else, the subject must capture the change in full.
+
 ---
 
 ## 6. Staging Discipline
@@ -298,38 +305,57 @@ git push origin v0.3.0-rc.2
 
 Old rc tags are **never deleted**. They're historical markers a future bisector might reach for. The release workflow filter (`'v*', '!v*-*'` in `.github/workflows/release.yml`) skips them — only stable tags publish artifacts.
 
-### Stable cut: tag on `dev`, ff `main` to it
+### Stable cut: tag on `dev`, then squash-PR `dev` → `main`
 
-When the rc looks clean:
+When the rc looks clean, two steps in order:
 
 ```bash
+# 1. Tag on dev — this is the canonical SHA for the release.
 git switch dev
+git pull
 git tag -s v0.3.0 -m "v0.3.0"
-git push origin v0.3.0
+git push origin v0.3.0   # release workflow fires here, builds from dev's SHA
+```
 
+```bash
+# 2. Open a release PR from dev → main, then squash-merge via GitHub.
+gh pr create \
+    --base main --head dev \
+    --title "release: v0.3.0" \
+    --body "$(cat <<'EOF'
+## Highlights
+- ...
+
+## Breaking changes
+- (none)
+
+## Contributors
+- ...
+EOF
+)"
+
+# Wait for CI green, then squash-merge:
+gh pr merge --squash --delete-branch=false
+```
+
+The release workflow already published artifacts in step 1; main's update in step 2 is the human-readable marker on the stable branch. After step 2:
+- `git log main` reads as a release ledger: one commit per minor, plus one per Case A patch.
+- `main`'s tip SHA does NOT equal `dev`'s tip SHA. Anyone who needs the actual release SHA should resolve the tag (`git rev-parse v0.3.0`).
+
+```bash
+# Bad — direct push to main. The branch ruleset blocks it.
 git switch main
 git merge --ff-only dev
 git push origin main
+
+# Bad — choose "Create a merge commit" or "Rebase and merge" in the PR UI.
+# Merge commit breaks linear history; rebase invalidates the per-commit
+# signatures from dev (GitHub can't access your private key to re-sign).
+
+# Good — squash via GitHub PR (button in the UI, or `gh pr merge --squash`).
 ```
 
-`main` and `dev` now point at the same commit. The release workflow fires on the stable tag and publishes the artifact.
-
-```bash
-# Bad — regular merge (creates a merge commit on main; breaks linearity)
-git switch main
-git merge dev
-
-# Bad — squash-merge dev into main (loses per-commit signatures and provenance)
-git switch main
-git merge --squash dev
-git commit -s -m "release v0.3.0"
-
-# Good — fast-forward only
-git switch main
-git merge --ff-only dev
-```
-
-If `git merge --ff-only dev` fails with **"not a fast-forward"**, `main` and `dev` have diverged — **stop and ask**. The fix is human, not automatic. See §12.
+If the PR shows merge conflicts, `dev` and `main` have diverged in a way they shouldn't. Stop and ask. See §13.
 
 ---
 
@@ -342,21 +368,23 @@ Two cases, picked by where `dev` is when the patch ships.
 If no work for the next minor has begun on `dev`:
 
 ```bash
-git switch dev
-# fix lands on dev (via fix/<slug> topic branch or a direct commit)
-git tag -s v0.3.1 -m "v0.3.1"
-git push origin v0.3.1
+# 1. Fix lands on dev (via fix/<slug> topic branch or a direct commit, if small).
 
-git switch main
-git merge --ff-only dev
-git push origin main
+# 2. Tag the patch on dev.
+git switch dev
+git tag -s v0.3.1 -m "v0.3.1"
+git push origin v0.3.1   # release workflow fires
+
+# 3. Open a release PR and squash-merge into main.
+gh pr create --base main --head dev --title "release: v0.3.1" --body "..."
+gh pr merge --squash --delete-branch=false
 ```
 
 Same flow as a minor release, smaller scope. No release branch needed.
 
 ### Case B — `dev` has moved on; lazily create `release/v0.3`
 
-If `dev` already has v0.4 work cooking, `main` can't ff to `dev` (it'd ship the half-done v0.4 features). Create the release branch from the stable tag instead.
+If `dev` already has v0.4 work cooking, you can't squash `dev` → `main` for a v0.3 patch (it'd pull in the unfinished v0.4 features). Create the release branch from the stable tag instead.
 
 ```bash
 # 1. Fix lands on dev FIRST (the invariant; see §9)
@@ -467,12 +495,12 @@ If a hook fails, the commit **did not happen**. Fix the failure, re-stage, make 
 
 ## 11. Never Commit Directly on `main` ★
 
-`main` is a fast-forward-only pointer to the latest stable release tag. The only operations that touch `main` are:
+`main` is a release-marker branch — direct pushes are blocked by the branch ruleset. The only operations that affect `main` are:
 
-- `git merge --ff-only dev` — at a stable minor cut (§7) or Case A patch (§8).
-- `git merge --ff-only release/vX.Y` — equivalent to the above for Case A patches when `dev == release branch tip`.
-- `git push origin main` — propagating the ff'd pointer.
+- A `dev` → `main` release PR squash-merged via the GitHub UI or `gh pr merge --squash` — at a stable minor cut (§7) or Case A patch (§8).
 - `git switch main`, `git pull` — read-only.
+
+Local edits, commits, or merges on `main` will be rejected by the remote when you push. There is no shortcut path to update `main` outside of the squash-PR flow.
 
 Any direct commit on `main` is an accident. If you find yourself on `main` with a dirty tree:
 
@@ -492,7 +520,7 @@ git switch main
 git reset --hard origin/main  # discard the local commit on main
 ```
 
-If you've already **pushed** a commit to `main` directly: **stop and ask**. Rewriting published `main` invalidates signatures on every descendant and on every release branch that forked from a stable tag. The user will want to decide whether to forward the commit through `dev` and live with the noise, or rewrite history (rare, last resort).
+If you've **somehow pushed** a commit to `main` directly (e.g., as a bypass actor circumventing the ruleset): **stop and ask**. The squash-PR pattern keeps `main`'s history clean as a release ledger; ad-hoc commits desync `main` from the release-marker invariant. Rewriting published `main` invalidates signatures on every descendant and on every release branch that forked from a stable tag, and is the last resort.
 
 ---
 
@@ -545,13 +573,13 @@ Signing happens after hooks. If a hook exits non-zero, the key never gets invoke
 
 ## 13. Other Common Caveats
 
-### `git merge --ff-only dev` fails with "not a fast-forward"
+### Release PR (`dev` → `main`) shows merge conflicts
 
-`main` and `dev` have diverged. This shouldn't happen under §11. **Stop and ask.** Do not force-push. Likely causes:
+This shouldn't happen under §7 — `main` always lags `dev` by zero or more squash commits, never diverges via independent commits. **Stop and ask.** Likely causes:
 
-- A direct commit landed on `main` (§11). Cherry-pick it to `dev`, then re-attempt the ff merge.
-- A Case B patch tagged on `release/v0.X` was ff'd into `main`, and `dev` doesn't yet have an equivalent commit. Forward-port the patch's content to `dev` first, then ff `main` to `dev` at the next minor.
-- A `release/*` branch tip was force-pushed (it shouldn't be — release branches are append-only).
+- A direct commit landed on `main` via bypass-actor override (§11). Compare `git log main ^dev` for foreign commits, then decide whether to revert on `main` or forward-port to `dev`.
+- A Case B patch was accidentally squash-merged onto `main` (Case B should only land on `release/vX.Y`, never on `main`). Open a revert PR on `main`.
+- The local `main` is stale relative to `origin/main`. `git fetch && git switch main && git reset --hard origin/main`, then re-open the PR.
 
 ### Cherry-pick conflict during a Case B backport
 
@@ -593,9 +621,10 @@ Don't `git stash` reflexively. Read the diff first; dirty files may be intention
 - Commit directly on `main`. Use `dev` or a `<prefix>/<slug>` topic branch.
 - Branch off `main` for new work — features, fixes, anything. Always fork topic branches from `dev`.
 - Branch without a sanctioned prefix (`feat`, `fix`, `chore`, `docs`). The prefix is what tells future-you and reviewers what intent the branch carries.
-- Merge `dev` into `main` with a regular merge or a squash-merge. Always `git merge --ff-only`.
+- Local-merge or push directly to `main` — even with bypass. The squash-PR via GitHub is the only sanctioned path; it's what generates the web-flow signature that satisfies the signed-commit rule.
+- Pick "Create a merge commit" or "Rebase and merge" on the `dev` → `main` PR. Squash only — disable the other two methods at the repo level (Settings → General → Pull Requests).
 - Merge `release/vX.Y` back into `dev` or `main` with a regular merge. Cherry-pick is one-way.
-- Tag a stable `vX.Y.Z` on `dev` and walk away without ff-merging `main`. Tag and ff are one operation; don't split them across days where someone else might fork off `dev` at an unstable point.
+- Tag a stable `vX.Y.Z` on `dev` and walk away without opening the release PR. Tag and PR-merge are one operation; don't split them across days where someone else might fork off `dev` at an unstable point.
 - Delete an rc tag because "we shipped the stable already". Tags are historical markers; they cost nothing to keep.
 - Reorder commits on a `release/vX.Y` branch via interactive rebase. Cherry-picks land in time order; `git log` is the audit trail.
 - Force-push to `main`, `dev`, or any `release/*`. All three are append-only.

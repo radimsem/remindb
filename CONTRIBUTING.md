@@ -86,7 +86,7 @@ Condensed from [CLAUDE.md](./CLAUDE.md):
 
 The full spec lives in [`.claude/rules/git-versioning.md`](./.claude/rules/git-versioning.md) §3. The essentials:
 
-- Fork from `dev`, **never** from `main`. `main` is a fast-forward-only pointer to the latest stable tag.
+- Fork from `dev`, **never** from `main`. `main` is a release-marker branch updated only by squash-PRs from `dev` at release time.
 - Use one of four prefixes — the prefix expresses *intent*:
 
 | Prefix | Purpose |

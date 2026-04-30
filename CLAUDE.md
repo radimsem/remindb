@@ -4,7 +4,7 @@ Routing map for Claude. Points at the rule, skill, agent, or file that owns the 
 
 ## Project at a glance
 
-`remindb` — token-efficient agentic memory database. Single SQLite file, MCP server on top. Go 1.23+. Pre-implementation stage, solo dev. **`dev` is the integration trunk; `main` is a fast-forward-only pointer to the latest stable tag.** Topic branches (`feat/`, `fix/`, `chore/`, `docs/`) off `dev`, rc tags on `dev`, stable cuts ff `main` to the tagged commit; lazy `release/vX.Y` branches handle patches to non-current minors; subject-only signed commits everywhere — see `.claude/rules/git-versioning.md`.
+`remindb` — token-efficient agentic memory database. Single SQLite file, MCP server on top. Go 1.23+. Pre-implementation stage, solo dev. **`dev` is the integration trunk; `main` is a release-marker branch — one squash commit per published release, signed by GitHub's web-flow key via PR from `dev`.** Topic branches (`feat/`, `fix/`, `chore/`, `docs/`) off `dev`, rc tags on `dev`, stable cuts tag `dev` then squash-PR `dev` → `main`; lazy `release/vX.Y` branches handle patches to non-current minors; subject-only signed commits everywhere (release squash on `main` carries the release notes as its body) — see `.claude/rules/git-versioning.md`.
 
 Pipeline: `parser → transformer → emitter → store`. Read side: `query → mcp/tools`. Background: `temperature` ticker decays/notifies.
 
