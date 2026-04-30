@@ -222,7 +222,7 @@ Add a `Co-Authored-By: Your Name <email>` trailer to your commits if you'd like 
 
 ## Security
 
-Found a security issue? Open an issue tagged `[security]`. There's no separate disclosure channel — this is a solo project — but please don't publish exploit details publicly before I've responded.
+Found a security issue? Don't open a public issue — see [`SECURITY.md`](./SECURITY.md) for the disclosure channels (GitHub private advisory or `security@radimsemerak.cz`) and what to expect after you report.
 
 ## License
 
