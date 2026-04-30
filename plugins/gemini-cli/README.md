@@ -30,46 +30,53 @@ Verify:
 remindb --version
 ```
 
-### 2. Compile a source directory
+### 2. Compile your workspace
 
-remindb needs a SQLite file built from a source tree before the agent can read from it.
-
-A natural source for Gemini CLI is its own state folder at `~/.gemini/` — `GEMINI.md` (the global `/memory add` target) and any custom command markdown under `commands/`. Indexing it lets Gemini query its own persistent context through remindb instead of grepping the dot folder.
-
-`~/.gemini/` also holds per-project session chats and shadow-git checkpoints under `tmp/<project_hash>/` and `history/<project_hash>/` — heavyweight transient state that bloats the index. Drop a `.remindb.ignore` at `~/.gemini/` to filter them out:
+remindb needs a SQLite file built from a source tree before the agent can read from it. The source is whatever workspace you want Gemini to remember — a code repo, a docs tree, a notes directory.
 
 ```bash
 mkdir -p ~/.cache/remindb
-printf '%s\n' \
-    '# Compile only curated context; skip session state and credentials.' \
-    '' \
-    '# tmp/<project_hash>/{chats,checkpoints}.' \
-    'tmp/' \
-    '# Shadow-git checkpoint repos (one per project).' \
-    'history/' \
-    '# Any session jsonl.' \
-    '*.jsonl' \
-    '# Credentials — never index secrets.' \
-    'oauth_creds.json' \
-    > ~/.gemini/.remindb.ignore
-remindb compile ~/.gemini --db ~/.cache/remindb/gemini.db
+remindb compile ~/code/my-project --db ~/.cache/remindb/my-project.db
 ```
 
-The same `.remindb.ignore` is honored by `serve`'s background rescan and the `MemoryCompile` tool — set it once, all paths agree. Or point at any other workspace you want the agent to see — a docs tree, a notes repo, a project directory.
+Drop a `.remindb.ignore` at the workspace root if you need to exclude noise (build outputs, vendored deps, generated files). The same file is honored by `serve`'s background rescan and the `MemoryCompile` tool.
 
-### 3. Install the extension from GitHub
+#### Bring Gemini's hierarchical memory along
+
+Gemini CLI loads instructional context from three places: the global `~/.gemini/GEMINI.md` (where `/memory add` and `save_memory` write), project-root and ancestor `GEMINI.md` files above your cwd, and any `GEMINI.md` at or below your cwd. Only the last is automatically inside `REMINDB_SOURCE` — the rest live outside the workspace.
+
+Ask Gemini to compile them once the plugin is running. Use absolute paths — `MemoryCompile` doesn't expand `~`:
+
+```
+remindb__MemoryCompile(path="/home/you/.gemini/GEMINI.md", message="seed: global memory")
+remindb__MemoryCompile(path="/home/you/code/parent/GEMINI.md", message="seed: ancestor memory")
+```
+
+Re-run whenever the file changes — after `/memory add` or an external edit.
+
+### 3. Install the extension
+
+`gemini extensions install` accepts a GitHub URL or a local path, but its URL form has no subdirectory selector. The plugin lives at `plugins/gemini-cli/` inside the remindb repo, so clone first and install from that subdirectory:
 
 ```bash
-gemini extensions install https://github.com/radimsem/remindb --path plugins/gemini-cli
+git clone https://github.com/radimsem/remindb.git ~/code/remindb
+gemini extensions install ~/code/remindb/plugins/gemini-cli
 ```
 
-Or pin to a ref:
+Pin to a release tag:
 
 ```bash
-gemini extensions install https://github.com/radimsem/remindb --path plugins/gemini-cli --ref v0.1.0
+git -C ~/code/remindb checkout v0.1.0
+gemini extensions install ~/code/remindb/plugins/gemini-cli
 ```
 
-The CLI clones the repository into `~/.gemini/extensions/remindb/`. Run `gemini extensions update remindb` to sync.
+Update later with `git pull` and a re-install (local-path installs aren't tracked by `gemini extensions update`):
+
+```bash
+git -C ~/code/remindb pull
+gemini extensions uninstall remindb
+gemini extensions install ~/code/remindb/plugins/gemini-cli
+```
 
 Confirm the server is connected:
 
@@ -81,14 +88,14 @@ You should see `remindb` with the full `Memory*` tool suite.
 
 ### 4. Point remindb at your workspace
 
-`remindb serve` reads `REMINDB_DB` and `REMINDB_SOURCE` as fallbacks for its `--db` and `--source` flags. The extension's `gemini-extension.json` declares both as `${VAR}` passthroughs in its `mcpServers.remindb.env` block, and Gemini CLI expands `$VAR` / `${VAR}` (POSIX, all platforms) at launch. Just export them in the shell that launches Gemini CLI:
+The extension reads two env vars to find your workspace: `REMINDB_SOURCE` (the directory to compile and watch) and `REMINDB_DB` (where the compiled SQLite file lives). Just export them in the shell that launches Gemini:
 
 ```bash
-export REMINDB_DB=$HOME/.cache/remindb/gemini.db
-export REMINDB_SOURCE=$HOME/.gemini
+export REMINDB_DB=$HOME/.cache/remindb/my-project.db
+export REMINDB_SOURCE=$HOME/code/my-project
 ```
 
-Stick them in `~/.bashrc` / `~/.zshrc` / your fish equivalent to make it permanent, or scope to a single session if you want to switch workspaces between runs. Undefined variables resolve to empty strings, and `remindb` then falls back to a relative `memory.db` in Gemini's cwd — so set both *before* launching, not after.
+Add them to your shell rc (`~/.bashrc`, `~/.zshrc`, fish config) to make it permanent, or set them per-session if you switch between workspaces. Set both *before* launching Gemini — if either is missing, remindb falls back to a `memory.db` in the current directory, which probably isn't what you want.
 
 ## Tools exposed
 
