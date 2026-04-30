@@ -1,5 +1,7 @@
 ## Summary
 
+Closes #<!-- required: replace with the GitHub issue number this PR addresses (e.g. `Closes #42`). Use `Refs #` if the PR should not auto-close on merge. -->
+
 <!-- 1–2 sentences on the "why". -->
 
 ## Self-review

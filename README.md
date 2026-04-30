@@ -299,6 +299,10 @@ Or run a Go-level micro-benchmark against your own vault:
 go test -run='^$' -bench='BenchmarkTokens' -benchtime=1x .
 ```
 
+## Contributing
+
+This is a project I maintain between classes — patches, bug reports, and ideas are genuinely welcome, and an extra pair of eyes goes a long way. The full guide lives in [`CONTRIBUTING.md`](./CONTRIBUTING.md): branch naming, the pre-PR checklist, the doc-update map, and how the AI-assisted workflow is wired up. If you want to start small, the "First-time contributors" section there has good entry points.
+
 ## License
 
 MIT — see [`LICENSE`](LICENSE).
@@ -309,7 +313,7 @@ I'm a college student building agentic AI tooling in the evenings and weekends b
 
 If this saved you tokens (or saved you from reading the same 100 files for the hundredth time), even a small tip helps a lot.
 
-<p align="center">
+<p align="left">
   <a href="https://buymeacoffee.com/radimsem"><img src="https://img.shields.io/badge/Buy%20me%20a%20coffee-FFDD00?logo=buymeacoffee&logoColor=black" alt="Buy me a coffee" /></a>
 </p>
 
