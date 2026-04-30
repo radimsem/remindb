@@ -57,18 +57,19 @@ func (s *Server) Connect(ctx context.Context, t mcp.Transport) (*mcp.ServerSessi
 	return s.mcp.Connect(ctx, t, nil)
 }
 
-// Push a summarize-nudge notification to every live client session for nodes
-// that have dropped below NotifyThreshold.
 func (s *Server) NotifyColdNodes(ctx context.Context, cold []*store.Node) {
-	toNotify := s.selectNewNotifications(cold)
+	toNotify := s.coldCandidates(cold)
 	if len(toNotify) == 0 {
 		return
 	}
-	s.sendColdLogging(ctx, toNotify)
+
+	if sent := s.sendColdLogging(ctx, toNotify); sent > 0 {
+		s.markNotified(toNotify)
+	}
 }
 
-// Update dedup state against the tick's cold set and return nodes not yet notified.
-func (s *Server) selectNewNotifications(cold []*store.Node) []*store.Node {
+// Garbage-collect notified IDs no longer cold, then return cold nodes pending notification.
+func (s *Server) coldCandidates(cold []*store.Node) []*store.Node {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
@@ -90,11 +91,18 @@ func (s *Server) selectNewNotifications(cold []*store.Node) []*store.Node {
 		if _, seen := s.notified[n.ID]; seen {
 			continue
 		}
-
 		out = append(out, n)
-		s.notified[n.ID] = struct{}{}
 	}
 	return out
+}
+
+func (s *Server) markNotified(nodes []*store.Node) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	for _, n := range nodes {
+		s.notified[n.ID] = struct{}{}
+	}
 }
 
 type coldNodeEntry struct {
@@ -110,7 +118,7 @@ type coldNodePayload struct {
 	Nodes           []coldNodeEntry `json:"nodes"`
 }
 
-func (s *Server) sendColdLogging(ctx context.Context, nodes []*store.Node) {
+func (s *Server) sendColdLogging(ctx context.Context, nodes []*store.Node) int {
 	entries := make([]coldNodeEntry, len(nodes))
 	for i, n := range nodes {
 		entries[i] = coldNodeEntry{
@@ -141,6 +149,7 @@ func (s *Server) sendColdLogging(ctx context.Context, nodes []*store.Node) {
 	}
 
 	s.logger.Debug("cold-node notification dispatched", "nodes", len(nodes), "sessions", sent)
+	return sent
 }
 
 func registerTools(srv *mcp.Server, d *tools.Deps) {

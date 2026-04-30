@@ -34,63 +34,83 @@ func ids(ns []*store.Node) []string {
 	return out
 }
 
-func TestSelectNewNotifications_FiltersAboveNotifyThreshold(t *testing.T) {
+// Mimic the production "candidates → successful send → mark" sequence.
+func candidatesAndMark(s *Server, cold []*store.Node) []*store.Node {
+	out := s.coldCandidates(cold)
+	s.markNotified(out)
+	return out
+}
+
+func TestColdCandidates_FiltersAboveNotifyThreshold(t *testing.T) {
 	s := newTestServer(t, 0.05, 0.1)
 
 	cold := []*store.Node{mkNode("warmish", 0.08), mkNode("frozen", 0.02)}
 
-	got := s.selectNewNotifications(cold)
+	got := s.coldCandidates(cold)
 
 	if len(got) != 1 || got[0].ID != "frozen" {
 		t.Fatalf("got %v, want [frozen]", ids(got))
 	}
 }
 
-func TestSelectNewNotifications_DedupesAcrossTicks(t *testing.T) {
+func TestColdCandidates_DedupesAcrossTicks(t *testing.T) {
 	s := newTestServer(t, 0.05, 0.1)
 
-	first := s.selectNewNotifications([]*store.Node{mkNode("frozen", 0.02)})
+	first := candidatesAndMark(s, []*store.Node{mkNode("frozen", 0.02)})
 	if len(first) != 1 {
 		t.Fatalf("tick 1: got %d, want 1", len(first))
 	}
 
-	second := s.selectNewNotifications([]*store.Node{mkNode("frozen", 0.02)})
+	second := candidatesAndMark(s, []*store.Node{mkNode("frozen", 0.02)})
 	if len(second) != 0 {
 		t.Fatalf("tick 2: got %v, want empty", ids(second))
 	}
 }
 
-func TestSelectNewNotifications_ReNotifiesAfterWarmup(t *testing.T) {
+func TestColdCandidates_RetriesUntilMarked(t *testing.T) {
 	s := newTestServer(t, 0.05, 0.1)
 
-	if got := s.selectNewNotifications([]*store.Node{mkNode("frozen", 0.02)}); len(got) != 1 {
+	first := s.coldCandidates([]*store.Node{mkNode("frozen", 0.02)})
+	if len(first) != 1 {
+		t.Fatalf("tick 1: got %d, want 1", len(first))
+	}
+
+	// Simulating a failed send: candidates returned but markNotified never ran.
+	second := s.coldCandidates([]*store.Node{mkNode("frozen", 0.02)})
+	if len(second) != 1 {
+		t.Fatalf("retry tick: got %d, want 1", len(second))
+	}
+}
+
+func TestColdCandidates_ReNotifiesAfterWarmup(t *testing.T) {
+	s := newTestServer(t, 0.05, 0.1)
+
+	if got := candidatesAndMark(s, []*store.Node{mkNode("frozen", 0.02)}); len(got) != 1 {
 		t.Fatalf("tick 1: got %v, want [frozen]", ids(got))
 	}
 
 	// Node warmed above ColdThreshold → tracker excludes it → empty input evicts dedup.
-	if got := s.selectNewNotifications(nil); len(got) != 0 {
+	if got := candidatesAndMark(s, nil); len(got) != 0 {
 		t.Fatalf("warmup tick: got %v, want empty", ids(got))
 	}
 
 	// Re-cools below NotifyThreshold → notify again.
-	again := s.selectNewNotifications([]*store.Node{mkNode("frozen", 0.02)})
+	again := candidatesAndMark(s, []*store.Node{mkNode("frozen", 0.02)})
 	if len(again) != 1 {
 		t.Fatalf("re-cool tick: got %v, want [frozen]", ids(again))
 	}
 }
 
-func TestSelectNewNotifications_KeepsDedupAcrossHysteresisBand(t *testing.T) {
+func TestColdCandidates_KeepsDedupAcrossHysteresisBand(t *testing.T) {
 	s := newTestServer(t, 0.05, 0.1)
 
-	s.selectNewNotifications([]*store.Node{mkNode("frozen", 0.02)})
+	candidatesAndMark(s, []*store.Node{mkNode("frozen", 0.02)})
 
 	// Still below ColdThreshold (0.1) but above NotifyThreshold (0.05).
-	// Node stays in the cold set, so dedup entry survives.
-	s.selectNewNotifications([]*store.Node{mkNode("frozen", 0.08)})
+	candidatesAndMark(s, []*store.Node{mkNode("frozen", 0.08)})
 
 	// Drops back below NotifyThreshold without ever warming past ColdThreshold.
-	// Must not re-notify.
-	if got := s.selectNewNotifications([]*store.Node{mkNode("frozen", 0.02)}); len(got) != 0 {
+	if got := candidatesAndMark(s, []*store.Node{mkNode("frozen", 0.02)}); len(got) != 0 {
 		t.Fatalf("hysteresis band: got %v, want empty", ids(got))
 	}
 }
