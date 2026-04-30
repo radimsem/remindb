@@ -44,6 +44,23 @@ func TestCursorHash_OrderIndependent(t *testing.T) {
 	}
 }
 
+// Two states with identical content-hash multisets but swapped node IDs
+// must produce different cursor hashes — otherwise MemoryDelta clients
+// silently miss the identity change.
+func TestCursorHash_DetectsIdentitySwap(t *testing.T) {
+	a := CursorHash([]*parser.ContextNode{
+		{ID: "n1", ContentHash: "aaaa"},
+		{ID: "n2", ContentHash: "bbbb"},
+	})
+	b := CursorHash([]*parser.ContextNode{
+		{ID: "n1", ContentHash: "bbbb"},
+		{ID: "n2", ContentHash: "aaaa"},
+	})
+	if a == b {
+		t.Errorf("identity swap not detected: %q", a)
+	}
+}
+
 func TestSnapshotFromNodes(t *testing.T) {
 	roots := []*parser.ContextNode{
 		{

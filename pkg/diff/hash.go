@@ -9,21 +9,19 @@ import (
 	"github.com/radimsem/remindb/pkg/parser"
 )
 
-// Compute a fingerprint of the entire node set by hashing sorted
-// content hashes.
 func CursorHash(roots []*parser.ContextNode) string {
 	return CursorHashFlat(parser.Flatten(roots))
 }
 
 func CursorHashFlat(flat []*parser.ContextNode) string {
-	hashes := make([]string, len(flat))
+	pairs := make([]string, len(flat))
 	for i, n := range flat {
-		hashes[i] = n.ContentHash
+		pairs[i] = n.ID + ":" + n.ContentHash
 	}
-	sort.Strings(hashes)
+	sort.Strings(pairs)
 
 	h := xxhash.New()
-	for _, s := range hashes {
+	for _, s := range pairs {
 		_, _ = h.WriteString(s)
 	}
 
