@@ -43,7 +43,31 @@ remindb compile ~/.codex/memories --db ~/.cache/remindb/codex.db
 
 `memories/` is pure user content, so no `.remindb.ignore` is needed. Skills under `~/.codex/skills/` and slash-command prompts under `~/.codex/prompts/` are deliberately *not* indexed — Codex already loads them as live instructions, so re-indexing them in remindb would double-count. Or point at any other workspace you want the agent to see — a docs tree, a notes repo, a project directory.
 
-### 3. Add the plugin from GitHub
+### 3. Point remindb at your workspace
+
+`remindb serve` reads `REMINDB_DB` and `REMINDB_SOURCE` as fallbacks for its `--db` and `--source` flags. Codex propagates the launching shell's environment to plugin-spawned MCP subprocesses, so export them in the shell **before launching Codex with the plugin enabled** — otherwise the first activation falls back to a stray `memory.db` in cwd:
+
+```bash
+export REMINDB_DB=$HOME/.cache/remindb/codex.db
+export REMINDB_SOURCE=$HOME/.codex/memories
+```
+
+Stick them in `~/.bashrc` / `~/.zshrc` / your fish equivalent to make it permanent, or scope to a single session if you want to switch workspaces between runs.
+
+If shell-rc isn't an option for you, sidestep the plugin entirely and define a top-level `[mcp_servers.remindb]` block in `~/.codex/config.toml` instead.
+
+Why the workaround? Codex's `[plugins.<name>]` table only accepts `enabled` and does no `${VAR}` / `$VAR` / `{env:VAR}` expansion in either `config.toml` or the plugin's bundled `.mcp.json` (which is why the bundled `.mcp.json` ships with `env: {}` — placeholders would be passed through literally and override the inherited shell values with garbage). There's no first-class way to inject env into a plugin-bundled MCP server from user config. So:
+
+```toml
+[mcp_servers.remindb]
+command = "remindb"
+args = ["serve"]
+env = { REMINDB_DB = "/home/you/.cache/remindb/codex.db", REMINDB_SOURCE = "/home/you/.codex/memories" }
+```
+
+Replace `/home/you` with your absolute `$HOME` — `config.toml` does not expand it. This registers `remindb` as a user-defined MCP server, not a plugin server, so the plugin can stay disabled or removed entirely if you take this path.
+
+### 4. Add the plugin from GitHub
 
 ```bash
 codex plugin marketplace add radimsem/remindb --sparse plugins/codex
@@ -58,30 +82,6 @@ Confirm the server is connected by launching Codex and running the `/mcp` slash 
 ```
 
 You should see `remindb` listed with the full `Memory*` tool suite. (The `codex mcp` CLI subcommand only manages *external* MCP servers added via `codex mcp add`; plugin-bundled MCP servers surface only inside the TUI.)
-
-### 4. Point remindb at your workspace
-
-`remindb serve` reads `REMINDB_DB` and `REMINDB_SOURCE` as fallbacks for its `--db` and `--source` flags. Codex propagates the launching shell's environment to plugin-spawned MCP subprocesses, so export them in the shell that launches Codex:
-
-```bash
-export REMINDB_DB=$HOME/.cache/remindb/codex.db
-export REMINDB_SOURCE=$HOME/.codex/memories
-```
-
-Stick them in `~/.bashrc` / `~/.zshrc` / your fish equivalent to make it permanent, or scope to a single session if you want to switch workspaces between runs.
-
-If shell-rc isn't an option for you, sidestep the plugin entirely and define a top-level `[mcp_servers.remindb]` block in `~/.codex/config.toml` instead.
-
-Why the workaround? Codex's `[plugins.<name>]` table only accepts `enabled` and does no `${VAR}` / `$VAR` / `{env:VAR}` expansion in either `config.toml` or the plugin's bundled `.mcp.json`. There's no first-class way to inject env into a plugin-bundled MCP server from user config. So:
-
-```toml
-[mcp_servers.remindb]
-command = "remindb"
-args = ["serve"]
-env = { REMINDB_DB = "/home/you/.cache/remindb/codex.db", REMINDB_SOURCE = "/home/you/.codex/memories" }
-```
-
-Replace `/home/you` with your absolute `$HOME` — `config.toml` does not expand it. This registers `remindb` as a user-defined MCP server, not a plugin server, so the plugin can stay disabled or removed entirely if you take this path.
 
 ## Tools exposed
 

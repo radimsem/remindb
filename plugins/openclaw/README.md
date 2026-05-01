@@ -65,7 +65,18 @@ remindb compile /path/to/workspace --db /path/to/workspace.db
 
 Re-run `compile` whenever you want a fresh baseline; `serve` keeps the DB current after that.
 
-### 3. Install the plugin
+### 3. Point remindb at your workspace
+
+`remindb serve` reads two env vars as fallbacks for its `--db` and `--source` flags. Export them in the shell **before launching OpenClaw with the plugin enabled** — otherwise the first activation falls back to a stray `memory.db` in cwd:
+
+```bash
+export REMINDB_DB=/absolute/path/to/workspace.db
+export REMINDB_SOURCE=/absolute/path/to/workspace
+```
+
+Stick them in `~/.bashrc` / `~/.zshrc` / your fish equivalent to make it permanent, or scope to a single session if you want to switch workspaces between runs. Re-export and restart the gateway whenever the agent should target a different workspace.
+
+### 4. Install the plugin
 
 Via OpenClaw CLI:
 
@@ -79,17 +90,6 @@ Or by hand:
 mkdir -p ~/.openclaw/extensions/remindb
 cp plugins/openclaw/index.ts plugins/openclaw/openclaw.plugin.json plugins/openclaw/.mcp.json ~/.openclaw/extensions/remindb/
 ```
-
-### 4. Point remindb at your workspace
-
-`remindb serve` reads two env vars as fallbacks for its `--db` and `--source` flags. Export them in the shell that launches OpenClaw so the spawned subprocess inherits them:
-
-```bash
-export REMINDB_DB=/absolute/path/to/workspace.db
-export REMINDB_SOURCE=/absolute/path/to/workspace
-```
-
-Stick them in `~/.bashrc` / `~/.zshrc` / your fish equivalent to make it permanent, or scope to a single session if you want to switch workspaces between runs. Re-export and restart the gateway whenever the agent should target a different workspace.
 
 ### 5. Restart the gateway
 

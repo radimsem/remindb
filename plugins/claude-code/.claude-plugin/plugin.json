@@ -1,6 +1,6 @@
 {
     "name": "remindb",
-    "description": "Token-efficient agentic memory database. Mounts remindb as an MCP server, exposing MemoryFetch, MemorySearch, MemoryWrite, MemoryCompile, MemoryDelta, MemorySummarize, MemoryHistory, and MemoryTree as tools over a compiled SQLite view of the workspace.",
+    "description": "Token-efficient agentic memory database. Mounts remindb as an MCP server, exposing the Memory* tool suite over a compiled SQLite view of the workspace.",
     "version": "0.1.0",
     "author": {
         "name": "radimsem"

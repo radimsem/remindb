@@ -54,7 +54,18 @@ remindb__MemoryCompile(path="/home/you/code/parent/GEMINI.md", message="seed: an
 
 Re-run whenever the file changes — after `/memory add` or an external edit.
 
-### 3. Install the extension
+### 3. Point remindb at your workspace
+
+The extension reads two env vars to find your workspace: `REMINDB_SOURCE` (the directory to compile and watch) and `REMINDB_DB` (where the compiled SQLite file lives). Export them in the shell **before launching Gemini with the extension installed** — otherwise the first activation falls back to a stray `memory.db` in cwd:
+
+```bash
+export REMINDB_DB=$HOME/.cache/remindb/my-project.db
+export REMINDB_SOURCE=$HOME/code/my-project
+```
+
+Add them to your shell rc (`~/.bashrc`, `~/.zshrc`, fish config) to make it permanent, or set them per-session if you switch between workspaces.
+
+### 4. Install the extension
 
 `gemini extensions install` accepts a GitHub URL or a local path, but its URL form has no subdirectory selector. The plugin lives at `plugins/gemini-cli/` inside the remindb repo, so clone first and install from that subdirectory:
 
@@ -85,17 +96,6 @@ gemini mcp list
 ```
 
 You should see `remindb` with the full `Memory*` tool suite.
-
-### 4. Point remindb at your workspace
-
-The extension reads two env vars to find your workspace: `REMINDB_SOURCE` (the directory to compile and watch) and `REMINDB_DB` (where the compiled SQLite file lives). Just export them in the shell that launches Gemini:
-
-```bash
-export REMINDB_DB=$HOME/.cache/remindb/my-project.db
-export REMINDB_SOURCE=$HOME/code/my-project
-```
-
-Add them to your shell rc (`~/.bashrc`, `~/.zshrc`, fish config) to make it permanent, or set them per-session if you switch between workspaces. Set both *before* launching Gemini — if either is missing, remindb falls back to a `memory.db` in the current directory, which probably isn't what you want.
 
 ## Tools exposed
 

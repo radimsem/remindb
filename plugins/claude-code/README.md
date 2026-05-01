@@ -55,7 +55,18 @@ remindb compile ~/.claude/projects --db ~/.cache/remindb/claude.db
 
 The same `.remindb.ignore` is honored by `serve`'s background rescan and the `MemoryCompile` tool — set it once, all paths agree. If Claude Code adds a new sibling-of-`memory/` artifact in some future release, append it to the file and recompile. Or point at any other workspace you want the agent to see — a docs tree, a notes repo, a project directory. Re-run `compile` whenever you want a fresh baseline; `serve` keeps the DB current after that.
 
-### 3. Install the plugin
+### 3. Point remindb at your workspace
+
+`remindb serve` reads `REMINDB_DB` and `REMINDB_SOURCE` as fallbacks for its `--db` and `--source` flags. The bundled `.mcp.json` declares both as `${VAR}` passthroughs into the spawned subprocess, so export them in the shell **before launching Claude Code with the plugin enabled** — otherwise the first activation falls back to a stray `memory.db` in cwd:
+
+```bash
+export REMINDB_DB=$HOME/.cache/remindb/claude.db
+export REMINDB_SOURCE=$HOME/.claude/projects
+```
+
+Stick them in `~/.bashrc` / `~/.zshrc` / your fish equivalent to make the mapping permanent, or scope them to a single session if you want to switch workspaces between runs. Undefined `${VAR}` references resolve to empty strings, which is what triggers the cwd fallback.
+
+### 4. Install the plugin
 
 Pick one:
 
@@ -79,17 +90,6 @@ Either way, confirm the server is connected:
 ```
 
 You should see `remindb` listed with the full `Memory*` tool suite.
-
-### 4. Point remindb at your workspace
-
-`remindb serve` reads `REMINDB_DB` and `REMINDB_SOURCE` as fallbacks for its `--db` and `--source` flags. The bundled `.mcp.json` declares both as `${VAR}` passthroughs into the spawned subprocess, so export them in the shell that launches Claude Code:
-
-```bash
-export REMINDB_DB=$HOME/.cache/remindb/claude.db
-export REMINDB_SOURCE=$HOME/.claude/projects
-```
-
-Stick them in `~/.bashrc` / `~/.zshrc` / your fish equivalent to make the mapping permanent, or scope them to a single session if you want to switch workspaces between runs. Undefined `${VAR}` references resolve to empty strings, and `remindb` then falls back to a relative `memory.db` in Claude Code's cwd — so set both *before* launching, not after.
 
 A same-named server in user-scope `~/.claude.json` *replaces* the plugin's bundled entry per Claude Code's MCP precedence rules (it does not merge), so don't try to inject env there.
 
