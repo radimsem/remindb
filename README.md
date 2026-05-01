@@ -13,7 +13,6 @@
 <p align="center">
   <a href="https://github.com/radimsem/remindb/actions/workflows/ci.yml"><img src="https://github.com/radimsem/remindb/actions/workflows/ci.yml/badge.svg?branch=main" alt="CI" /></a>
   <a href="https://github.com/radimsem/remindb/releases/latest"><img src="https://img.shields.io/github/v/release/radimsem/remindb?label=release&color=00ADD8" alt="Latest release" /></a>
-  <a href="https://goreportcard.com/report/github.com/radimsem/remindb"><img src="https://goreportcard.com/badge/github.com/radimsem/remindb" alt="Go Report Card" /></a>
   <a href="LICENSE"><img src="https://img.shields.io/github/license/radimsem/remindb?color=blue" alt="License" /></a>
   <img src="https://img.shields.io/github/go-mod/go-version/radimsem/remindb" alt="Go version" />
 </p>
@@ -293,12 +292,6 @@ Reproduce the table yourself:
 ./scripts/bench-agents.sh
 ```
 
-Or run a Go-level micro-benchmark against your own vault:
-
-```bash
-go test -run='^$' -bench='BenchmarkTokens' -benchtime=1x .
-```
-
 ## Contributing
 
 This is a project I maintain between classes — patches, bug reports, and ideas are genuinely welcome, and an extra pair of eyes goes a long way. The full guide lives in [`CONTRIBUTING.md`](./CONTRIBUTING.md): branch naming, the pre-PR checklist, the doc-update map, and how the AI-assisted workflow is wired up. If you want to start small, the "First-time contributors" section there has good entry points.
@@ -314,7 +307,7 @@ I'm a college student building agentic AI tooling in the evenings and weekends b
 If this saved you tokens (or saved you from reading the same 100 files for the hundredth time), even a small tip helps a lot.
 
 <p align="left">
-  <a href="https://buymeacoffee.com/radimsem"><img src="https://img.shields.io/badge/Buy%20me%20a%20coffee-FFDD00?logo=buymeacoffee&logoColor=black" alt="Buy me a coffee" /></a>
+  <a href="https://www.buymeacoffee.com/radimsem" target="_blank"><img src="https://cdn.buymeacoffee.com/buttons/v2/default-yellow.png" alt="Buy Me A Coffee" style="height: 60px !important;width: 217px !important;" ></a>
 </p>
 
 Or send BTC to `bc1qwyxsx7sledl4pru8y5ykd54fevsklytrv95ual`.
