@@ -31,18 +31,30 @@ Verify:
 remindb --version
 ```
 
-### 2. Compile a source directory
+### 2. Compile your workspace
 
-remindb needs a SQLite file built from a source tree before the agent can read from it.
-
-A natural source for OpenCode is its own config folder at `~/.config/opencode/` — user-level `AGENTS.md`, `agents/` definitions, `commands/` templates, `plugins/`, `themes/`, and `opencode.json`. Indexing it lets OpenCode query its own persistent context through remindb instead of grepping the dot folder:
+remindb needs a SQLite file built from a source tree before the agent can read from it. The source is whatever workspace you want OpenCode to remember — a code repo, a docs tree, a notes directory.
 
 ```bash
 mkdir -p ~/.cache/remindb
-remindb compile ~/.config/opencode --db ~/.cache/remindb/opencode.db
+remindb compile ~/code/my-project --db ~/.cache/remindb/my-project.db
 ```
 
-Or point at any other workspace you want the agent to see — a docs tree, a notes repo, a project directory.
+Drop a `.remindb.ignore` at the workspace root if you need to exclude noise (build outputs, vendored deps, generated files). The same file is honored by `serve`'s background rescan and the `MemoryCompile` tool.
+
+#### Bring OpenCode's hierarchical memory along
+
+OpenCode doesn't keep a `memory/` folder — its persistent context is a stack of `AGENTS.md` files. It loads them from three places: the global `~/.config/opencode/AGENTS.md`, project-root and ancestor `AGENTS.md` files traversed upward from your cwd, and a Claude Code fallback at `~/.claude/CLAUDE.md` (unless disabled). Only `AGENTS.md` files at or below the workspace root land in `REMINDB_SOURCE` automatically — ancestors above it and the global file live outside.
+
+Ask OpenCode to compile them once the plugin is running. Use absolute paths — `MemoryCompile` doesn't expand `~`:
+
+```
+remindb__MemoryCompile(path="/home/you/.config/opencode/AGENTS.md", message="seed: global memory")
+remindb__MemoryCompile(path="/home/you/code/parent/AGENTS.md", message="seed: ancestor memory")
+remindb__MemoryCompile(path="/home/you/.claude/CLAUDE.md", message="seed: claude-code fallback")
+```
+
+Re-run whenever the file changes.
 
 ### 3. Add the MCP entry to your `opencode.json`
 
@@ -52,7 +64,7 @@ Pick one:
 
 ```bash
 curl -fsSL https://raw.githubusercontent.com/radimsem/remindb/main/plugins/opencode/opencode.json \
-    -o .opencode/opencode.json
+    -o opencode.json
 ```
 
 **Global** (applies to every OpenCode session):
@@ -108,8 +120,8 @@ You should see `remindb` listed with the full `Memory*` tool suite.
             "type": "local",
             "command": ["remindb", "serve"],
             "environment": {
-                "REMINDB_DB": "{env:HOME}/.cache/remindb/opencode.db",
-                "REMINDB_SOURCE": "{env:HOME}/.config/opencode"
+                "REMINDB_DB": "{env:HOME}/.cache/remindb/my-project.db",
+                "REMINDB_SOURCE": "{env:HOME}/code/my-project"
             },
             "enabled": true
         }
@@ -117,7 +129,7 @@ You should see `remindb` listed with the full `Memory*` tool suite.
 }
 ```
 
-Heads up: OpenCode only expands `{env:VARIABLE_NAME}` in config values — shell-style `$HOME` or `${HOME}` is treated as a literal string and won't work. Swap the paths for a different workspace (e.g., `{env:HOME}/notes` + `{env:HOME}/.cache/remindb/notes.db`) whenever you want OpenCode to read a different tree. Keep the file per-project under `.opencode/opencode.json` so each workspace carries its own DB and source paths — no restart needed when you switch repos, just `opencode mcp restart remindb`.
+Heads up: OpenCode only expands `{env:VARIABLE_NAME}` in config values — shell-style `$HOME` or `${HOME}` is treated as a literal string and won't work. Swap the paths for a different workspace (e.g., `{env:HOME}/notes` + `{env:HOME}/.cache/remindb/notes.db`) whenever you want OpenCode to read a different tree. Keep the file per-project at the workspace root as `opencode.json` so each workspace carries its own DB and source paths — no restart needed when you switch repos, just `opencode mcp restart remindb`.
 
 Prefer a shell-inherited env? Point the two values at your own env vars via the same substitution:
 
