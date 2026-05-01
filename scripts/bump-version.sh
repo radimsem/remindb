@@ -19,7 +19,7 @@ cd "$(dirname "$0")/.."
 
 files=(
 	plugins/claude-code/.claude-plugin/plugin.json
-	plugins/codex/.codex-plugin/plugin.json
+	plugins/codex/remindb/.codex-plugin/plugin.json
 	plugins/gemini-cli/gemini-extension.json
 	plugins/openclaw/openclaw.plugin.json
 	plugins/opencode/package.json
