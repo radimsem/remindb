@@ -83,6 +83,17 @@ Confirm the server is connected by launching Codex and running the `/mcp` slash 
 
 You should see `remindb` listed with the full `Memory*` tool suite. (The `codex mcp` CLI subcommand only manages *external* MCP servers added via `codex mcp add`; plugin-bundled MCP servers surface only inside the TUI.)
 
+#### Seed remaining context
+
+Step 2 compiled `~/.codex/memories/` — Codex's cross-session notes. The current project's `AGENTS.md` and in-repo docs (`README.md`, design notes, roadmaps) live in the repo, not under that path. Ask Codex in your first session to fold them in. Use absolute paths — `MemoryCompile` doesn't expand `~`:
+
+```
+remindb__MemoryCompile(path="/home/you/code/my-project/AGENTS.md", message="seed: project rules")
+remindb__MemoryCompile(path="/home/you/code/my-project/README.md", message="seed: project overview")
+```
+
+Re-run whenever a file changes.
+
 ## Tools exposed
 
 The plugin surfaces the full `remindb` `Memory*` tool suite under the `remindb__` namespace. See the [main README](https://github.com/radimsem/remindb#mcp-tools) for the canonical tool list and per-tool token-savings benchmarks.

@@ -41,19 +41,6 @@ remindb compile ~/code/my-project --db ~/.cache/remindb/my-project.db
 
 Drop a `.remindb.ignore` at the workspace root if you need to exclude noise (build outputs, vendored deps, generated files). The same file is honored by `serve`'s background rescan and the `MemoryCompile` tool.
 
-#### Bring Gemini's hierarchical memory along
-
-Gemini CLI loads instructional context from three places: the global `~/.gemini/GEMINI.md` (where `/memory add` and `save_memory` write), project-root and ancestor `GEMINI.md` files above your cwd, and any `GEMINI.md` at or below your cwd. Only the last is automatically inside `REMINDB_SOURCE` — the rest live outside the workspace.
-
-Ask Gemini to compile them once the plugin is running. Use absolute paths — `MemoryCompile` doesn't expand `~`:
-
-```
-remindb__MemoryCompile(path="/home/you/.gemini/GEMINI.md", message="seed: global memory")
-remindb__MemoryCompile(path="/home/you/code/parent/GEMINI.md", message="seed: ancestor memory")
-```
-
-Re-run whenever the file changes — after `/memory add` or an external edit.
-
 ### 3. Point remindb at your workspace
 
 The extension reads two env vars to find your workspace: `REMINDB_SOURCE` (the directory to compile and watch) and `REMINDB_DB` (where the compiled SQLite file lives). Export them in the shell **before launching Gemini with the extension installed** — otherwise the first activation falls back to a stray `memory.db` in cwd:
@@ -96,6 +83,19 @@ gemini mcp list
 ```
 
 You should see `remindb` with the full `Memory*` tool suite.
+
+#### Seed remaining context
+
+Step 2 only compiled `REMINDB_SOURCE`. Gemini loads `GEMINI.md` from two places outside that path: the global `~/.gemini/GEMINI.md` (where `/memory add` and `save_memory` write) and project-root or ancestor `GEMINI.md` files above your cwd. Anything else outside the workspace won't be in the DB either.
+
+Ask Gemini in your first session to fold them in. Use absolute paths — `MemoryCompile` doesn't expand `~`:
+
+```
+remindb__MemoryCompile(path="/home/you/.gemini/GEMINI.md", message="seed: global memory")
+remindb__MemoryCompile(path="/home/you/code/parent/GEMINI.md", message="seed: ancestor memory")
+```
+
+Re-run whenever a file changes — after `/memory add` or an external edit.
 
 ## Tools exposed
 

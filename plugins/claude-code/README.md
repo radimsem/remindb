@@ -93,6 +93,17 @@ You should see `remindb` listed with the full `Memory*` tool suite.
 
 A same-named server in user-scope `~/.claude.json` *replaces* the plugin's bundled entry per Claude Code's MCP precedence rules (it does not merge), so don't try to inject env there.
 
+#### Seed remaining context
+
+Step 2 compiled `~/.claude/projects/` — Claude's cross-project memory. The current project's `CLAUDE.md` and in-repo docs (`README.md`, `ROADMAP.md`, design notes) live in the repo, not under that path. Ask Claude in your first session to fold them in. Use absolute paths — `MemoryCompile` doesn't expand `~`:
+
+```
+remindb__MemoryCompile(path="/home/you/code/my-project/CLAUDE.md", message="seed: project rules")
+remindb__MemoryCompile(path="/home/you/code/my-project/README.md", message="seed: project overview")
+```
+
+Re-run whenever a file changes.
+
 ## Configuration
 
 The plugin itself has no runtime options. `remindb serve` resolves its DB and source paths from `REMINDB_DB` and `REMINDB_SOURCE` at launch.
