@@ -34,21 +34,25 @@ remindb --version
 
 remindb needs a SQLite file built from a source tree before the agent can read from it.
 
-A natural source for OpenClaw is its own state folder at `~/.openclaw/` — `openclaw.json`, hook scripts under `hooks/<id>/`, agent workspaces under `workspace/` (and `workspace-*`), and skill definitions under `skills/`. Indexing it lets OpenClaw query its own persistent context through remindb instead of grepping the dot folder.
+A natural source for OpenClaw is its own state folder at `~/.openclaw/` — `openclaw.json`, hook scripts under `hooks/<id>/`, agent workspaces under `workspace/` (and `workspace-*`), per-agent state under `agents/<id>/`, installed plugins under `extensions/`, and shared skill definitions under `skills/`. Indexing it lets OpenClaw query its own persistent context through remindb instead of grepping the dot folder.
 
-`~/.openclaw/` also accumulates per-agent session transcripts under `agents/<id>/sessions/`, plus `credentials/`, `sandboxes/`, and `sandbox/` — runtime state that bloats the index and includes secrets. Drop a `.remindb.ignore` at `~/.openclaw/` to filter them out (gitignore-style minimal subset: `*`, `**`, trailing `/`, `#` comments; no `!` negation, no `[abc]` ranges):
+`~/.openclaw/` also accumulates session transcripts at `agents/<id>/sessions/*.jsonl`, OAuth + API-key stores at `agents/<id>/agent/auth-profiles.json` (with provider apiKey residues sometimes spilling into adjacent `models.json`), the `extensions/` plugin install dir (you don't want remindb indexing its own bundled `index.ts` / `.mcp.json`), and `sandboxes/` / `sandbox/` runtime state. Drop a `.remindb.ignore` at `~/.openclaw/` to filter them out (gitignore-style minimal subset: `*`, `**`, trailing `/`, `#` comments; no `!` negation, no `[abc]` ranges):
 
 ```bash
 mkdir -p ~/.cache/remindb
 printf '%s\n' \
-    '# Compile only curated context; skip session transcripts and runtime state.' \
+    '# Compile only curated context; skip session transcripts, secrets, and runtime state.' \
     '' \
     '# Session transcripts.' \
     '*.jsonl' \
     '# Per-agent session subtrees (agents/<id>/sessions/).' \
     '**/sessions/' \
-    '# oauth.json — never index secrets.' \
-    'credentials/' \
+    '# OAuth and API-key store (agents/<id>/agent/auth-profiles.json).' \
+    '**/auth-profiles.json' \
+    '# Provider apiKey residues sometimes leak into agents/<id>/agent/models.json.' \
+    '**/models.json' \
+    '# Installed plugins — avoid indexing remindb plugin source.' \
+    'extensions/' \
     '# Sandbox runtime state.' \
     'sandboxes/' \
     '# Sandbox config (containers.json).' \
@@ -78,6 +82,15 @@ Stick them in `~/.bashrc` / `~/.zshrc` / your fish equivalent to make it permane
 
 ### 4. Install the plugin
 
+Both install paths point at a local checkout, so clone the repo first:
+
+```bash
+git clone https://github.com/radimsem/remindb.git ~/code/remindb
+cd ~/code/remindb
+```
+
+Pin to a release tag if you want a stable version: `git -C ~/code/remindb checkout v0.1.0`.
+
 Via OpenClaw CLI:
 
 ```bash
@@ -96,6 +109,17 @@ cp plugins/openclaw/index.ts plugins/openclaw/openclaw.plugin.json plugins/openc
 ```bash
 openclaw gateway restart
 ```
+
+#### Seed remaining context
+
+Step 2 compiled `~/.openclaw/` — OpenClaw's own state folder. The current project's `AGENTS.md` (or `SOUL.md`, `USER.md`, `MEMORY.md`) and in-repo docs (`README.md`, design notes, roadmaps) live in the repo, not under that path. Ask the agent in your first session to fold them in. Use absolute paths — `MemoryCompile` doesn't expand `~`:
+
+```
+remindb__MemoryCompile(path="/home/you/code/my-project/AGENTS.md", message="seed: project rules")
+remindb__MemoryCompile(path="/home/you/code/my-project/README.md", message="seed: project overview")
+```
+
+Re-run whenever a file changes.
 
 ## Configuration
 
