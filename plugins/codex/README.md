@@ -4,7 +4,7 @@ Drops [remindb](https://github.com/radimsem/remindb) into OpenAI Codex as an MCP
 
 ## How it works
 
-Codex treats `plugins/codex/` as a marketplace catalog (`.agents/plugins/marketplace.json`) that lists one plugin, `remindb/`. The plugin's `.codex-plugin/plugin.json` points at sibling `.mcp.json`, which Codex uses to spawn `remindb serve` over stdio.
+Codex treats the repository as a marketplace catalog (`.agents/plugins/marketplace.json` at the repo root) that lists one plugin, `plugins/codex/remindb/`. The plugin's `.codex-plugin/plugin.json` points at sibling `.mcp.json`, which Codex uses to spawn `remindb serve` over stdio.
 
 All tool logic lives in the Go binary; the plugin is a thin wrapper.
 
@@ -70,7 +70,7 @@ Replace `/home/you` with your absolute `$HOME` — `config.toml` does not expand
 ### 4. Add the plugin from GitHub
 
 ```bash
-codex plugin marketplace add radimsem/remindb --sparse plugins/codex
+codex plugin marketplace add radimsem/remindb
 ```
 
 That single command does both jobs: the marketplace's `policy.installation: INSTALLED_BY_DEFAULT` makes Codex install the bundled plugin in the same step. The plugin caches at `~/.codex/plugins/cache/remindb/remindb/<version>/`; the marketplace registration lives in `~/.codex/config.toml`.

@@ -8,7 +8,7 @@
             "name": "remindb",
             "source": {
                 "source": "local",
-                "path": "./remindb"
+                "path": "./plugins/codex/remindb"
             },
             "policy": {
                 "installation": "INSTALLED_BY_DEFAULT",
