@@ -13,38 +13,34 @@ The two are designed to load together. `memoize` references the mental model tha
 
 ## Per-agent installation
 
-The [`plugins/<agent>/`](../plugins/) folders install the MCP server. The skills are a separate manual install — agents with a native skill loader get a folder drop; the rest paste each `SKILL.md` body into the agent's system-prompt context file.
+The [`plugins/<agent>/`](../plugins/) folders install the MCP server. The skills are a separate manual install — every supported agent has a native skill loader, so installation is the same shape across the board: copy the two folders into the agent's skills directory and (where required) reload.
 
 | Agent | Native loader | Where the skills go |
 |---|---|---|
 | **[Claude Code](../plugins/claude-code/)** | Yes | Copy both folders into `~/.claude/skills/`. Invoke per session via `/remind` or `/memoize`. |
 | **[OpenClaw](../plugins/openclaw/)** | Yes | Copy both folders into `~/.openclaw/skills/`. Restart the gateway: `openclaw gateway restart`. |
 | **[Codex](../plugins/codex/)** | Yes | Copy both folders into `~/.codex/skills/`. Restart the Codex TUI to pick them up. |
-| **[Gemini CLI](../plugins/gemini-cli/)** | No (use context) | Append both `SKILL.md` files to `~/.gemini/GEMINI.md`. |
-| **[OpenCode](../plugins/opencode/)** | No (use context) | Append both `SKILL.md` files to `~/.config/opencode/AGENTS.md` (global) or `.opencode/AGENTS.md` (per-project). |
+| **[Gemini CLI](../plugins/gemini-cli/)** | Yes | Copy both folders into `~/.gemini/skills/`. Run `/skills reload` (or `/skills refresh`) to pick them up. |
+| **[OpenCode](../plugins/opencode/)** | Yes | Copy both folders into `~/.config/opencode/skills/`. Auto-discovered on next prompt. |
 
 ### Fast path — clone-and-copy
 
-For any agent with a native skill loader:
+Every supported agent has a native skill loader. Clone once, copy into the agent's skills directory:
 
 ```bash
 git clone https://github.com/radimsem/remindb /tmp/remindb
-cp -r /tmp/remindb/skills/{remind,memoize} ~/.claude/skills/   # Claude Code
+cp -r /tmp/remindb/skills/{remind,memoize} ~/.claude/skills/             # Claude Code
 # or
-cp -r /tmp/remindb/skills/{remind,memoize} ~/.codex/skills/    # Codex
+cp -r /tmp/remindb/skills/{remind,memoize} ~/.codex/skills/              # Codex
 # or
-cp -r /tmp/remindb/skills/{remind,memoize} ~/.openclaw/skills/ # OpenClaw
+cp -r /tmp/remindb/skills/{remind,memoize} ~/.openclaw/skills/           # OpenClaw
+# or
+cp -r /tmp/remindb/skills/{remind,memoize} ~/.gemini/skills/             # Gemini CLI (then /skills reload)
+# or
+cp -r /tmp/remindb/skills/{remind,memoize} ~/.config/opencode/skills/    # OpenCode
 ```
 
-For agents without a native loader, append both skill bodies to the agent's context file:
-
-```bash
-git clone https://github.com/radimsem/remindb /tmp/remindb
-cat /tmp/remindb/skills/remind/SKILL.md /tmp/remindb/skills/memoize/SKILL.md \
-    >> ~/.gemini/GEMINI.md   # Gemini CLI — adjust path per agent
-```
-
-The frontmatter at the top of each `SKILL.md` is harmless when pasted into a context file; agents read the body either way.
+OpenCode and Gemini CLI also walk up from the current directory looking for project-local skills — drop the folders into `.opencode/skills/` or `.gemini/skills/` (or the cross-agent `.agents/skills/` alias both honour) and commit them with the repo if you want the skills to travel with the project.
 
 ## Updating
 
@@ -55,7 +51,7 @@ cd /tmp/remindb && git pull
 cp -r skills/{remind,memoize} ~/.claude/skills/   # or your agent's path
 ```
 
-For paste-installs, replace the previous block in the context file rather than appending again.
+`cp -r` overwrites the existing skill folders in place. For Gemini CLI, run `/skills reload` afterwards.
 
 ## See also
 

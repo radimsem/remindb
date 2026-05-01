@@ -129,7 +129,7 @@ You should see `remindb` listed with the full `Memory*` tool suite.
 }
 ```
 
-Heads up: OpenCode only expands `{env:VARIABLE_NAME}` in config values — shell-style `$HOME` or `${HOME}` is treated as a literal string and won't work. Swap the paths for a different workspace (e.g., `{env:HOME}/notes` + `{env:HOME}/.cache/remindb/notes.db`) whenever you want OpenCode to read a different tree. Keep the file per-project at the workspace root as `opencode.json` so each workspace carries its own DB and source paths — no restart needed when you switch repos, just `opencode mcp restart remindb`.
+Heads up: OpenCode only expands `{env:VARIABLE_NAME}` in config values — shell-style `$HOME` or `${HOME}` is treated as a literal string and won't work. Swap the paths for a different workspace (e.g., `{env:HOME}/notes` + `{env:HOME}/.cache/remindb/notes.db`) whenever you want OpenCode to read a different tree. Keep the file per-project at the workspace root as `opencode.json` so each workspace carries its own DB and source paths — OpenCode reads it on session start, so launching a fresh session from the new directory is enough to swap configs.
 
 Prefer a shell-inherited env? Point the two values at your own env vars via the same substitution:
 

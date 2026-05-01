@@ -1,0 +1,15 @@
+{
+    "name": "remindb",
+    "owner": {
+        "name": "radimsem"
+    },
+    "description": "Token-efficient agentic memory database — Claude Code plugin distribution",
+    "plugins": [
+        {
+            "name": "remindb",
+            "source": "./plugins/claude-code",
+            "description": "Mounts remindb as an MCP server, exposing the Memory* tool suite over a compiled SQLite view of the workspace.",
+            "category": "Productivity"
+        }
+    ]
+}
