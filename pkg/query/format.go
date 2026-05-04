@@ -13,7 +13,7 @@ func Format(result *Result) string {
 			b.WriteString("\n---\n\n")
 		}
 		n := sn.Node
-		fmt.Fprintf(&b, "[%s] %s (score=%.2f)\n", n.NodeType, n.Label, sn.Score)
+		fmt.Fprintf(&b, "[%s] (score=%.2f)\n", n.NodeType, sn.Score)
 
 		b.WriteString(n.Content)
 		b.WriteByte('\n')
