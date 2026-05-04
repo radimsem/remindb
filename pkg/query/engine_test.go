@@ -293,7 +293,7 @@ func TestFormat(t *testing.T) {
 		t.Fatal("empty output")
 	}
 
-	expected := "[heading] Title (score=1.25)\nhello world\n\n---\n\n[code] Example (score=2.50)\nx := 1\n"
+	expected := "[heading] (score=1.25)\nhello world\n\n---\n\n[code] (score=2.50)\nx := 1\n"
 	if out != expected {
 		t.Errorf("Format =\n%q\nwant\n%q", out, expected)
 	}
