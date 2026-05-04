@@ -4,6 +4,7 @@ import (
 	"context"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 
@@ -366,6 +367,49 @@ func TestHandleTree(t *testing.T) {
 	}
 	if len(result.Content) == 0 {
 		t.Error("empty content")
+	}
+}
+
+func TestHandleTree_FileFieldRelativeAndOnRootOnly(t *testing.T) {
+	d, st := setup(t)
+	ctx := context.Background()
+	dir := t.TempDir()
+
+	aPath := filepath.Join(dir, "a.md")
+	bPath := filepath.Join(dir, "b.md")
+	if err := os.WriteFile(aPath, []byte("# A heading\n\nA paragraph.\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(bPath, []byte("# B heading\n\nB paragraph.\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	if _, err := compiler.CompileDir(ctx, st, dir, "initial"); err != nil {
+		t.Fatalf("CompileDir: %v", err)
+	}
+
+	result, _, err := d.HandleTree(ctx, &gomcp.CallToolRequest{}, TreeInput{})
+	if err != nil {
+		t.Fatalf("HandleTree: %v", err)
+	}
+	if len(result.Content) == 0 {
+		t.Fatal("empty content")
+	}
+
+	text := result.Content[0].(*gomcp.TextContent).Text
+
+	if !strings.Contains(text, "file=a.md") {
+		t.Errorf("expected file=a.md (relative), got:\n%s", text)
+	}
+	if !strings.Contains(text, "file=b.md") {
+		t.Errorf("expected file=b.md (relative), got:\n%s", text)
+	}
+	if strings.Contains(text, "file="+dir) {
+		t.Errorf("absolute path leaked into output:\n%s", text)
+	}
+
+	if got := strings.Count(text, "file="); got != 2 {
+		t.Errorf("expected 2 file= entries (one per file root, none on descendants), got %d. Tree:\n%s", got, text)
 	}
 }
 
