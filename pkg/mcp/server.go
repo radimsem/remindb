@@ -22,7 +22,7 @@ type Server struct {
 	notified map[string]struct{}
 }
 
-func NewServer(st *store.Store, tracker *temperature.Tracker, cfg temperature.Config, logger *slog.Logger) *Server {
+func NewServer(st *store.Store, tracker *temperature.Tracker, cfg temperature.Config, sourceDir string, logger *slog.Logger) *Server {
 	if logger == nil {
 		logger = slog.New(slog.DiscardHandler)
 	}
@@ -39,10 +39,11 @@ func NewServer(st *store.Store, tracker *temperature.Tracker, cfg temperature.Co
 	}
 
 	deps := &tools.Deps{
-		Store:   st,
-		Engine:  query.NewEngine(st),
-		Tracker: tracker,
-		Logger:  logger,
+		Store:     st,
+		Engine:    query.NewEngine(st),
+		Tracker:   tracker,
+		Logger:    logger,
+		SourceDir: sourceDir,
 	}
 
 	registerTools(s.mcp, deps)

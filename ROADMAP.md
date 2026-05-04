@@ -25,5 +25,4 @@ Candidate features for upcoming releases.
 - [ ] Prometheus / OTel metrics endpoint
 - [ ] Bundled read-only html dump over the `inspect` surface
 - [ ] Bench scenarios for source-code corpora
-- [ ] `MemoryCompile` path canonicalization — anchor MCP-supplied paths to `REMINDB_SOURCE` so absolute/relative calls on the same file don't fork into duplicate nodes
 - [ ] `MemoryFetch` format — drop the per-node label header (duplicates content for heading nodes)

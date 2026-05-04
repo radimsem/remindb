@@ -22,7 +22,7 @@ func NewEnv(t *testing.T) *Env {
 	st := testutil.OpenTestDB(t)
 	cfg := temperature.DefaultConfig()
 	tracker := temperature.NewTracker(st, cfg, nil)
-	srv := remindb.NewServer(st, tracker, cfg, nil)
+	srv := remindb.NewServer(st, tracker, cfg, "", nil)
 
 	serverTransport, clientTransport := mcp.NewInMemoryTransports()
 	ctx := context.Background()
