@@ -42,15 +42,15 @@ A real slice (from `remindb inspect --tree`):
 ```
 [preamble] Preamble: framework, language, project (id=3kGXxidmWBp file=CLAUDE.md temp=0.50 tok=14)
 [heading] Project Instructions (id=6EuIVj5zt5j file=CLAUDE.md temp=0.75 tok=5)
-  [heading] Architecture (id=603qfsg4qd2 file=CLAUDE.md temp=0.88 tok=3)
-    [text] Next.js 15 conventions with a clear separation of data… (id=3GGuLAq3yNP file=CLAUDE.md temp=0.82 tok=111)
-    [list] 7-item list: app/, components/, lib/, db/, hooks/, types… (id=ITAKw5NVNPt file=CLAUDE.md temp=0.71 tok=228)
-  [heading] Data Model (id=FQwpXL4bm6Y file=CLAUDE.md temp=0.62 tok=3)
-    [list] 7-item list: products, variants, orders, carts, users, s… (id=Il8jcgTJOGt file=CLAUDE.md temp=0.55 tok=155)
-  [heading] Payment Integration (id=LTQZLSkPsDW file=CLAUDE.md temp=0.30 tok=5)
-    [text] Stripe Payment Intents; not legacy Checkout Sessions… (id=GLbXrUYs32G file=CLAUDE.md temp=0.24 tok=35)
-  [heading] Observability (id=2wkOdf47OjR file=CLAUDE.md temp=0.08 tok=4)
-    [list] 4-item list: Sentry · Vercel logs · OTel tracing · Prom… (id=C1HCYSAOkpu file=CLAUDE.md temp=0.08 tok=90)
+  [heading] Architecture (id=603qfsg4qd2 temp=0.88 tok=3)
+    [text] Next.js 15 conventions with a clear separation of data… (id=3GGuLAq3yNP temp=0.82 tok=111)
+    [list] 7-item list: app/, components/, lib/, db/, hooks/, types… (id=ITAKw5NVNPt temp=0.71 tok=228)
+  [heading] Data Model (id=FQwpXL4bm6Y temp=0.62 tok=3)
+    [list] 7-item list: products, variants, orders, carts, users, s… (id=Il8jcgTJOGt temp=0.55 tok=155)
+  [heading] Payment Integration (id=LTQZLSkPsDW temp=0.30 tok=5)
+    [text] Stripe Payment Intents; not legacy Checkout Sessions… (id=GLbXrUYs32G temp=0.24 tok=35)
+  [heading] Observability (id=2wkOdf47OjR temp=0.08 tok=4)
+    [list] 4-item list: Sentry · Vercel logs · OTel tracing · Prom… (id=C1HCYSAOkpu temp=0.08 tok=90)
 ```
 
 A fresh compile starts every node at `temp=0.50`. The spread above is what an agent sees after a few sessions of reading. *Architecture* is hot because the agent keeps coming back to it. *Observability* has gone cold and will get flagged for summarization on the next nudge.
