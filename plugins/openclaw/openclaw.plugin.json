@@ -5,6 +5,9 @@
     "description": "Token-efficient agentic memory database. Exposes the Memory* MCP tool suite so OpenClaw agents can work against a compiled view of their workspace.",
     "homepage": "https://github.com/radimsem/remindb",
     "license": "MIT",
+    "activation": {
+        "onStartup": false
+    },
     "configSchema": {
         "type": "object",
         "additionalProperties": false,

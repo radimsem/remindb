@@ -6,6 +6,6 @@ export default definePluginEntry({
     description:
         "Mounts the remindb MCP server so OpenClaw agents can query and update a compiled view of their workspace.",
     register(_api) {
-        // Tools are contributed via .mcp.json
+        // MCP server is registered at the gateway level (openclaw mcp set).
     },
 });
