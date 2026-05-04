@@ -8,6 +8,7 @@ import (
 	"time"
 
 	gomcp "github.com/modelcontextprotocol/go-sdk/mcp"
+	"github.com/radimsem/remindb/pkg/compiler"
 	"github.com/radimsem/remindb/pkg/query"
 	"github.com/radimsem/remindb/pkg/store"
 	"github.com/radimsem/remindb/pkg/temperature"
@@ -149,6 +150,105 @@ func TestHandleCompile(t *testing.T) {
 	}
 	if len(result.Content) == 0 {
 		t.Error("empty content")
+	}
+}
+
+func TestHandleCompile_AnchorsToSourceDir(t *testing.T) {
+	d, st := setup(t)
+	ctx := context.Background()
+	dir := t.TempDir()
+
+	p := filepath.Join(dir, "doc.md")
+	if err := os.WriteFile(p, []byte("# Test\n\nHello.\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	if _, err := compiler.CompileDir(ctx, st, dir, "initial"); err != nil {
+		t.Fatalf("initial CompileDir: %v", err)
+	}
+
+	before, err := st.GetStats(ctx)
+	if err != nil {
+		t.Fatalf("GetStats before: %v", err)
+	}
+	if before.NodeCount == 0 {
+		t.Fatal("initial compile produced 0 nodes")
+	}
+
+	d.SourceDir = dir
+	// Concat (not filepath.Join) to keep the non-canonical "/./" segment.
+	altPath := dir + string(filepath.Separator) + "." + string(filepath.Separator) + "doc.md"
+
+	if _, _, err := d.HandleCompile(ctx, &gomcp.CallToolRequest{}, CompileInput{
+		Path: altPath,
+	}); err != nil {
+		t.Fatalf("HandleCompile: %v", err)
+	}
+
+	after, err := st.GetStats(ctx)
+	if err != nil {
+		t.Fatalf("GetStats after: %v", err)
+	}
+	if after.NodeCount != before.NodeCount {
+		t.Errorf("NodeCount: before=%d, after=%d (duplicates created)", before.NodeCount, after.NodeCount)
+	}
+}
+
+func TestCanonicalizePath(t *testing.T) {
+	dir := t.TempDir()
+	sub := filepath.Join(dir, "sub")
+	if err := os.Mkdir(sub, 0o755); err != nil {
+		t.Fatal(err)
+	}
+
+	file := filepath.Join(sub, "doc.md")
+	if err := os.WriteFile(file, []byte("x"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	tests := []struct {
+		name      string
+		input     string
+		sourceDir string
+		want      string
+	}{
+		{
+			name:  "empty source dir passes through",
+			input: file, sourceDir: "", want: file,
+		},
+		{
+			name:  "empty input passes through",
+			input: "", sourceDir: dir, want: "",
+		},
+		{
+			name:  "canonical match unchanged",
+			input: file, sourceDir: dir, want: file,
+		},
+		{
+			name:  "extra ./ collapsed to canonical",
+			input: dir + "/./sub/doc.md", sourceDir: dir, want: file,
+		},
+		{
+			name:  "outside source tree passes through",
+			input: "/etc/hosts", sourceDir: dir, want: "/etc/hosts",
+		},
+		{
+			name:  "compile root itself stays as the source dir form",
+			input: dir, sourceDir: dir, want: dir,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got, err := canonicalizePath(tt.input, tt.sourceDir)
+
+			if err != nil {
+				t.Fatalf("canonicalizePath: %v", err)
+			}
+			if got != tt.want {
+				t.Errorf("got %q, want %q", got, tt.want)
+			}
+		})
 	}
 }
 

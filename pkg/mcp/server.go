@@ -22,7 +22,28 @@ type Server struct {
 	notified map[string]struct{}
 }
 
-func NewServer(st *store.Store, tracker *temperature.Tracker, cfg temperature.Config, logger *slog.Logger) *Server {
+type Option func(*options)
+
+type options struct {
+	sourceDir string
+	logger    *slog.Logger
+}
+
+func WithSourceDir(dir string) Option {
+	return func(o *options) { o.sourceDir = dir }
+}
+
+func WithLogger(l *slog.Logger) Option {
+	return func(o *options) { o.logger = l }
+}
+
+func NewServer(st *store.Store, tracker *temperature.Tracker, cfg temperature.Config, opts ...Option) *Server {
+	var o options
+	for _, opt := range opts {
+		opt(&o)
+	}
+
+	logger := o.logger
 	if logger == nil {
 		logger = slog.New(slog.DiscardHandler)
 	}
@@ -39,10 +60,11 @@ func NewServer(st *store.Store, tracker *temperature.Tracker, cfg temperature.Co
 	}
 
 	deps := &tools.Deps{
-		Store:   st,
-		Engine:  query.NewEngine(st),
-		Tracker: tracker,
-		Logger:  logger,
+		Store:     st,
+		Engine:    query.NewEngine(st),
+		Tracker:   tracker,
+		Logger:    logger,
+		SourceDir: o.sourceDir,
 	}
 
 	registerTools(s.mcp, deps)
