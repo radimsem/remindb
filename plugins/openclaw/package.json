@@ -1,6 +1,6 @@
 {
     "name": "@radimsem/remindb-openclaw",
-    "version": "0.1.2",
+    "version": "0.1.3",
     "description": "OpenClaw plugin that mounts the remindb MCP server as a workspace memory backend",
     "main": "index.ts",
     "license": "MIT",
