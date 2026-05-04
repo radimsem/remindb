@@ -19,7 +19,7 @@ func newTestServer(t *testing.T, notify, cold float64) *Server {
 		NotifyThreshold: notify,
 	}
 	tracker := temperature.NewTracker(st, cfg, nil)
-	return NewServer(st, tracker, cfg, "", nil)
+	return NewServer(st, tracker, cfg)
 }
 
 func mkNode(id string, temp float64) *store.Node {
