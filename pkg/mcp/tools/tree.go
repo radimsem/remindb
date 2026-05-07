@@ -3,6 +3,7 @@ package tools
 import (
 	"context"
 	"fmt"
+	"path/filepath"
 	"strings"
 	"time"
 
@@ -44,9 +45,11 @@ func (d *Deps) HandleTree(ctx context.Context, _ *gomcp.CallToolRequest, input T
 		roots = []*store.Node{root}
 	}
 
+	compileRoot, _ := d.Store.GetLatestCompileRoot(ctx)
+
 	var b strings.Builder
 	for _, root := range roots {
-		writeTreeNode(&b, childMap, root, 0, maxDepth)
+		writeTreeNode(&b, childMap, root, "", compileRoot, 0, maxDepth)
 	}
 
 	if b.Len() == 0 {
@@ -59,15 +62,33 @@ func (d *Deps) HandleTree(ctx context.Context, _ *gomcp.CallToolRequest, input T
 	}, nil, nil
 }
 
-func writeTreeNode(b *strings.Builder, children map[string][]*store.Node, n *store.Node, depth, maxDepth int) {
+func writeTreeNode(b *strings.Builder, children map[string][]*store.Node, n *store.Node, parentSource, compileRoot string, depth, maxDepth int) {
 	indent := strings.Repeat("  ", depth)
-	fmt.Fprintf(b, "%s[%s] %s (id=%s file=%s temp=%.2f tok=%d)\n", indent, n.NodeType, n.Label, n.ID, n.SourceFile, n.Temperature, n.TokenCount)
+	fmt.Fprintf(b, "%s[%s] %s (id=%s", indent, n.NodeType, n.Label, n.ID)
+
+	if n.SourceFile != parentSource {
+		fmt.Fprintf(b, " file=%s", relSourcePath(n.SourceFile, compileRoot))
+	}
+	fmt.Fprintf(b, " temp=%.2f tok=%d)\n", n.Temperature, n.TokenCount)
 
 	if depth >= maxDepth {
 		return
 	}
 
 	for _, child := range children[n.ID] {
-		writeTreeNode(b, children, child, depth+1, maxDepth)
+		writeTreeNode(b, children, child, n.SourceFile, compileRoot, depth+1, maxDepth)
 	}
+}
+
+func relSourcePath(source, compileRoot string) string {
+	if compileRoot == "" || !filepath.IsAbs(source) {
+		return source
+	}
+
+	rel, err := filepath.Rel(compileRoot, source)
+	if err != nil || strings.HasPrefix(rel, "..") {
+		return source
+	}
+
+	return rel
 }

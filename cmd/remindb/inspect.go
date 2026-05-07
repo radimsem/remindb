@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"path/filepath"
 	"strings"
 	"unicode/utf8"
 
@@ -89,8 +90,10 @@ func runInspect(cmd *cobra.Command, _ []string) error {
 	_, _ = fmt.Fprintln(w, paint(ansiBold+ansiCyan, "=== Node Tree ==="))
 	roots, childMap := store.BuildTree(all)
 
+	compileRoot, _ := st.GetLatestCompileRoot(ctx)
+
 	for _, root := range roots {
-		printTree(w, childMap, root, 0, inspectTreeDepth)
+		printTree(w, childMap, root, "", compileRoot, 0, inspectTreeDepth)
 	}
 	return nil
 }
@@ -121,15 +124,21 @@ func printStats(w io.Writer, s *store.Stats) {
 	_, _ = fmt.Fprintln(w)
 }
 
-func printTree(w io.Writer, children map[string][]*store.Node, n *store.Node, depth, maxDepth int) {
+func printTree(w io.Writer, children map[string][]*store.Node, n *store.Node, parentSource, compileRoot string, depth, maxDepth int) {
 	indent := strings.Repeat("  ", depth)
 
-	_, _ = fmt.Fprintf(w, "%s%s %s (%s %s %s %s)\n",
+	_, _ = fmt.Fprintf(w, "%s%s %s (%s",
 		indent,
 		paint(ansiYellow, "["+n.NodeType+"]"),
 		paint(ansiBrightW, n.Label),
 		paint(ansiDim, "id="+n.ID),
-		paint(ansiDim, "file="+n.SourceFile),
+	)
+
+	if n.SourceFile != parentSource {
+		_, _ = fmt.Fprintf(w, " %s", paint(ansiDim, "file="+relSourcePath(n.SourceFile, compileRoot)))
+	}
+
+	_, _ = fmt.Fprintf(w, " %s %s)\n",
 		"temp="+tempPaint(n.Temperature),
 		paint(ansiDim, fmt.Sprintf("tok=%d", n.TokenCount)),
 	)
@@ -139,8 +148,21 @@ func printTree(w io.Writer, children map[string][]*store.Node, n *store.Node, de
 	}
 
 	for _, child := range children[n.ID] {
-		printTree(w, children, child, depth+1, maxDepth)
+		printTree(w, children, child, n.SourceFile, compileRoot, depth+1, maxDepth)
 	}
+}
+
+func relSourcePath(source, compileRoot string) string {
+	if compileRoot == "" || !filepath.IsAbs(source) {
+		return source
+	}
+
+	rel, err := filepath.Rel(compileRoot, source)
+	if err != nil || strings.HasPrefix(rel, "..") {
+		return source
+	}
+
+	return rel
 }
 
 func paint(code, s string) string {
