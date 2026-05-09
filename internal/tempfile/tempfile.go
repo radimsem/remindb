@@ -77,16 +77,92 @@ func (r *Resolver) Resolve(relPath string) (float64, bool) {
 }
 
 func buildEntry(raw map[string]any) (*entry, error) {
-	e := &entry{children: make(map[string]*entry, len(raw))}
+	root := &entry{children: make(map[string]*entry, len(raw))}
 
 	for k, v := range raw {
-		child, err := parseValue(k, v)
+		leaf, err := parseValue(k, v)
 		if err != nil {
 			return nil, err
 		}
-		e.children[k] = child
+		if err := insertKey(root, leaf, k); err != nil {
+			return nil, err
+		}
 	}
-	return e, nil
+	return root, nil
+}
+
+// Graft a leaf entry into the tree at the path encoded by key, splitting on /.
+func insertKey(root, leaf *entry, key string) error {
+	norm := strings.TrimSuffix(strings.TrimPrefix(filepath.ToSlash(key), "./"), "/")
+	if norm == "" {
+		return fmt.Errorf("empty key %q", key)
+	}
+
+	segments := strings.Split(norm, "/")
+	for _, seg := range segments {
+		if seg == "" || seg == "." || seg == ".." {
+			return fmt.Errorf("invalid path segment %q in key %q", seg, key)
+		}
+	}
+
+	curr := root
+	last := len(segments) - 1
+	for i, seg := range segments {
+		if i == last {
+			existing, ok := curr.children[seg]
+			if !ok {
+				curr.children[seg] = leaf
+				return nil
+			}
+			return mergeEntry(existing, leaf, key)
+		}
+
+		next, ok := curr.children[seg]
+		if !ok {
+			next = &entry{children: make(map[string]*entry)}
+			curr.children[seg] = next
+		}
+		if next.temp != nil {
+			path := strings.Join(segments[:i+1], "/")
+			return fmt.Errorf("conflicting temperatures for %q", path)
+		}
+		curr = next
+	}
+	return nil
+}
+
+// Merge src into dst at the resolved path, erroring on conflicting temperatures.
+func mergeEntry(dst, src *entry, path string) error {
+	if tempConflict(dst, src) {
+		return fmt.Errorf("conflicting temperatures for %q", path)
+	}
+	if src.temp != nil {
+		dst.temp = src.temp
+		return nil
+	}
+
+	if dst.children == nil {
+		dst.children = make(map[string]*entry, len(src.children))
+	}
+	for k, child := range src.children {
+		existing, ok := dst.children[k]
+		if !ok {
+			dst.children[k] = child
+			continue
+		}
+
+		if err := mergeEntry(existing, child, path+"/"+k); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func tempConflict(dst, src *entry) bool {
+	if dst.temp != nil {
+		return src.temp != nil || len(src.children) > 0
+	}
+	return src.temp != nil && len(dst.children) > 0
 }
 
 func parseValue(key string, v any) (*entry, error) {
