@@ -300,7 +300,7 @@ func TestTemperature(t *testing.T) {
 		t.Errorf("AccessCount = %d, want 1", got.AccessCount)
 	}
 
-	cold, err := st.GetColdNodes(ctx, 0.5)
+	cold, err := st.GetColdNodes(ctx, 0.5, 50)
 	if err != nil {
 		t.Fatalf("GetColdNodes: %v", err)
 	}
@@ -310,12 +310,39 @@ func TestTemperature(t *testing.T) {
 
 	must(t, st.UpdateTemperature(ctx, "aaaaaaaa", 0.1))
 
-	cold, err = st.GetColdNodes(ctx, 0.5)
+	cold, err = st.GetColdNodes(ctx, 0.5, 50)
 	if err != nil {
 		t.Fatalf("GetColdNodes: %v", err)
 	}
 	if len(cold) != 1 {
 		t.Errorf("cold = %d, want 1", len(cold))
+	}
+}
+
+func TestGetColdNodes_RespectsLimit(t *testing.T) {
+	st := openTestDB(t)
+	ctx := context.Background()
+
+	temps := []float64{0.05, 0.02, 0.04, 0.01, 0.03}
+	ids := []string{"node0001", "node0002", "node0003", "node0004", "node0005"}
+	for i, id := range ids {
+		must(t, st.UpsertNode(ctx, testNode(id, "")))
+		must(t, st.UpdateTemperature(ctx, id, temps[i]))
+	}
+
+	cold, err := st.GetColdNodes(ctx, 0.1, 3)
+	if err != nil {
+		t.Fatalf("GetColdNodes: %v", err)
+	}
+	if len(cold) != 3 {
+		t.Fatalf("cold = %d, want 3", len(cold))
+	}
+
+	want := []string{"node0004", "node0002", "node0005"}
+	for i, n := range cold {
+		if n.ID != want[i] {
+			t.Errorf("cold[%d].ID = %q, want %q", i, n.ID, want[i])
+		}
 	}
 }
 
