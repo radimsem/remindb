@@ -11,6 +11,7 @@ type Config struct {
 	ColdThreshold   float64
 	NotifyThreshold float64
 	TickInterval    time.Duration
+	ColdNotifyTTL   time.Duration
 	ColdNotifyLimit int
 }
 
@@ -21,6 +22,7 @@ func DefaultConfig() Config {
 		ColdThreshold:   0.1,
 		NotifyThreshold: 0.1,
 		TickInterval:    5 * time.Minute,
+		ColdNotifyTTL:   time.Hour,
 		ColdNotifyLimit: 50,
 	}
 }
@@ -49,6 +51,9 @@ func (c Config) Validate() error {
 	}
 	if c.ColdNotifyLimit <= 0 {
 		return fmt.Errorf("ColdNotifyLimit must be > 0, got %d", c.ColdNotifyLimit)
+	}
+	if c.ColdNotifyTTL < 0 {
+		return fmt.Errorf("ColdNotifyTTL must be >= 0, got %s", c.ColdNotifyTTL)
 	}
 	return nil
 }

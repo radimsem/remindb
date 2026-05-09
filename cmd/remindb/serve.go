@@ -94,7 +94,7 @@ func runServe(cmd *cobra.Command, _ []string) error {
 	g.Go(func() error {
 		tracker.Run(ctx, func(ctx context.Context, nodes []*store.Node) {
 			logger.Info("cold nodes detected", "count", len(nodes))
-			srv.NotifyColdNodes(ctx, nodes)
+			tracker.MarkNotified(srv.NotifyColdNodes(ctx, nodes))
 		})
 		return nil
 	})
