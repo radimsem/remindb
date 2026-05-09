@@ -56,7 +56,11 @@ func runServe(cmd *cobra.Command, _ []string) error {
 	}
 
 	cfg := temperature.DefaultConfig()
-	tracker := temperature.NewTracker(st, cfg, logger)
+	tracker, err := temperature.NewTracker(st, cfg, logger)
+	if err != nil {
+		return err
+	}
+
 	srv := remindb.NewServer(st, tracker, cfg,
 		remindb.WithSourceDir(sourceDir),
 		remindb.WithLogger(logger),
@@ -90,7 +94,7 @@ func runServe(cmd *cobra.Command, _ []string) error {
 	g.Go(func() error {
 		tracker.Run(ctx, func(ctx context.Context, nodes []*store.Node) {
 			logger.Info("cold nodes detected", "count", len(nodes))
-			srv.NotifyColdNodes(ctx, nodes)
+			tracker.MarkNotified(srv.NotifyColdNodes(ctx, nodes))
 		})
 		return nil
 	})

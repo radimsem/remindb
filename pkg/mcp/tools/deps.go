@@ -15,11 +15,12 @@ import (
 )
 
 type Deps struct {
-	Store     *store.Store
-	Engine    *query.Engine
-	Tracker   *temperature.Tracker
-	Logger    *slog.Logger
-	SourceDir string
+	Store            *store.Store
+	Engine           *query.Engine
+	Tracker          *temperature.Tracker
+	Logger           *slog.Logger
+	SourceDir        string
+	SummarizeRebound float64
 }
 
 func (d *Deps) logCall(name string, errp *error, start time.Time, attrs ...any) {

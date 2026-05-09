@@ -26,6 +26,15 @@ func seedNode(t *testing.T, st *store.Store, id string, temp float64) {
 	}
 }
 
+func mustNewTracker(t *testing.T, st NodeStore, cfg Config) *Tracker {
+	t.Helper()
+	tr, err := NewTracker(st, cfg, nil)
+	if err != nil {
+		t.Fatalf("NewTracker: %v", err)
+	}
+	return tr
+}
+
 func TestRecordAccess(t *testing.T) {
 	st := testutil.OpenTestDB(t)
 	ctx := context.Background()
@@ -33,7 +42,7 @@ func TestRecordAccess(t *testing.T) {
 	seedNode(t, st, "node0001", 0.5)
 	seedNode(t, st, "node0002", 0.8)
 
-	tr := NewTracker(st, DefaultConfig(), nil)
+	tr := mustNewTracker(t, st, DefaultConfig())
 
 	if err := tr.RecordAccess(ctx, []string{"node0001", "node0002"}); err != nil {
 		t.Fatalf("RecordAccess: %v", err)
@@ -59,7 +68,7 @@ func TestRecordAccess_Cap(t *testing.T) {
 
 	seedNode(t, st, "node0001", 0.95)
 
-	tr := NewTracker(st, DefaultConfig(), nil)
+	tr := mustNewTracker(t, st, DefaultConfig())
 	if err := tr.RecordAccess(ctx, []string{"node0001"}); err != nil {
 		t.Fatalf("RecordAccess: %v", err)
 	}
@@ -79,7 +88,7 @@ func TestTick(t *testing.T) {
 
 	cfg := DefaultConfig()
 	cfg.ColdThreshold = 0.1
-	tr := NewTracker(st, cfg, nil)
+	tr := mustNewTracker(t, st, cfg)
 
 	elapsed := time.Hour
 	result, err := tr.Tick(ctx, elapsed)
@@ -117,7 +126,7 @@ func TestTick_NoColdNodes(t *testing.T) {
 
 	seedNode(t, st, "hot00001", 0.9)
 
-	tr := NewTracker(st, DefaultConfig(), nil)
+	tr := mustNewTracker(t, st, DefaultConfig())
 
 	result, err := tr.Tick(ctx, 10*time.Minute)
 	if err != nil {
@@ -125,5 +134,70 @@ func TestTick_NoColdNodes(t *testing.T) {
 	}
 	if len(result.Cold) != 0 {
 		t.Errorf("Cold = %d, want 0", len(result.Cold))
+	}
+}
+
+func TestDedupCold_DropsWithinTTL(t *testing.T) {
+	cfg := DefaultConfig()
+	cfg.ColdNotifyTTL = time.Hour
+	tr := mustNewTracker(t, nil, cfg)
+
+	n := &store.Node{ID: "cold0001"}
+	now := time.Now()
+
+	if got := tr.dedupCold([]*store.Node{n}, now); len(got) != 1 {
+		t.Fatalf("first tick: got %d, want 1", len(got))
+	}
+	tr.MarkNotified([]string{n.ID})
+
+	if got := tr.dedupCold([]*store.Node{n}, now.Add(time.Minute)); len(got) != 0 {
+		t.Fatalf("within TTL: got %d, want 0", len(got))
+	}
+}
+
+func TestDedupCold_KeepsWhenNeverMarked(t *testing.T) {
+	cfg := DefaultConfig()
+	cfg.ColdNotifyTTL = time.Hour
+	tr := mustNewTracker(t, nil, cfg)
+
+	n := &store.Node{ID: "cold0001"}
+	now := time.Now()
+
+	tr.dedupCold([]*store.Node{n}, now)
+
+	if got := tr.dedupCold([]*store.Node{n}, now.Add(time.Minute)); len(got) != 1 {
+		t.Fatalf("unmarked retry: got %d, want 1", len(got))
+	}
+}
+
+func TestDedupCold_KeepsAfterTTL(t *testing.T) {
+	cfg := DefaultConfig()
+	cfg.ColdNotifyTTL = time.Hour
+	tr := mustNewTracker(t, nil, cfg)
+
+	n := &store.Node{ID: "cold0001"}
+	now := time.Now()
+
+	tr.dedupCold([]*store.Node{n}, now)
+	tr.MarkNotified([]string{n.ID})
+
+	if got := tr.dedupCold([]*store.Node{n}, now.Add(time.Hour+time.Minute)); len(got) != 1 {
+		t.Fatalf("after TTL: got %d, want 1", len(got))
+	}
+}
+
+func TestDedupCold_EvictsBeyondTTL(t *testing.T) {
+	cfg := DefaultConfig()
+	cfg.ColdNotifyTTL = time.Hour
+	tr := mustNewTracker(t, nil, cfg)
+
+	tr.MarkNotified([]string{"cold0001"})
+	if len(tr.recentlyNotified) != 1 {
+		t.Fatalf("after MarkNotified: map size = %d, want 1", len(tr.recentlyNotified))
+	}
+
+	tr.dedupCold(nil, time.Now().Add(time.Hour+time.Minute))
+	if len(tr.recentlyNotified) != 0 {
+		t.Fatalf("after eviction: map size = %d, want 0", len(tr.recentlyNotified))
 	}
 }

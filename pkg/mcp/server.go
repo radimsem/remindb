@@ -3,7 +3,6 @@ package mcp
 import (
 	"context"
 	"log/slog"
-	"sync"
 
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 	"github.com/radimsem/remindb/pkg/mcp/tools"
@@ -15,11 +14,7 @@ import (
 type Server struct {
 	mcp             *mcp.Server
 	logger          *slog.Logger
-	coldThreshold   float64
 	notifyThreshold float64
-
-	mu       sync.Mutex
-	notified map[string]struct{}
 }
 
 type Option func(*options)
@@ -54,17 +49,16 @@ func NewServer(st *store.Store, tracker *temperature.Tracker, cfg temperature.Co
 			Version: "0.1.0",
 		}, nil),
 		logger:          logger,
-		coldThreshold:   cfg.ColdThreshold,
 		notifyThreshold: cfg.NotifyThreshold,
-		notified:        make(map[string]struct{}),
 	}
 
 	deps := &tools.Deps{
-		Store:     st,
-		Engine:    query.NewEngine(st),
-		Tracker:   tracker,
-		Logger:    logger,
-		SourceDir: o.sourceDir,
+		Store:            st,
+		Engine:           query.NewEngine(st),
+		Tracker:          tracker,
+		Logger:           logger,
+		SourceDir:        o.sourceDir,
+		SummarizeRebound: cfg.SummarizeRebound,
 	}
 
 	registerTools(s.mcp, deps)
@@ -79,52 +73,27 @@ func (s *Server) Connect(ctx context.Context, t mcp.Transport) (*mcp.ServerSessi
 	return s.mcp.Connect(ctx, t, nil)
 }
 
-func (s *Server) NotifyColdNodes(ctx context.Context, cold []*store.Node) {
-	toNotify := s.coldCandidates(cold)
+// Send a cold-node warning and return the IDs that reached at least one session.
+func (s *Server) NotifyColdNodes(ctx context.Context, cold []*store.Node) []string {
+	toNotify := make([]*store.Node, 0, len(cold))
+	for _, n := range cold {
+		if n.Temperature < s.notifyThreshold {
+			toNotify = append(toNotify, n)
+		}
+	}
 	if len(toNotify) == 0 {
-		return
+		return nil
 	}
 
-	if sent := s.sendColdLogging(ctx, toNotify); sent > 0 {
-		s.markNotified(toNotify)
-	}
-}
-
-// Garbage-collect notified IDs no longer cold, then return cold nodes pending notification.
-func (s *Server) coldCandidates(cold []*store.Node) []*store.Node {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-
-	stillCold := make(map[string]struct{}, len(cold))
-	for _, n := range cold {
-		stillCold[n.ID] = struct{}{}
-	}
-	for id := range s.notified {
-		if _, ok := stillCold[id]; !ok {
-			delete(s.notified, id)
-		}
+	if sent := s.sendColdLogging(ctx, toNotify); sent == 0 {
+		return nil
 	}
 
-	out := make([]*store.Node, 0, len(cold))
-	for _, n := range cold {
-		if n.Temperature >= s.notifyThreshold {
-			continue
-		}
-		if _, seen := s.notified[n.ID]; seen {
-			continue
-		}
-		out = append(out, n)
+	ids := make([]string, len(toNotify))
+	for i, n := range toNotify {
+		ids[i] = n.ID
 	}
-	return out
-}
-
-func (s *Server) markNotified(nodes []*store.Node) {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-
-	for _, n := range nodes {
-		s.notified[n.ID] = struct{}{}
-	}
+	return ids
 }
 
 type coldNodeEntry struct {

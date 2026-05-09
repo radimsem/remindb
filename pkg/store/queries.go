@@ -148,17 +148,17 @@ const (
 	qIncrementAccess = `UPDATE nodes SET access_count = access_count + 1, last_accessed_at = ?, updated_at = unixepoch()
 		WHERE id = ?`
 
-	qBoostTemperature = `UPDATE nodes SET temperature = min(1.0, temperature + ?),
+	qBoostTemperature = `UPDATE nodes SET temperature = max(0.0, min(1.0, temperature + ?)),
 		access_count = access_count + 1, last_accessed_at = ?, updated_at = unixepoch()
 		WHERE id = ?`
 
 	// IN clause is closed by the caller after appending placeholders.
-	qBoostTemperatureBatchPrefix = `UPDATE nodes SET temperature = min(1.0, temperature + ?),
+	qBoostTemperatureBatchPrefix = `UPDATE nodes SET temperature = max(0.0, min(1.0, temperature + ?)),
 		access_count = access_count + 1, last_accessed_at = ?, updated_at = unixepoch()
 		WHERE id IN (`
 
-	qDecayTemperatures = `UPDATE nodes SET temperature = temperature * ?, updated_at = unixepoch()
+	qDecayTemperatures = `UPDATE nodes SET temperature = max(0.0, min(1.0, temperature * ?)), updated_at = unixepoch()
 		WHERE temperature > 0`
 
-	qSelectColdNodes = `SELECT ` + nodeColumns + ` FROM nodes WHERE temperature < ? ORDER BY temperature ASC`
+	qSelectColdNodes = `SELECT ` + nodeColumns + ` FROM nodes WHERE temperature < ? ORDER BY temperature ASC LIMIT ?`
 )
