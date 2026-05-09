@@ -160,5 +160,5 @@ const (
 	qDecayTemperatures = `UPDATE nodes SET temperature = max(0.0, min(1.0, temperature * ?)), updated_at = unixepoch()
 		WHERE temperature > 0`
 
-	qSelectColdNodes = `SELECT ` + nodeColumns + ` FROM nodes WHERE temperature < ? ORDER BY temperature ASC`
+	qSelectColdNodes = `SELECT ` + nodeColumns + ` FROM nodes WHERE temperature < ? ORDER BY temperature ASC LIMIT ?`
 )

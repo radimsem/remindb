@@ -15,11 +15,10 @@ func newTestServer(t *testing.T, notify, cold float64) *Server {
 	t.Helper()
 
 	st := testutil.OpenTestDB(t)
-	cfg := temperature.Config{
-		ColdThreshold:   cold,
-		NotifyThreshold: notify,
-		TickInterval:    time.Minute,
-	}
+	cfg := temperature.DefaultConfig()
+	cfg.ColdThreshold = cold
+	cfg.NotifyThreshold = notify
+	cfg.TickInterval = time.Minute
 
 	tracker, err := temperature.NewTracker(st, cfg, nil)
 	if err != nil {

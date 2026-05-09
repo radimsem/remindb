@@ -12,7 +12,7 @@ import (
 type NodeStore interface {
 	BoostTemperatureBatch(ctx context.Context, ids []string, boost float64) error
 	DecayTemperatures(ctx context.Context, factor float64) (int64, error)
-	GetColdNodes(ctx context.Context, threshold float64) ([]*store.Node, error)
+	GetColdNodes(ctx context.Context, threshold float64, limit int) ([]*store.Node, error)
 }
 
 type TickResult struct {
@@ -56,7 +56,7 @@ func (t *Tracker) Tick(ctx context.Context, elapsed time.Duration) (*TickResult,
 		return nil, fmt.Errorf("failed to decay: %w", err)
 	}
 
-	cold, err := t.store.GetColdNodes(ctx, t.cfg.ColdThreshold)
+	cold, err := t.store.GetColdNodes(ctx, t.cfg.ColdThreshold, t.cfg.ColdNotifyLimit)
 	if err != nil {
 		return nil, fmt.Errorf("failed to get cold nodes: %w", err)
 	}

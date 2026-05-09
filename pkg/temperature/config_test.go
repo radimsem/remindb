@@ -27,6 +27,8 @@ func TestValidate_Rejects(t *testing.T) {
 		{"NotifyThreshold above 1", func(c *Config) { c.NotifyThreshold = 1.01 }},
 		{"zero TickInterval", func(c *Config) { c.TickInterval = 0 }},
 		{"negative TickInterval", func(c *Config) { c.TickInterval = -time.Second }},
+		{"zero ColdNotifyLimit", func(c *Config) { c.ColdNotifyLimit = 0 }},
+		{"negative ColdNotifyLimit", func(c *Config) { c.ColdNotifyLimit = -1 }},
 	}
 
 	for _, tt := range tests {

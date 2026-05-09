@@ -64,8 +64,8 @@ func (s *Store) DecayTemperatures(ctx context.Context, factor float64) (int64, e
 	return affected, err
 }
 
-func (s *Store) GetColdNodes(ctx context.Context, threshold float64) ([]*Node, error) {
-	rows, err := s.db.QueryContext(ctx, qSelectColdNodes, threshold)
+func (s *Store) GetColdNodes(ctx context.Context, threshold float64, limit int) ([]*Node, error) {
+	rows, err := s.db.QueryContext(ctx, qSelectColdNodes, threshold, limit)
 	if err != nil {
 		return nil, err
 	}
