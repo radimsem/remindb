@@ -25,6 +25,8 @@ func TestValidate_Rejects(t *testing.T) {
 		{"ColdThreshold above 1", func(c *Config) { c.ColdThreshold = 1.01 }},
 		{"negative NotifyThreshold", func(c *Config) { c.NotifyThreshold = -0.01 }},
 		{"NotifyThreshold above 1", func(c *Config) { c.NotifyThreshold = 1.01 }},
+		{"negative SummarizeRebound", func(c *Config) { c.SummarizeRebound = -0.01 }},
+		{"SummarizeRebound above 1", func(c *Config) { c.SummarizeRebound = 1.01 }},
 		{"zero TickInterval", func(c *Config) { c.TickInterval = 0 }},
 		{"negative TickInterval", func(c *Config) { c.TickInterval = -time.Second }},
 		{"zero ColdNotifyLimit", func(c *Config) { c.ColdNotifyLimit = 0 }},

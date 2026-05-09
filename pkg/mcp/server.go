@@ -53,11 +53,12 @@ func NewServer(st *store.Store, tracker *temperature.Tracker, cfg temperature.Co
 	}
 
 	deps := &tools.Deps{
-		Store:     st,
-		Engine:    query.NewEngine(st),
-		Tracker:   tracker,
-		Logger:    logger,
-		SourceDir: o.sourceDir,
+		Store:            st,
+		Engine:           query.NewEngine(st),
+		Tracker:          tracker,
+		Logger:           logger,
+		SourceDir:        o.sourceDir,
+		SummarizeRebound: cfg.SummarizeRebound,
 	}
 
 	registerTools(s.mcp, deps)

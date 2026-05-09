@@ -32,9 +32,10 @@ func setup(t *testing.T) (*Deps, *store.Store) {
 	}
 
 	d := &Deps{
-		Store:   st,
-		Engine:  query.NewEngine(st),
-		Tracker: tracker,
+		Store:            st,
+		Engine:           query.NewEngine(st),
+		Tracker:          tracker,
+		SummarizeRebound: temperature.DefaultConfig().SummarizeRebound,
 	}
 	return d, st
 }
@@ -327,6 +328,84 @@ func TestHandleSummarize(t *testing.T) {
 	}
 	if dr.NewContent != "short summary" {
 		t.Errorf("diff.NewContent = %q, want 'short summary'", dr.NewContent)
+	}
+}
+
+func TestHandleSummarize_BumpsTemperatureToRebound(t *testing.T) {
+	d, st := setup(t)
+	ctx := context.Background()
+
+	seed := &store.Node{
+		ID: "node0001", SourceFile: "test.md", NodeType: "text",
+		Depth: 1, Label: "old", Content: "long original",
+		Format: "plain", TokenCount: 50, ContentHash: "h",
+	}
+	if err := st.UpsertNode(ctx, seed); err != nil {
+		t.Fatalf("UpsertNode: %v", err)
+	}
+	if err := st.UpdateTemperature(ctx, "node0001", 0.05); err != nil {
+		t.Fatalf("UpdateTemperature: %v", err)
+	}
+
+	if _, _, err := d.HandleSummarize(ctx, &gomcp.CallToolRequest{}, SummarizeInput{
+		NodeID: "node0001", Summary: "short",
+	}); err != nil {
+		t.Fatalf("HandleSummarize: %v", err)
+	}
+
+	got, _ := st.GetNode(ctx, "node0001")
+	want := temperature.DefaultConfig().SummarizeRebound
+	if got.Temperature != want {
+		t.Errorf("Temperature = %g, want %g", got.Temperature, want)
+	}
+}
+
+func TestHandleSummarize_AcceptsTemperatureOverride(t *testing.T) {
+	d, st := setup(t)
+	ctx := context.Background()
+
+	seed := &store.Node{
+		ID: "node0001", SourceFile: "test.md", NodeType: "text",
+		Depth: 1, Label: "l", Content: "c",
+		Format: "plain", TokenCount: 1, ContentHash: "h",
+	}
+	if err := st.UpsertNode(ctx, seed); err != nil {
+		t.Fatalf("UpsertNode: %v", err)
+	}
+
+	override := 0.8
+	if _, _, err := d.HandleSummarize(ctx, &gomcp.CallToolRequest{}, SummarizeInput{
+		NodeID: "node0001", Summary: "s", Temperature: &override,
+	}); err != nil {
+		t.Fatalf("HandleSummarize: %v", err)
+	}
+
+	got, _ := st.GetNode(ctx, "node0001")
+	if got.Temperature != 0.8 {
+		t.Errorf("Temperature = %g, want 0.8", got.Temperature)
+	}
+}
+
+func TestHandleSummarize_RejectsOutOfRangeTemperature(t *testing.T) {
+	d, st := setup(t)
+	ctx := context.Background()
+
+	seed := &store.Node{
+		ID: "node0001", SourceFile: "test.md", NodeType: "text",
+		Depth: 1, Label: "l", Content: "c",
+		Format: "plain", TokenCount: 1, ContentHash: "h",
+	}
+	if err := st.UpsertNode(ctx, seed); err != nil {
+		t.Fatalf("UpsertNode: %v", err)
+	}
+
+	tests := []float64{-0.01, 1.01}
+	for _, bad := range tests {
+		if _, _, err := d.HandleSummarize(ctx, &gomcp.CallToolRequest{}, SummarizeInput{
+			NodeID: "node0001", Summary: "s", Temperature: &bad,
+		}); err == nil {
+			t.Errorf("temperature=%g: expected error, got nil", bad)
+		}
 	}
 }
 
