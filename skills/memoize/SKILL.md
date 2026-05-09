@@ -148,19 +148,21 @@ Every write creates a snapshot. Don't write per-keystroke or per-token. If you h
 When you see one, walk the `nodes` array and compact each one here:
 
 ```
-remindb__MemoryFetch(anchor="<id>", budget=1500)         # read what's there
-remindb__MemorySummarize(node_id="<id>", summary="…")    # replace in place
+remindb__MemoryFetch(anchor="<id>", budget=1500)                       # read what's there
+remindb__MemorySummarize(node_id="<id>", summary="…")                  # replace in place; rebounds to 0.5
+remindb__MemorySummarize(node_id="<id>", summary="…", temperature=0.7) # override when summary is high-value
 ```
 
 `MemorySummarize`:
 
 - Replaces content, recomputes `token_count`, rewrites the label to `"Summary: <first line>"` (truncated to 70 chars including prefix).
 - **Preserves `node_type`, `parent_id`, and source file.**
+- **Bumps temperature to `SummarizeRebound` (default 0.5)** so the summarized node falls out of the cold set immediately. Pass an optional `temperature` (in `[0, 1]`) to override per call when the summary deserves a stronger or weaker signal than the default.
 - Creates a snapshot — prior wording recoverable via `MemoryHistory`.
 
 The same shape rules apply to the `summary` payload. If the summary is more than a few sentences, give it headings or a list — a dense paragraph is what you're compacting *away from*. The summary should index *better* than the original, not just be shorter.
 
-Notifications are deduplicated server-side; the same node won't be re-pushed until it warms above `NotifyThreshold` and re-cools. Deferring is safe but you won't get a second reminder.
+Notifications are deduplicated server-side per `ColdNotifyTTL` (default 1 hour); the same node won't be re-pushed within that window once it has been delivered. Summarizing immediately rebounds the node out of the cold set, so the next reminder only arrives if it decays back below `ColdThreshold`.
 
 ## Recompile when the source drifts
 
