@@ -18,6 +18,7 @@ const (
 
 // Temperature-weighted relevance: cold nodes deprioritized but still findable.
 func Score(relevance, temperature float64) float64 {
+	temperature = max(0.0, min(1.0, temperature))
 	weight := coldFloor + tempWeight*temperature
 
 	if relevance == 0 || weight == 0 {

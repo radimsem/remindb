@@ -56,7 +56,11 @@ func runServe(cmd *cobra.Command, _ []string) error {
 	}
 
 	cfg := temperature.DefaultConfig()
-	tracker := temperature.NewTracker(st, cfg, logger)
+	tracker, err := temperature.NewTracker(st, cfg, logger)
+	if err != nil {
+		return err
+	}
+
 	srv := remindb.NewServer(st, tracker, cfg,
 		remindb.WithSourceDir(sourceDir),
 		remindb.WithLogger(logger),

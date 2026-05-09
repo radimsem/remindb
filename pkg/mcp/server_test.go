@@ -13,12 +13,19 @@ import (
 
 func newTestServer(t *testing.T, notify, cold float64) *Server {
 	t.Helper()
+
 	st := testutil.OpenTestDB(t)
 	cfg := temperature.Config{
 		ColdThreshold:   cold,
 		NotifyThreshold: notify,
+		TickInterval:    time.Minute,
 	}
-	tracker := temperature.NewTracker(st, cfg, nil)
+
+	tracker, err := temperature.NewTracker(st, cfg, nil)
+	if err != nil {
+		t.Fatalf("NewTracker: %v", err)
+	}
+
 	return NewServer(st, tracker, cfg)
 }
 
