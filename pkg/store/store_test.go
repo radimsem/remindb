@@ -349,6 +349,36 @@ func TestBoostTemperature(t *testing.T) {
 	if got.Temperature != 1.0 {
 		t.Errorf("Temperature = %f, want 1.0 (capped)", got.Temperature)
 	}
+
+	// Negative boost should floor at 0.0.
+	must(t, st.UpdateTemperature(ctx, "aaaaaaaa", 0.1))
+	must(t, st.BoostTemperature(ctx, "aaaaaaaa", -0.5))
+
+	got, _ = st.GetNode(ctx, "aaaaaaaa")
+	if got.Temperature != 0.0 {
+		t.Errorf("Temperature = %f, want 0.0 (floored)", got.Temperature)
+	}
+}
+
+func TestBoostTemperatureBatch_NegativeFloors(t *testing.T) {
+	st := openTestDB(t)
+	ctx := context.Background()
+
+	must(t, st.UpsertNode(ctx, testNode("aaaaaaaa", "")))
+	must(t, st.UpsertNode(ctx, testNode("bbbbbbbb", "")))
+	must(t, st.UpdateTemperature(ctx, "aaaaaaaa", 0.1))
+	must(t, st.UpdateTemperature(ctx, "bbbbbbbb", 0.2))
+
+	must(t, st.BoostTemperatureBatch(ctx, []string{"aaaaaaaa", "bbbbbbbb"}, -0.5))
+
+	a, _ := st.GetNode(ctx, "aaaaaaaa")
+	if a.Temperature != 0.0 {
+		t.Errorf("a.Temperature = %f, want 0.0", a.Temperature)
+	}
+	b, _ := st.GetNode(ctx, "bbbbbbbb")
+	if b.Temperature != 0.0 {
+		t.Errorf("b.Temperature = %f, want 0.0", b.Temperature)
+	}
 }
 
 // Verify foreign_keys=ON applies to every connection in the file-backed pool.
@@ -413,6 +443,23 @@ func TestDecayTemperatures(t *testing.T) {
 	b, _ := st.GetNode(ctx, "bbbbbbbb")
 	if b.Temperature != 0.0 {
 		t.Errorf("Temperature = %f, want 0.0 (unchanged)", b.Temperature)
+	}
+}
+
+func TestDecayTemperatures_FactorAboveOneCaps(t *testing.T) {
+	st := openTestDB(t)
+	ctx := context.Background()
+
+	must(t, st.UpsertNode(ctx, testNode("aaaaaaaa", "")))
+	must(t, st.UpdateTemperature(ctx, "aaaaaaaa", 0.8))
+
+	if _, err := st.DecayTemperatures(ctx, 2.0); err != nil {
+		t.Fatalf("DecayTemperatures: %v", err)
+	}
+
+	got, _ := st.GetNode(ctx, "aaaaaaaa")
+	if got.Temperature != 1.0 {
+		t.Errorf("Temperature = %f, want 1.0 (capped)", got.Temperature)
 	}
 }
 
