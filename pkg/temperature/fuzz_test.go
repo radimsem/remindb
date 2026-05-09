@@ -51,6 +51,15 @@ func FuzzScore(f *testing.F) {
 			if !math.IsNaN(relevance) && !math.IsNaN(temp) {
 				t.Errorf("Score(%g, %g) = NaN with non-NaN inputs", relevance, temp)
 			}
+			return
+		}
+
+		// For non-negative finite relevance, the result must be in [0, relevance].
+		if math.IsInf(relevance, 0) || relevance < 0 {
+			return
+		}
+		if result < 0 || result > relevance {
+			t.Errorf("Score(%g, %g) = %g, want in [0, %g]", relevance, temp, result, relevance)
 		}
 	})
 }
