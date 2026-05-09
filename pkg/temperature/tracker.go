@@ -26,11 +26,15 @@ type Tracker struct {
 	logger *slog.Logger
 }
 
-func NewTracker(s NodeStore, cfg Config, logger *slog.Logger) *Tracker {
+func NewTracker(s NodeStore, cfg Config, logger *slog.Logger) (*Tracker, error) {
+	if err := cfg.Validate(); err != nil {
+		return nil, fmt.Errorf("invalid config: %w", err)
+	}
+
 	if logger == nil {
 		logger = slog.New(slog.DiscardHandler)
 	}
-	return &Tracker{store: s, cfg: cfg, logger: logger}
+	return &Tracker{store: s, cfg: cfg, logger: logger}, nil
 }
 
 func (t *Tracker) RecordAccess(ctx context.Context, ids []string) error {
