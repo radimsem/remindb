@@ -165,6 +165,32 @@ cache/scratch.md     # exact relative path
 
 Supported: literal basenames, `*` wildcards, trailing `/` for dir-only, `**` for any-segment-count, `#` comments. Anything else (`!negation`, `[char ranges]`, `?`, leading `/`, `\` escapes) fails the command at startup with a line-numbered error.
 
+#### Pre-seeding temperatures with `.temp.json`
+
+Drop a `.temp.json` at the source root to set initial temperatures for files at compile time. JSON object, values are floats in `[0, 1]`. Read on `compile`, the `serve` rescan loop, and the `MemoryCompile` tool.
+
+```json
+{
+  "*": 0.3,
+  "README.md": 0.9,
+  "src/api/routes.yaml": 0.95,
+  "src": {
+    "*": 0.6,
+    "api": {
+      "deprecated.json": 0.1
+    },
+    "internal": 0.4
+  },
+  "docs/": 0.4
+}
+```
+
+Slash-keys and nested objects mix freely — `"src/api/routes.yaml"` and `{"src": {"api": {"routes.yaml": …}}}` mean the same thing. Values can sit on files (`README.md`), directories (`internal`, `docs/`), or a `*` glob that fills in the rest at the same level. Resolution walks the path segment by segment and takes the most specific match: a file key beats a sibling `*`, which beats an ancestor's default.
+
+Two keys that resolve to the same leaf with disagreeing values fail at load time with the offending path named. Missing file is silently skipped; everything starts at the engine default of `0.50`.
+
+Supported: numbers in `[0, 1]`, nested objects, slash-keys, `*` glob at any level, leading `./` and trailing `/` (both normalized). Anything else — out-of-range numbers, string values, leading `/`, `..` segments, empty segments from `//` — fails the command at startup with the offending key named.
+
 ### `serve`
 
 Starts the MCP server on stdio. With `--source` set, remindb runs an initial compile (if the DB is empty) and keeps a background rescan loop running.
