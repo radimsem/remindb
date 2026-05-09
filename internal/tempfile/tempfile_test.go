@@ -167,3 +167,226 @@ func TestResolve_EmptyObject(t *testing.T) {
 		t.Error("empty object should not resolve anything")
 	}
 }
+
+func TestResolve_FlatSlashKey(t *testing.T) {
+	dir := t.TempDir()
+
+	data := []byte(`{
+		"src/api/routes.yaml": 0.95,
+		"src/api/deprecated.json": 0.1,
+		"docs/architecture.md": 0.85
+	}`)
+	if err := os.WriteFile(filepath.Join(dir, FileName), data, 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	r, err := Load(dir)
+	if err != nil {
+		t.Fatalf("Load: %v", err)
+	}
+
+	tests := []struct {
+		path string
+		want float64
+		ok   bool
+	}{
+		{"src/api/routes.yaml", 0.95, true},
+		{"src/api/deprecated.json", 0.1, true},
+		{"docs/architecture.md", 0.85, true},
+		{"src/api/missing.yaml", 0, false},
+		{"src/other.go", 0, false},
+	}
+
+	for _, tt := range tests {
+		got, ok := r.Resolve(tt.path)
+		if ok != tt.ok {
+			t.Errorf("Resolve(%q): ok = %v, want %v", tt.path, ok, tt.ok)
+			continue
+		}
+		if got != tt.want {
+			t.Errorf("Resolve(%q) = %g, want %g", tt.path, got, tt.want)
+		}
+	}
+}
+
+func TestResolve_SlashKeyWithGlob(t *testing.T) {
+	dir := t.TempDir()
+
+	data := []byte(`{
+		"src/*": 0.6,
+		"src/api/*": 0.7,
+		"src/api/routes.yaml": 0.95
+	}`)
+	if err := os.WriteFile(filepath.Join(dir, FileName), data, 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	r, err := Load(dir)
+	if err != nil {
+		t.Fatalf("Load: %v", err)
+	}
+
+	tests := []struct {
+		path string
+		want float64
+		ok   bool
+	}{
+		{"src/utils.go", 0.6, true},
+		{"src/api/routes.yaml", 0.95, true},
+		{"src/api/health.json", 0.7, true},
+	}
+
+	for _, tt := range tests {
+		got, ok := r.Resolve(tt.path)
+		if ok != tt.ok {
+			t.Errorf("Resolve(%q): ok = %v, want %v", tt.path, ok, tt.ok)
+			continue
+		}
+		if got != tt.want {
+			t.Errorf("Resolve(%q) = %g, want %g", tt.path, got, tt.want)
+		}
+	}
+}
+
+func TestResolve_MixedSlashAndNested(t *testing.T) {
+	dir := t.TempDir()
+
+	data := []byte(`{
+		"src/api/routes.yaml": 0.95,
+		"src": {
+			"api": {
+				"deprecated.json": 0.1
+			},
+			"internal": 0.4
+		}
+	}`)
+	if err := os.WriteFile(filepath.Join(dir, FileName), data, 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	r, err := Load(dir)
+	if err != nil {
+		t.Fatalf("Load: %v", err)
+	}
+
+	tests := []struct {
+		path string
+		want float64
+		ok   bool
+	}{
+		{"src/api/routes.yaml", 0.95, true},
+		{"src/api/deprecated.json", 0.1, true},
+		{"src/internal/core.go", 0.4, true},
+	}
+
+	for _, tt := range tests {
+		got, ok := r.Resolve(tt.path)
+		if ok != tt.ok {
+			t.Errorf("Resolve(%q): ok = %v, want %v", tt.path, ok, tt.ok)
+			continue
+		}
+		if got != tt.want {
+			t.Errorf("Resolve(%q) = %g, want %g", tt.path, got, tt.want)
+		}
+	}
+}
+
+func TestLoad_ConflictingTemps(t *testing.T) {
+	tests := []struct {
+		name string
+		json string
+	}{
+		{
+			name: "slash and nested set same leaf",
+			json: `{"src/api/routes.yaml": 0.95, "src": {"api": {"routes.yaml": 0.5}}}`,
+		},
+		{
+			name: "two slash-keys disagree",
+			json: `{"src/x": 0.1, "src": {"x": 0.9}}`,
+		},
+		{
+			name: "leaf shadows deeper override",
+			json: `{"src/api": 0.7, "src/api/x.go": 0.1}`,
+		},
+		{
+			name: "deeper override under leaf, reversed",
+			json: `{"src/api/x.go": 0.1, "src/api": 0.7}`,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			dir := t.TempDir()
+			if err := os.WriteFile(filepath.Join(dir, FileName), []byte(tt.json), 0o644); err != nil {
+				t.Fatal(err)
+			}
+			if _, err := Load(dir); err == nil {
+				t.Fatal("expected error for conflicting temperatures")
+			}
+		})
+	}
+}
+
+func TestResolve_NormalizedKeys(t *testing.T) {
+	dir := t.TempDir()
+
+	data := []byte(`{
+		"./README.md": 0.9,
+		"src/api/": 0.7,
+		"docs/": 0.4
+	}`)
+	if err := os.WriteFile(filepath.Join(dir, FileName), data, 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	r, err := Load(dir)
+	if err != nil {
+		t.Fatalf("Load: %v", err)
+	}
+
+	tests := []struct {
+		path string
+		want float64
+		ok   bool
+	}{
+		{"README.md", 0.9, true},
+		{"src/api/routes.yaml", 0.7, true},
+		{"docs/architecture.md", 0.4, true},
+	}
+
+	for _, tt := range tests {
+		got, ok := r.Resolve(tt.path)
+		if ok != tt.ok {
+			t.Errorf("Resolve(%q): ok = %v, want %v", tt.path, ok, tt.ok)
+			continue
+		}
+		if got != tt.want {
+			t.Errorf("Resolve(%q) = %g, want %g", tt.path, got, tt.want)
+		}
+	}
+}
+
+func TestLoad_InvalidSegment(t *testing.T) {
+	tests := []struct {
+		name string
+		json string
+	}{
+		{"empty segment", `{"src//routes.yaml": 0.5}`},
+		{"leading slash", `{"/README.md": 0.5}`},
+		{"empty after normalization", `{"./": 0.5}`},
+		{"mid-path dot", `{"src/./README.md": 0.5}`},
+		{"dotdot segment", `{"../x": 0.5}`},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			dir := t.TempDir()
+			if err := os.WriteFile(filepath.Join(dir, FileName), []byte(tt.json), 0o644); err != nil {
+				t.Fatal(err)
+			}
+			if _, err := Load(dir); err == nil {
+				t.Fatal("expected error for invalid segment")
+			}
+		})
+	}
+}
