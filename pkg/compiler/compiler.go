@@ -207,6 +207,22 @@ func CompileDir(ctx context.Context, st *store.Store, dir, message string, opts 
 	return Compile(ctx, st, all...)
 }
 
+// Compile a single file; compile root anchors at the file's parent directory.
+func CompileFile(ctx context.Context, st *store.Store, path, message string, opts ...Option) (*Result, error) {
+	absPath, err := filepath.Abs(path)
+	if err != nil {
+		return nil, fmt.Errorf("failed to resolve: %s: %w", path, err)
+	}
+
+	all := append([]Option{}, opts...)
+	all = append(all,
+		WithPaths([]string{path}),
+		WithMessage(message),
+		WithCompileRoot(filepath.Dir(absPath)),
+	)
+	return Compile(ctx, st, all...)
+}
+
 func resolveTemps(dir string, paths []string) (map[string]*float64, error) {
 	resolver, err := tempfile.Load(dir)
 	if err != nil {
