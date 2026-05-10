@@ -126,26 +126,55 @@ func nodeFromBlock(path string, n ast.Node) *ContextNode {
 	}
 }
 
-// Concatenate visible text inside n, inserting spaces/newlines for inline breaks.
+// Concatenate visible text inside n, round-tripping links/images as `[text](dest)` / `![alt](dest)`.
 func extractText(n ast.Node) string {
 	var sb strings.Builder
 	ast.WalkFunc(n, func(node ast.Node, entering bool) ast.WalkStatus {
-		if !entering {
-			return ast.GoToNext
-		}
 		switch t := node.(type) {
 		case *ast.Text:
-			sb.Write(t.Literal)
+			if entering {
+				sb.Write(t.Literal)
+			}
 		case *ast.Code:
-			sb.Write(t.Literal)
+			if entering {
+				sb.Write(t.Literal)
+			}
 		case *ast.Softbreak:
-			sb.WriteByte(' ')
+			if entering {
+				sb.WriteByte(' ')
+			}
 		case *ast.Hardbreak:
-			sb.WriteByte('\n')
+			if entering {
+				sb.WriteByte('\n')
+			}
+		case *ast.Link:
+			if entering {
+				sb.WriteByte('[')
+			} else {
+				writeLinkTail(&sb, t.Destination, t.Title)
+			}
+		case *ast.Image:
+			if entering {
+				sb.WriteString("![")
+			} else {
+				writeLinkTail(&sb, t.Destination, t.Title)
+			}
 		}
 		return ast.GoToNext
 	})
 	return strings.TrimSpace(sb.String())
+}
+
+func writeLinkTail(sb *strings.Builder, dest, title []byte) {
+	sb.WriteString("](")
+	sb.Write(dest)
+
+	if len(title) > 0 {
+		sb.WriteString(` "`)
+		sb.Write(title)
+		sb.WriteByte('"')
+	}
+	sb.WriteByte(')')
 }
 
 // Render each top-level list item as one "- text" line, flattening nested items.

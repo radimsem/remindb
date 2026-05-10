@@ -106,6 +106,68 @@ func TestMarkdownParser_WithPreamble(t *testing.T) {
 	}
 }
 
+func TestMarkdownParser_PreservesLinks(t *testing.T) {
+	cases := []struct {
+		src  string
+		want string
+	}{
+		{"[anthropic](https://docs.anthropic.com)\n", "[anthropic](https://docs.anthropic.com)"},
+		{"[anthropic](https://docs.anthropic.com \"docs\")\n", "[anthropic](https://docs.anthropic.com \"docs\")"},
+		{"see [docs](https://x.com) here\n", "see [docs](https://x.com) here"},
+	}
+	for _, c := range cases {
+		nodes, err := parseMarkdown("t.md", []byte(c.src))
+		if err != nil {
+			t.Fatalf("parseMarkdown(%q): %v", c.src, err)
+		}
+
+		if len(nodes) != 1 || nodes[0].Content != c.want {
+			t.Errorf("src=%q: Content = %q, want %q", c.src, nodes[0].Content, c.want)
+		}
+	}
+}
+
+func TestMarkdownParser_PreservesImages(t *testing.T) {
+	cases := []struct {
+		src  string
+		want string
+	}{
+		{"![logo](https://x.com/logo.png)\n", "![logo](https://x.com/logo.png)"},
+		{"![](https://x.com/logo.png)\n", "![](https://x.com/logo.png)"},
+		{"![logo](https://x.com/logo.png \"alt\")\n", "![logo](https://x.com/logo.png \"alt\")"},
+	}
+	for _, c := range cases {
+		nodes, err := parseMarkdown("t.md", []byte(c.src))
+		if err != nil {
+			t.Fatalf("parseMarkdown(%q): %v", c.src, err)
+		}
+
+		if len(nodes) != 1 || nodes[0].Content != c.want {
+			t.Errorf("src=%q: Content = %q, want %q", c.src, nodes[0].Content, c.want)
+		}
+	}
+}
+
+func TestMarkdownParser_LinkInHeadingAndList(t *testing.T) {
+	data := []byte("# see [docs](https://x.com)\n\n- read [more](https://y.com)\n")
+	nodes, err := parseMarkdown("t.md", data)
+	if err != nil {
+		t.Fatalf("parseMarkdown: %v", err)
+	}
+
+	if len(nodes) != 1 || nodes[0].Content != "see [docs](https://x.com)" {
+		t.Fatalf("heading = %+v", nodes[0])
+	}
+	if len(nodes[0].Children) != 1 {
+		t.Fatalf("heading.Children = %d, want 1", len(nodes[0].Children))
+	}
+
+	list := nodes[0].Children[0]
+	if list.NodeType != NodeList || list.Content != "- read [more](https://y.com)" {
+		t.Errorf("list = %+v", list)
+	}
+}
+
 func TestMarkdownParser_Empty(t *testing.T) {
 	nodes, err := parseMarkdown("empty.md", []byte(""))
 	if err != nil {
