@@ -43,11 +43,7 @@ func (d *Deps) HandleCompile(ctx context.Context, _ *gomcp.CallToolRequest, inpu
 	if fi.IsDir() {
 		result, err = compiler.CompileDir(ctx, d.Store, path, msg, compiler.WithLogger(d.Logger))
 	} else {
-		result, err = compiler.Compile(ctx, d.Store,
-			compiler.WithPaths([]string{path}),
-			compiler.WithMessage(msg),
-			compiler.WithLogger(d.Logger),
-		)
+		result, err = compiler.CompileFile(ctx, d.Store, path, msg, compiler.WithLogger(d.Logger))
 	}
 	if err != nil {
 		return nil, nil, fmt.Errorf("failed to compile: %w", err)

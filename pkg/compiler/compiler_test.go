@@ -169,6 +169,54 @@ func TestCompile_SingleFileRescanAfterBatch(t *testing.T) {
 	}
 }
 
+func TestCompileFile_AnchorsCompileRoot(t *testing.T) {
+	st := testutil.OpenTestDB(t)
+	ctx := context.Background()
+	dir := t.TempDir()
+
+	sub := filepath.Join(dir, "sub")
+	if err := os.MkdirAll(sub, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	p := writeFile(t, sub, "doc.md", "# Hello\n\nContent.\n")
+
+	if _, err := CompileFile(ctx, st, p, "v1"); err != nil {
+		t.Fatalf("CompileFile: %v", err)
+	}
+
+	got, err := st.GetLatestCompileRoot(ctx)
+	if err != nil {
+		t.Fatalf("GetLatestCompileRoot: %v", err)
+	}
+	if got != sub {
+		t.Errorf("compile_root = %q, want %q (file's parent dir)", got, sub)
+	}
+}
+
+func TestCompile_PersistsCompileRoot(t *testing.T) {
+	st := testutil.OpenTestDB(t)
+	ctx := context.Background()
+	dir := t.TempDir()
+
+	p := writeFile(t, dir, "doc.md", "# Hello\n\nContent.\n")
+
+	if _, err := Compile(ctx, st,
+		WithPaths([]string{p}),
+		WithMessage("v1"),
+		WithCompileRoot(dir),
+	); err != nil {
+		t.Fatalf("Compile: %v", err)
+	}
+
+	got, err := st.GetLatestCompileRoot(ctx)
+	if err != nil {
+		t.Fatalf("GetLatestCompileRoot: %v", err)
+	}
+	if got != dir {
+		t.Errorf("compile_root = %q, want %q", got, dir)
+	}
+}
+
 func TestCompile_HeadingEditDoesNotCascade(t *testing.T) {
 	st := testutil.OpenTestDB(t)
 	ctx := context.Background()
