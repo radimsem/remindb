@@ -10,7 +10,7 @@ import (
 	"github.com/radimsem/remindb/pkg/parser"
 )
 
-func Transform(ctx context.Context, roots []*parser.ContextNode) error {
+func Transform(ctx context.Context, roots []*parser.ContextNode, compileRoot string) error {
 	flat := parser.Flatten(roots)
 	if len(flat) == 0 {
 		return nil
@@ -21,8 +21,7 @@ func Transform(ctx context.Context, roots []*parser.ContextNode) error {
 		compress(n)
 	}
 
-	// Strip common directory prefix from source file.
-	compressPrefix(flat)
+	compressPrefix(flat, compileRoot)
 
 	// Per-node enrichment — independent, content-only
 	var g errgroup.Group

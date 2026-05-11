@@ -574,6 +574,84 @@ func TestRecompileWorkflow(t *testing.T) {
 	testutil.LogDiffs(t, diffs)
 }
 
+func TestRecompileWorkflow_StableNodeIDsAcrossRescan(t *testing.T) {
+	st := testutil.OpenTestDB(t)
+	ctx := context.Background()
+	dir := t.TempDir()
+
+	if err := os.MkdirAll(filepath.Join(dir, "sub"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, "foo.md"), []byte("# Foo\n\nfoo body\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	barPath := filepath.Join(dir, "sub", "bar.md")
+	if err := os.WriteFile(barPath, []byte("# Bar\n\nbar body\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	if _, err := compiler.CompileDir(ctx, st, dir, "initial"); err != nil {
+		t.Fatalf("CompileDir: %v", err)
+	}
+
+	before, err := st.GetAllNodes(ctx)
+	if err != nil {
+		t.Fatalf("GetAllNodes (before): %v", err)
+	}
+
+	beforeIDs := make(map[string]string, len(before))
+	for _, n := range before {
+		beforeIDs[n.ID] = n.SourceFile
+	}
+
+	// Edit bar.md so the rescan path actually has work to do.
+	if err := os.WriteFile(barPath, []byte("# Bar\n\nbar body edited\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	absDir, err := filepath.Abs(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := compiler.Compile(ctx, st,
+		compiler.WithPaths([]string{barPath}),
+		compiler.WithCompileRoot(absDir),
+		compiler.WithMessage("rescan"),
+	); err != nil {
+		t.Fatalf("Compile (rescan): %v", err)
+	}
+
+	after, err := st.GetAllNodes(ctx)
+	if err != nil {
+		t.Fatalf("GetAllNodes (after): %v", err)
+	}
+
+	if len(after) != len(before) {
+		t.Errorf("node count drifted: before=%d after=%d (orphans from prefix instability)", len(before), len(after))
+	}
+
+	seen := make(map[string]bool, len(after))
+	for _, n := range after {
+		seen[n.SourceFile] = true
+	}
+
+	subBar := filepath.Join("sub", "bar.md")
+	if seen["bar.md"] && seen[subBar] {
+		t.Errorf("bar.md exists under two source_file values — orphan path: %v", []string{"bar.md", subBar})
+	}
+
+	// IDs for foo.md (untouched) must be byte-identical.
+	for _, n := range after {
+		if n.SourceFile != "foo.md" {
+			continue
+		}
+		if _, ok := beforeIDs[n.ID]; !ok {
+			t.Errorf("foo.md node %s has a new ID after rescan", n.ID)
+		}
+	}
+}
+
 // Verifies that querying nodes boosts their temperature.
 func TestTemperatureBoostOnAccess(t *testing.T) {
 	st := testutil.OpenTestDB(t)

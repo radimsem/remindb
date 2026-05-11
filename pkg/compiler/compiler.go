@@ -98,7 +98,7 @@ func Compile(ctx context.Context, st *store.Store, opts ...Option) (*Result, err
 		roots = append(roots, nodes...)
 	}
 
-	if err := transformer.Transform(ctx, roots); err != nil {
+	if err := transformer.Transform(ctx, roots, o.compileRoot); err != nil {
 		return nil, fmt.Errorf("failed to transform: %w", err)
 	}
 
@@ -145,6 +145,7 @@ func CompileDir(ctx context.Context, st *store.Store, dir, message string, opts 
 		if err != nil {
 			return nil, fmt.Errorf("failed to load: %s: %w", ignore.FileName, err)
 		}
+
 		matcher = m
 	}
 
@@ -166,6 +167,7 @@ func CompileDir(ctx context.Context, st *store.Store, dir, message string, opts 
 			}
 			return nil
 		}
+
 		if rel == ignore.FileName {
 			return nil
 		}
@@ -175,6 +177,7 @@ func CompileDir(ctx context.Context, st *store.Store, dir, message string, opts 
 		if matcher.Match(rel, false) {
 			return nil
 		}
+
 		paths = append(paths, path)
 		return nil
 	})
@@ -196,7 +199,6 @@ func CompileDir(ctx context.Context, st *store.Store, dir, message string, opts 
 		return nil, fmt.Errorf("failed to resolve: %s: %w", dir, err)
 	}
 
-	// Caller-supplied opts come first so WithPaths/WithCompileRoot/WithTemps below win.
 	all := append([]Option{}, opts...)
 	all = append(all,
 		WithPaths(paths),
