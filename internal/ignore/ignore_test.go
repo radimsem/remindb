@@ -3,7 +3,6 @@ package ignore
 import (
 	"os"
 	"path/filepath"
-	"strings"
 	"testing"
 )
 
@@ -56,59 +55,134 @@ func TestLoad_CommentsAndBlanks(t *testing.T) {
 	}
 }
 
-func TestLoad_UnsupportedPattern_Negation(t *testing.T) {
+func TestMatch_Negation(t *testing.T) {
 	dir := t.TempDir()
-	writeIgnore(t, dir, "*.md\n!important.md\n")
+	writeIgnore(t, dir, "*.md\n!keep.md\n")
 
-	_, err := Load(dir)
-	if err == nil {
-		t.Fatal("expected error for negation pattern")
+	m, err := Load(dir)
+	if err != nil {
+		t.Fatalf("Load: %v", err)
 	}
-	if !strings.Contains(err.Error(), "line 2") {
-		t.Errorf("error should reference line 2, got: %v", err)
+
+	if !m.Match("notes.md", false) {
+		t.Error("notes.md should be ignored by *.md")
+	}
+	if m.Match("keep.md", false) {
+		t.Error("keep.md should be re-included by !keep.md")
+	}
+	if !m.Match("a/notes.md", false) {
+		t.Error("nested notes.md should be ignored")
+	}
+	if m.Match("a/keep.md", false) {
+		t.Error("nested keep.md should be re-included")
 	}
 }
 
-func TestLoad_UnsupportedPattern_CharRange(t *testing.T) {
+func TestMatch_LastMatchWins(t *testing.T) {
+	dir := t.TempDir()
+	// Re-ignore after a negation: order matters.
+	writeIgnore(t, dir, "*.md\n!keep.md\nkeep.md\n")
+
+	m, err := Load(dir)
+	if err != nil {
+		t.Fatalf("Load: %v", err)
+	}
+
+	if !m.Match("keep.md", false) {
+		t.Error("trailing keep.md should win over !keep.md")
+	}
+}
+
+func TestMatch_CharRange(t *testing.T) {
 	dir := t.TempDir()
 	writeIgnore(t, dir, "file[abc].md\n")
 
-	_, err := Load(dir)
-	if err == nil {
-		t.Fatal("expected error for char range")
+	m, err := Load(dir)
+	if err != nil {
+		t.Fatalf("Load: %v", err)
 	}
-	if !strings.Contains(err.Error(), "line 1") {
-		t.Errorf("error should reference line 1, got: %v", err)
+
+	for _, p := range []string{"filea.md", "fileb.md", "filec.md"} {
+		if !m.Match(p, false) {
+			t.Errorf("%q should match file[abc].md", p)
+		}
 	}
-}
-
-func TestLoad_UnsupportedPattern_Escape(t *testing.T) {
-	dir := t.TempDir()
-	writeIgnore(t, dir, "foo\\bar\n")
-
-	_, err := Load(dir)
-	if err == nil {
-		t.Fatal("expected error for escape sequence")
+	if m.Match("filed.md", false) {
+		t.Error("filed.md should not match file[abc].md")
 	}
 }
 
-func TestLoad_UnsupportedPattern_Question(t *testing.T) {
+func TestMatch_QuestionWildcard(t *testing.T) {
 	dir := t.TempDir()
 	writeIgnore(t, dir, "fo?.md\n")
 
-	_, err := Load(dir)
-	if err == nil {
-		t.Fatal("expected error for ? wildcard")
+	m, err := Load(dir)
+	if err != nil {
+		t.Fatalf("Load: %v", err)
+	}
+
+	if !m.Match("foo.md", false) {
+		t.Error("foo.md should match fo?.md")
+	}
+	if !m.Match("fob.md", false) {
+		t.Error("fob.md should match fo?.md")
+	}
+	if m.Match("fooo.md", false) {
+		t.Error("fooo.md should not match fo?.md (? is exactly one char)")
 	}
 }
 
-func TestLoad_UnsupportedPattern_LeadingSlash(t *testing.T) {
+func TestMatch_LeadingSlashAnchor(t *testing.T) {
 	dir := t.TempDir()
 	writeIgnore(t, dir, "/anchored.md\n")
 
-	_, err := Load(dir)
-	if err == nil {
-		t.Fatal("expected error for leading slash")
+	m, err := Load(dir)
+	if err != nil {
+		t.Fatalf("Load: %v", err)
+	}
+
+	if !m.Match("anchored.md", false) {
+		t.Error("anchored.md at root should match /anchored.md")
+	}
+	if m.Match("a/anchored.md", false) {
+		t.Error("nested anchored.md should not match /anchored.md")
+	}
+}
+
+func TestMatch_EscapedLeadingChar(t *testing.T) {
+	dir := t.TempDir()
+	writeIgnore(t, dir, "\\!literal.md\n\\#hash.md\n")
+
+	m, err := Load(dir)
+	if err != nil {
+		t.Fatalf("Load: %v", err)
+	}
+
+	if !m.Match("!literal.md", false) {
+		t.Error("!literal.md should match \\!literal.md")
+	}
+	if !m.Match("#hash.md", false) {
+		t.Error("#hash.md should match \\#hash.md")
+	}
+	if m.Match("literal.md", false) {
+		t.Error("literal.md should not match \\!literal.md (negation is escaped)")
+	}
+}
+
+func TestMatch_EscapedSegmentChar(t *testing.T) {
+	dir := t.TempDir()
+	writeIgnore(t, dir, "foo\\*.md\n")
+
+	m, err := Load(dir)
+	if err != nil {
+		t.Fatalf("Load: %v", err)
+	}
+
+	if !m.Match("foo*.md", false) {
+		t.Error("foo*.md should match foo\\*.md literally")
+	}
+	if m.Match("foobar.md", false) {
+		t.Error("foobar.md should not match foo\\*.md (escaped star)")
 	}
 }
 

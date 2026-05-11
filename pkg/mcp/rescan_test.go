@@ -437,7 +437,7 @@ func TestRescanLoop_RespectsIgnore(t *testing.T) {
 
 func TestNewRescanLoop_FailsOnMalformedIgnore(t *testing.T) {
 	dir := t.TempDir()
-	writeFile(t, dir, ignore.FileName, "!negation\n")
+	writeFile(t, dir, ignore.FileName, "a//b\n")
 
 	st := testutil.OpenTestDB(t)
 	_, err := NewRescanLoop(st, dir, time.Minute, nil)

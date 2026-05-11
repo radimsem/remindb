@@ -23,6 +23,7 @@ type pattern struct {
 	segments []string
 	dirOnly  bool
 	anchored bool
+	negated  bool
 }
 
 // Load reads <dir>/.remindb.ignore. Returns (nil, nil) if absent.
@@ -39,6 +40,7 @@ func Load(dir string) (*Matcher, error) {
 	var patterns []pattern
 	scanner := bufio.NewScanner(f)
 	line := 0
+
 	for scanner.Scan() {
 		line++
 
@@ -72,36 +74,42 @@ func (m *Matcher) Match(relPath string, isDir bool) bool {
 	}
 
 	pathSegs := strings.Split(relPath, "/")
+	ignored := false
 	for _, p := range m.patterns {
 		if p.dirOnly && !isDir {
 			continue
 		}
 		if matchPattern(p, pathSegs) {
-			return true
+			ignored = !p.negated
 		}
 	}
-	return false
+	return ignored
 }
 
 func parsePattern(raw string) (pattern, error) {
-	if strings.HasPrefix(raw, "!") {
-		return pattern{}, fmt.Errorf("negation (leading %q) not supported: %s", "!", raw)
-	}
-	if strings.HasPrefix(raw, "/") {
-		return pattern{}, fmt.Errorf("leading slash anchor not supported: %s", raw)
-	}
-	if strings.ContainsAny(raw, "[]?\\") {
-		return pattern{}, fmt.Errorf("char ranges, ? wildcards, and escapes not supported: %s", raw)
-	}
-
 	p := pattern{raw: raw}
 	s := raw
 
+	// A leading \! or \# escapes the special meaning of the first char.
+	escaped := false
+	if len(s) >= 2 && s[0] == '\\' && (s[1] == '!' || s[1] == '#') {
+		s = s[1:]
+		escaped = true
+	}
+
+	if !escaped && strings.HasPrefix(s, "!") {
+		p.negated = true
+		s = s[1:]
+	}
+	if strings.HasPrefix(s, "/") {
+		p.anchored = true
+		s = s[1:]
+	}
 	if strings.HasSuffix(s, "/") {
 		p.dirOnly = true
 		s = strings.TrimSuffix(s, "/")
 	}
-	if strings.Contains(s, "/") {
+	if !p.anchored && strings.Contains(s, "/") {
 		p.anchored = true
 	}
 
@@ -112,6 +120,15 @@ func parsePattern(raw string) (pattern, error) {
 	segs := strings.Split(s, "/")
 	if slices.Contains(segs, "") {
 		return pattern{}, fmt.Errorf("empty path segment (consecutive slashes): %s", raw)
+	}
+
+	for _, seg := range segs {
+		if seg == "**" {
+			continue
+		}
+		if _, err := path.Match(seg, ""); err != nil {
+			return pattern{}, fmt.Errorf("invalid pattern %q: %w", raw, err)
+		}
 	}
 	p.segments = segs
 
