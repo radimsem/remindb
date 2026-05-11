@@ -334,7 +334,7 @@ func TestCompileDir_MalformedIgnore(t *testing.T) {
 	dir := t.TempDir()
 
 	writeFile(t, dir, "doc.md", "# Hi\n")
-	writeFile(t, dir, ignore.FileName, "!nope\n")
+	writeFile(t, dir, ignore.FileName, "a//b\n")
 
 	_, err := CompileDir(ctx, st, dir, "bad-ignore")
 	if err == nil {

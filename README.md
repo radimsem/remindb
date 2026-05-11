@@ -153,7 +153,7 @@ remindb compile ./docs/architecture.md --db project.db
 
 #### Filtering with `.remindb.ignore`
 
-Drop a `.remindb.ignore` at the source root to exclude paths from `compile`, the `serve` rescan loop, the `MemoryCompile` tool, and `bench`. Gitignore-style minimal subset — patterns, comments, blank lines.
+Drop a `.remindb.ignore` at the source root to exclude paths from `compile`, the `serve` rescan loop, the `MemoryCompile` tool, and `bench`. Gitignore-style subset — patterns, comments, blank lines.
 
 ```
 # .remindb.ignore
@@ -161,9 +161,12 @@ Drop a `.remindb.ignore` at the source root to exclude paths from `compile`, the
 sessions/            # any directory called sessions, at any depth
 **/cache/**          # nested cache trees
 cache/scratch.md     # exact relative path
+!cache/keep.md       # re-include one file (last-match-wins)
+/anchored.md         # leading / anchors to the source root
+fo?.md               # ? matches exactly one char
+file[abc].md         # [abc] matches one char from the set
+\!literal.md         # backslash escapes a leading ! or #
 ```
-
-Supported: literal basenames, `*` wildcards, trailing `/` for dir-only, `**` for any-segment-count, `#` comments. Anything else (`!negation`, `[char ranges]`, `?`, leading `/`, `\` escapes) fails the command at startup with a line-numbered error.
 
 #### Pre-seeding temperatures with `.temp.json`
 

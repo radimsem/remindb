@@ -176,7 +176,7 @@ Use when files on disk changed outside remindb's rescan loop: external edit, dis
 
 `path` may be absolute or relative; the server re-anchors it to its source root (`REMINDB_SOURCE`) before compiling, so the form you pass doesn't fork into duplicate nodes. Paths outside the source root, or when `REMINDB_SOURCE` is unset, pass through unchanged.
 
-If a `.remindb.ignore` file lives at the source root, `MemoryCompile` (and the background rescan) honors it — gitignore-style minimal subset (literal names, `*` wildcards, trailing `/` for dir-only, `**` for any-segment-count, `#` comments). Patterns subtract from the supported-extension allow-list; they cannot re-include `node_modules` or dotfiles. Operators set this once; the agent doesn't author the file.
+If a `.remindb.ignore` file lives at the source root, `MemoryCompile` (and the background rescan) honors it — gitignore-style subset (literal names, `*` / `?` / `[abc]` wildcards, trailing `/` for dir-only, leading `/` for root-anchor, `**` for any-segment-count, `!` negation with last-match-wins, `\` to escape a leading `!` or `#`, `#` comments). Patterns subtract from the supported-extension allow-list; they cannot re-include `node_modules` or dotfiles. Operators set this once; the agent doesn't author the file.
 
 ## Anti-patterns — do not
 

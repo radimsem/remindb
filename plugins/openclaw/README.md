@@ -36,7 +36,7 @@ remindb needs a SQLite file built from a source tree before the agent can read f
 
 A natural source for OpenClaw is its own state folder at `~/.openclaw/` — `openclaw.json`, hook scripts under `hooks/<id>/`, agent workspaces under `workspace/` (and `workspace-*`), per-agent state under `agents/<id>/`, installed plugins under `extensions/`, and shared skill definitions under `skills/`. Indexing it lets OpenClaw query its own persistent context through remindb instead of grepping the dot folder.
 
-`~/.openclaw/` also accumulates session transcripts at `agents/<id>/sessions/*.jsonl`, OAuth + API-key stores at `agents/<id>/agent/auth-profiles.json` (with provider apiKey residues sometimes spilling into adjacent `models.json`), the `extensions/` plugin install dir (you don't want remindb indexing its own bundled `index.ts`), and `sandboxes/` / `sandbox/` runtime state. Drop a `.remindb.ignore` at `~/.openclaw/` to filter them out (gitignore-style minimal subset: `*`, `**`, trailing `/`, `#` comments; no `!` negation, no `[abc]` ranges):
+`~/.openclaw/` also accumulates session transcripts at `agents/<id>/sessions/*.jsonl`, OAuth + API-key stores at `agents/<id>/agent/auth-profiles.json` (with provider apiKey residues sometimes spilling into adjacent `models.json`), the `extensions/` plugin install dir (you don't want remindb indexing its own bundled `index.ts`), and `sandboxes/` / `sandbox/` runtime state. Drop a `.remindb.ignore` at `~/.openclaw/` to filter them out (gitignore-style subset: `*`, `?`, `[abc]`, `**`, trailing `/`, leading `/`, `!` negation, `\!` / `\#` escapes, `#` comments):
 
 ```bash
 mkdir -p ~/.cache/remindb
