@@ -167,9 +167,14 @@ func CompileDir(ctx context.Context, st *store.Store, dir, message string, opts 
 		opt(&o)
 	}
 
+	absDir, err := filepath.Abs(dir)
+	if err != nil {
+		return nil, fmt.Errorf("failed to resolve: %s: %w", dir, err)
+	}
+
 	matcher := o.ignore
 	if !o.ignoreSet {
-		m, err := ignore.Load(dir)
+		m, err := ignore.Load(absDir)
 		if err != nil {
 			return nil, fmt.Errorf("failed to load: %s: %w", ignore.FileName, err)
 		}
@@ -178,16 +183,16 @@ func CompileDir(ctx context.Context, st *store.Store, dir, message string, opts 
 	}
 
 	var paths []string
-	err := filepath.WalkDir(dir, func(path string, d os.DirEntry, err error) error {
+	err = filepath.WalkDir(absDir, func(path string, d os.DirEntry, err error) error {
 		if err != nil {
 			return err
 		}
 
-		rel, _ := filepath.Rel(dir, path)
+		rel, _ := filepath.Rel(absDir, path)
 		rel = filepath.ToSlash(rel)
 
 		if d.IsDir() {
-			if path != dir && fileext.ShouldSkipDir(d.Name()) {
+			if path != absDir && fileext.ShouldSkipDir(d.Name()) {
 				return filepath.SkipDir
 			}
 			if matcher.Match(rel, true) {
@@ -210,21 +215,16 @@ func CompileDir(ctx context.Context, st *store.Store, dir, message string, opts 
 		return nil
 	})
 	if err != nil {
-		return nil, fmt.Errorf("failed to walk: %s: %w", dir, err)
+		return nil, fmt.Errorf("failed to walk: %s: %w", absDir, err)
 	}
 
 	if len(paths) == 0 {
 		return &Result{}, nil
 	}
 
-	temps, err := resolveTemps(dir, paths)
+	temps, err := resolveTemps(absDir, paths)
 	if err != nil {
 		return nil, err
-	}
-
-	absDir, err := filepath.Abs(dir)
-	if err != nil {
-		return nil, fmt.Errorf("failed to resolve: %s: %w", dir, err)
 	}
 
 	all := append([]Option{}, opts...)
