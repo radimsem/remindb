@@ -57,6 +57,25 @@ const (
 
 	qSelectAllNodes = `SELECT ` + nodeColumns + ` FROM nodes ORDER BY source_file, depth`
 
+	// compile_root comes from the most recent snapshot that touched any of the file's nodes.
+	qSelectFileSummaries = `
+		WITH file_latest AS (
+			SELECT n.source_file, MAX(d.snapshot_id) AS sid
+			FROM nodes n
+			JOIN diffs d ON d.node_id = n.id
+			GROUP BY n.source_file
+		)
+		SELECT
+			n.source_file,
+			count(*),
+			coalesce(sum(n.token_count), 0),
+			coalesce(s.compile_root, '')
+		FROM nodes n
+		LEFT JOIN file_latest fl ON fl.source_file = n.source_file
+		LEFT JOIN snapshots s ON s.id = fl.sid
+		GROUP BY n.source_file, s.compile_root
+		ORDER BY s.compile_root, n.source_file`
+
 	qUpsertNode = `
 		INSERT INTO nodes (id, parent_id, source_file, node_type, depth,
 				label, content, format, token_count, content_hash, temperature)

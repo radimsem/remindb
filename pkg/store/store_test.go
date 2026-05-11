@@ -749,6 +749,78 @@ func TestSearchMultiWord(t *testing.T) {
 	}
 }
 
+func TestListFileSummaries(t *testing.T) {
+	st := openTestDB(t)
+	ctx := context.Background()
+
+	upsert := func(id, file string, tokens int) {
+		n := testNode(id, "")
+		n.SourceFile = file
+		n.TokenCount = tokens
+		must(t, st.UpsertNode(ctx, n))
+	}
+	upsert("aaaaaaaa", "src/a.md", 7)
+	upsert("bbbbbbbb", "src/a.md", 3)
+	upsert("cccccccc", "src/b.md", 5)
+	upsert("dddddddd", "orphan.md", 2)
+
+	err := st.Tx(ctx, func(tx *sql.Tx) error {
+		sidA, err := st.CreateSnapshotTx(ctx, tx, "hash1111", "first", "/repo/a")
+		if err != nil {
+			return err
+		}
+
+		for _, id := range []string{"aaaaaaaa", "bbbbbbbb", "cccccccc"} {
+			if err := st.InsertDiffTx(ctx, tx, &DiffRecord{SnapshotID: sidA, NodeID: id, Op: "add"}); err != nil {
+				return err
+			}
+		}
+
+		sidB, err := st.CreateSnapshotTx(ctx, tx, "hash2222", "second", "/repo/b")
+		if err != nil {
+			return err
+		}
+		return st.InsertDiffTx(ctx, tx, &DiffRecord{SnapshotID: sidB, NodeID: "dddddddd", Op: "add"})
+	})
+	must(t, err)
+
+	got, err := st.ListFileSummaries(ctx)
+	if err != nil {
+		t.Fatalf("ListFileSummaries: %v", err)
+	}
+	want := []FileSummary{
+		{Path: "src/a.md", NodeCount: 2, TokenCount: 10, CompileRoot: "/repo/a"},
+		{Path: "src/b.md", NodeCount: 1, TokenCount: 5, CompileRoot: "/repo/a"},
+		{Path: "orphan.md", NodeCount: 1, TokenCount: 2, CompileRoot: "/repo/b"},
+	}
+	if len(got) != len(want) {
+		t.Fatalf("len = %d, want %d (got %+v)", len(got), len(want), got)
+	}
+	for i, w := range want {
+		if got[i] != w {
+			t.Errorf("got[%d] = %+v, want %+v", i, got[i], w)
+		}
+	}
+}
+
+func TestListFileSummaries_NoDiffs(t *testing.T) {
+	st := openTestDB(t)
+	ctx := context.Background()
+
+	n := testNode("aaaaaaaa", "")
+	n.SourceFile = "orphan.md"
+	must(t, st.UpsertNode(ctx, n))
+
+	got, err := st.ListFileSummaries(ctx)
+	if err != nil {
+		t.Fatalf("ListFileSummaries: %v", err)
+	}
+
+	if len(got) != 1 || got[0].CompileRoot != "" {
+		t.Errorf("got = %+v, want one row with empty CompileRoot", got)
+	}
+}
+
 func TestGetDiffsForNode(t *testing.T) {
 	st := openTestDB(t)
 	ctx := context.Background()
