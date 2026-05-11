@@ -3,6 +3,7 @@ package remindb_test
 import (
 	"context"
 	"fmt"
+	"os"
 	"path/filepath"
 	"testing"
 
@@ -48,6 +49,38 @@ func BenchmarkCompileDir(b *testing.B) {
 			}
 		})
 	}
+
+	b.Run("synthetic_100", func(b *testing.B) {
+		dir := stage100MarkdownFiles(b)
+		b.ReportAllocs()
+		b.ResetTimer()
+
+		for i := 0; i < b.N; i++ {
+			b.StopTimer()
+			st := openBenchStore(b)
+			b.StartTimer()
+			_, _ = compiler.CompileDir(context.Background(), st, dir, "bench")
+		}
+	})
+}
+
+func stage100MarkdownFiles(b *testing.B) string {
+	b.Helper()
+
+	template, err := os.ReadFile(filepath.Join("testdata", "bench", "medium.md"))
+	if err != nil {
+		b.Fatalf("read medium.md template: %v", err)
+	}
+
+	dir := b.TempDir()
+	for i := 0; i < 100; i++ {
+		name := fmt.Sprintf("doc_%03d.md", i)
+		path := filepath.Join(dir, name)
+		if err := os.WriteFile(path, template, 0o644); err != nil {
+			b.Fatalf("write %s: %v", path, err)
+		}
+	}
+	return dir
 }
 
 func BenchmarkSearchWorkflow(b *testing.B) {
