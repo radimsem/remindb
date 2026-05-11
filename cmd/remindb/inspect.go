@@ -2,10 +2,12 @@ package main
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"io"
 	"os"
 	"path/filepath"
+	"sort"
 	"strings"
 	"unicode/utf8"
 
@@ -32,25 +34,27 @@ const (
 
 var (
 	inspectShowTree  bool
+	inspectShowFiles bool
 	inspectTreeDepth int
 	inspectColorOn   bool
 )
 
 var inspectCmd = &cobra.Command{
 	Use:   "inspect",
-	Short: "Dump database stats and (optionally) the node tree",
+	Short: "Dump database stats and (optionally) the node tree or file list",
 	RunE:  runInspect,
 }
 
 func init() {
 	inspectCmd.Flags().BoolVar(&inspectShowTree, "tree", false, "Render the node tree")
+	inspectCmd.Flags().BoolVar(&inspectShowFiles, "files", false, "Render compiled source files grouped by compile root")
 	inspectCmd.Flags().IntVar(&inspectTreeDepth, "depth", defaultInspectDepth, "Maximum tree depth (requires --tree)")
 	rootCmd.AddCommand(inspectCmd)
 }
 
 func runInspect(cmd *cobra.Command, _ []string) error {
 	if !inspectShowTree && cmd.Flags().Changed("depth") {
-		return fmt.Errorf("--depth requires --tree")
+		return errors.New("--depth requires --tree")
 	}
 
 	inspectColorOn = isTerminal(os.Stdout) && os.Getenv("NO_COLOR") == ""
@@ -74,6 +78,11 @@ func runInspect(cmd *cobra.Command, _ []string) error {
 	w := os.Stdout
 	printStats(w, stats)
 
+	if inspectShowFiles {
+		if err := printFilesView(ctx, w, st); err != nil {
+			return err
+		}
+	}
 	if !inspectShowTree {
 		return nil
 	}
@@ -96,6 +105,121 @@ func runInspect(cmd *cobra.Command, _ []string) error {
 		printTree(w, childMap, root, "", compileRoot, 0, inspectTreeDepth)
 	}
 	return nil
+}
+
+func printFilesView(ctx context.Context, w io.Writer, st *store.Store) error {
+	summaries, err := st.ListFileSummaries(ctx)
+	if err != nil {
+		return fmt.Errorf("failed to list file summaries: %w", err)
+	}
+
+	if len(summaries) == 0 {
+		_, _ = fmt.Fprintln(w, "No files in database.")
+		return nil
+	}
+
+	groups, order := groupFilesByRoot(summaries)
+
+	_, _ = fmt.Fprintln(w, paint(ansiBold+ansiCyan, "=== Files ==="))
+
+	for _, root := range order {
+		header := root
+		if root == "" {
+			header = "(ungrouped)"
+		}
+
+		_, _ = fmt.Fprintln(w, paint(ansiBold, header))
+		renderFileTree(w, groups[root])
+
+		_, _ = fmt.Fprintln(w)
+	}
+	return nil
+}
+
+func groupFilesByRoot(summaries []store.FileSummary) (map[string][]store.FileSummary, []string) {
+	groups := make(map[string][]store.FileSummary)
+	for _, fs := range summaries {
+		groups[fs.CompileRoot] = append(groups[fs.CompileRoot], fs)
+	}
+
+	order := make([]string, 0, len(groups))
+	for k := range groups {
+		order = append(order, k)
+	}
+
+	sort.Slice(order, func(i, j int) bool {
+		// Ungrouped bucket (empty CompileRoot) renders last.
+		if order[i] == "" {
+			return false
+		}
+		if order[j] == "" {
+			return true
+		}
+
+		return order[i] < order[j]
+	})
+	return groups, order
+}
+
+type fileTrie struct {
+	children map[string]*fileTrie
+	summary  *store.FileSummary
+}
+
+func renderFileTree(w io.Writer, files []store.FileSummary) {
+	t := &fileTrie{children: map[string]*fileTrie{}}
+
+	for i := range files {
+		segments := strings.Split(files[i].Path, string(filepath.Separator))
+		cur := t
+
+		for j, seg := range segments {
+			if seg == "" {
+				continue
+			}
+
+			next, ok := cur.children[seg]
+			if !ok {
+				next = &fileTrie{children: map[string]*fileTrie{}}
+				cur.children[seg] = next
+			}
+
+			if j == len(segments)-1 {
+				next.summary = &files[i]
+			}
+			cur = next
+		}
+	}
+	renderTrieNode(w, t, "")
+}
+
+func renderTrieNode(w io.Writer, t *fileTrie, prefix string) {
+	keys := make([]string, 0, len(t.children))
+	for k := range t.children {
+		keys = append(keys, k)
+	}
+	sort.Strings(keys)
+
+	for i, k := range keys {
+		child := t.children[k]
+		last := i == len(keys)-1
+
+		branch := "├── "
+		nextPrefix := prefix + "│   "
+		if last {
+			branch = "└── "
+			nextPrefix = prefix + "    "
+		}
+
+		if child.summary != nil {
+			stats := paint(ansiDim, fmt.Sprintf("(%d nodes, %d tok)", child.summary.NodeCount, child.summary.TokenCount))
+			_, _ = fmt.Fprintf(w, "%s%s%s %s\n", prefix, branch, paint(ansiBrightW, k), stats)
+		} else {
+			_, _ = fmt.Fprintf(w, "%s%s%s\n", prefix, branch, paint(ansiYellow, k+"/"))
+		}
+
+		renderTrieNode(w, child, nextPrefix)
+	}
 }
 
 func printStats(w io.Writer, s *store.Stats) {
