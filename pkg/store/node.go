@@ -25,6 +25,13 @@ type Node struct {
 	SeedTemp     *float64
 }
 
+type FileSummary struct {
+	Path        string
+	NodeCount   int
+	TokenCount  int
+	CompileRoot string
+}
+
 type RowScanner interface {
 	Scan(...any) error
 }
@@ -198,6 +205,24 @@ func (s *Store) GetAllNodes(ctx context.Context) ([]*Node, error) {
 	defer func() { _ = rows.Close() }()
 
 	return collectRows(rows)
+}
+
+func (s *Store) ListFileSummaries(ctx context.Context) ([]FileSummary, error) {
+	rows, err := s.db.QueryContext(ctx, qSelectFileSummaries)
+	if err != nil {
+		return nil, err
+	}
+	defer func() { _ = rows.Close() }()
+
+	var out []FileSummary
+	for rows.Next() {
+		var fs FileSummary
+		if err := rows.Scan(&fs.Path, &fs.NodeCount, &fs.TokenCount, &fs.CompileRoot); err != nil {
+			return nil, err
+		}
+		out = append(out, fs)
+	}
+	return out, rows.Err()
 }
 
 // Replace every source file prefix matching oldPrefix with newPrefix.

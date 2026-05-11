@@ -287,6 +287,40 @@ func TestCompileDir_SkipsHiddenDirs(t *testing.T) {
 	}
 }
 
+func TestCompileDir_RelativeDirInput(t *testing.T) {
+	st := testutil.OpenTestDB(t)
+	ctx := context.Background()
+	root := t.TempDir()
+
+	const base = "proj"
+	subDir := filepath.Join(root, base)
+	if err := os.MkdirAll(subDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	writeFile(t, subDir, "doc.md", "# Hello\n\nContent.\n")
+
+	t.Chdir(root)
+
+	if _, err := CompileDir(ctx, st, base, "rel"); err != nil {
+		t.Fatalf("CompileDir: %v", err)
+	}
+
+	nodes, err := st.GetAllNodes(ctx)
+	if err != nil {
+		t.Fatalf("GetAllNodes: %v", err)
+	}
+	if len(nodes) == 0 {
+		t.Fatal("no nodes emitted")
+	}
+
+	prefix := base + string(filepath.Separator)
+	for _, n := range nodes {
+		if strings.HasPrefix(n.SourceFile, prefix) {
+			t.Errorf("SourceFile = %q, want rel-to-compile-root (no leading %q)", n.SourceFile, prefix)
+		}
+	}
+}
+
 func TestCompileDir_RespectsIgnore(t *testing.T) {
 	st := testutil.OpenTestDB(t)
 	ctx := context.Background()
@@ -334,7 +368,7 @@ func TestCompileDir_MalformedIgnore(t *testing.T) {
 	dir := t.TempDir()
 
 	writeFile(t, dir, "doc.md", "# Hi\n")
-	writeFile(t, dir, ignore.FileName, "!nope\n")
+	writeFile(t, dir, ignore.FileName, "a//b\n")
 
 	_, err := CompileDir(ctx, st, dir, "bad-ignore")
 	if err == nil {
