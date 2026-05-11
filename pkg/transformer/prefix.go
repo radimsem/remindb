@@ -7,13 +7,22 @@ import (
 	"github.com/radimsem/remindb/pkg/parser"
 )
 
-// Strip the longest common directory prefix from all SourceFile paths.
-func compressPrefix(nodes []*parser.ContextNode) {
-	if len(nodes) < 2 {
+// Strip compileRoot (or the longest common dir if empty) so hashed paths stay stable across call shapes.
+func compressPrefix(nodes []*parser.ContextNode, compileRoot string) {
+	if len(nodes) == 0 {
 		return
 	}
 
-	prefix := commonDirPrefix(nodes)
+	prefix := compileRoot
+	if prefix != "" {
+		prefix = filepath.Clean(prefix)
+		if !strings.HasSuffix(prefix, string(filepath.Separator)) {
+			prefix += string(filepath.Separator)
+		}
+	} else {
+		prefix = commonDirPrefix(nodes)
+	}
+
 	if prefix == "" {
 		return
 	}
@@ -29,6 +38,7 @@ func commonDirPrefix(nodes []*parser.ContextNode) string {
 	for _, n := range nodes[1:] {
 		np := splitPath(filepath.Dir(n.SourceFile))
 		parts = commonParts(parts, np)
+
 		if len(parts) == 0 {
 			return ""
 		}
