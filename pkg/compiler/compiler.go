@@ -7,6 +7,9 @@ import (
 	"log/slog"
 	"os"
 	"path/filepath"
+	"runtime"
+
+	"golang.org/x/sync/errgroup"
 
 	"github.com/radimsem/remindb/internal/fileext"
 	"github.com/radimsem/remindb/internal/ignore"
@@ -75,30 +78,55 @@ func Compile(ctx context.Context, st *store.Store, opts ...Option) (*Result, err
 		logger = slog.Default()
 	}
 
-	var roots []*parser.ContextNode
-	for _, p := range o.paths {
-		data, err := os.ReadFile(p)
-		if err != nil {
-			return nil, fmt.Errorf("failed to read: %s: %w", p, err)
-		}
+	results := make([][]*parser.ContextNode, len(o.paths))
 
-		nodes, err := parser.ParseBytes(p, data)
-		if err != nil {
-			if errors.Is(err, parser.ErrUnsupportedExt) {
-				logger.Warn("compile: skipping unsupported file", "path", p, "err", err)
-				continue
+	g, gctx := errgroup.WithContext(ctx)
+	g.SetLimit(runtime.GOMAXPROCS(0))
+
+	for i, p := range o.paths {
+		g.Go(func() error {
+			if err := gctx.Err(); err != nil {
+				return err
 			}
-			return nil, fmt.Errorf("failed to parse: %s: %w", p, err)
-		}
 
-		if t := o.temps[p]; t != nil {
-			seedTemp(nodes, t)
-		}
+			data, err := os.ReadFile(p)
+			if err != nil {
+				return fmt.Errorf("failed to read: %s: %w", p, err)
+			}
 
+			nodes, err := parser.ParseBytes(p, data)
+			if err != nil {
+				if errors.Is(err, parser.ErrUnsupportedExt) {
+					logger.Warn("compile: skipping unsupported file", "path", p, "err", err)
+					return nil
+				}
+				return fmt.Errorf("failed to parse: %s: %w", p, err)
+			}
+
+			if t := o.temps[p]; t != nil {
+				seedTemp(nodes, t)
+			}
+
+			results[i] = nodes
+			return nil
+		})
+	}
+
+	if err := g.Wait(); err != nil {
+		return nil, err
+	}
+
+	total := 0
+	for _, nodes := range results {
+		total += len(nodes)
+	}
+
+	roots := make([]*parser.ContextNode, 0, total)
+	for _, nodes := range results {
 		roots = append(roots, nodes...)
 	}
 
-	if err := transformer.Transform(ctx, roots); err != nil {
+	if err := transformer.Transform(ctx, roots, o.compileRoot); err != nil {
 		return nil, fmt.Errorf("failed to transform: %w", err)
 	}
 
@@ -145,6 +173,7 @@ func CompileDir(ctx context.Context, st *store.Store, dir, message string, opts 
 		if err != nil {
 			return nil, fmt.Errorf("failed to load: %s: %w", ignore.FileName, err)
 		}
+
 		matcher = m
 	}
 
@@ -166,6 +195,7 @@ func CompileDir(ctx context.Context, st *store.Store, dir, message string, opts 
 			}
 			return nil
 		}
+
 		if rel == ignore.FileName {
 			return nil
 		}
@@ -175,6 +205,7 @@ func CompileDir(ctx context.Context, st *store.Store, dir, message string, opts 
 		if matcher.Match(rel, false) {
 			return nil
 		}
+
 		paths = append(paths, path)
 		return nil
 	})
@@ -196,13 +227,28 @@ func CompileDir(ctx context.Context, st *store.Store, dir, message string, opts 
 		return nil, fmt.Errorf("failed to resolve: %s: %w", dir, err)
 	}
 
-	// Caller-supplied opts come first so WithPaths/WithCompileRoot/WithTemps below win.
 	all := append([]Option{}, opts...)
 	all = append(all,
 		WithPaths(paths),
 		WithMessage(message),
 		WithCompileRoot(absDir),
 		WithTemps(temps),
+	)
+	return Compile(ctx, st, all...)
+}
+
+// Compile a single file; compile root anchors at the file's parent directory.
+func CompileFile(ctx context.Context, st *store.Store, path, message string, opts ...Option) (*Result, error) {
+	absPath, err := filepath.Abs(path)
+	if err != nil {
+		return nil, fmt.Errorf("failed to resolve: %s: %w", path, err)
+	}
+
+	all := append([]Option{}, opts...)
+	all = append(all,
+		WithPaths([]string{path}),
+		WithMessage(message),
+		WithCompileRoot(filepath.Dir(absPath)),
 	)
 	return Compile(ctx, st, all...)
 }

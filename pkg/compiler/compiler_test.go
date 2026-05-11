@@ -2,6 +2,8 @@ package compiler
 
 import (
 	"context"
+	"errors"
+	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
@@ -169,6 +171,54 @@ func TestCompile_SingleFileRescanAfterBatch(t *testing.T) {
 	}
 }
 
+func TestCompileFile_AnchorsCompileRoot(t *testing.T) {
+	st := testutil.OpenTestDB(t)
+	ctx := context.Background()
+	dir := t.TempDir()
+
+	sub := filepath.Join(dir, "sub")
+	if err := os.MkdirAll(sub, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	p := writeFile(t, sub, "doc.md", "# Hello\n\nContent.\n")
+
+	if _, err := CompileFile(ctx, st, p, "v1"); err != nil {
+		t.Fatalf("CompileFile: %v", err)
+	}
+
+	got, err := st.GetLatestCompileRoot(ctx)
+	if err != nil {
+		t.Fatalf("GetLatestCompileRoot: %v", err)
+	}
+	if got != sub {
+		t.Errorf("compile_root = %q, want %q (file's parent dir)", got, sub)
+	}
+}
+
+func TestCompile_PersistsCompileRoot(t *testing.T) {
+	st := testutil.OpenTestDB(t)
+	ctx := context.Background()
+	dir := t.TempDir()
+
+	p := writeFile(t, dir, "doc.md", "# Hello\n\nContent.\n")
+
+	if _, err := Compile(ctx, st,
+		WithPaths([]string{p}),
+		WithMessage("v1"),
+		WithCompileRoot(dir),
+	); err != nil {
+		t.Fatalf("Compile: %v", err)
+	}
+
+	got, err := st.GetLatestCompileRoot(ctx)
+	if err != nil {
+		t.Fatalf("GetLatestCompileRoot: %v", err)
+	}
+	if got != dir {
+		t.Errorf("compile_root = %q, want %q", got, dir)
+	}
+}
+
 func TestCompile_HeadingEditDoesNotCascade(t *testing.T) {
 	st := testutil.OpenTestDB(t)
 	ctx := context.Background()
@@ -292,6 +342,60 @@ func TestCompileDir_MalformedIgnore(t *testing.T) {
 	}
 	if !strings.Contains(err.Error(), ignore.FileName) {
 		t.Errorf("error should mention %s, got: %v", ignore.FileName, err)
+	}
+}
+
+func TestCompile_DeterministicWithParallelParse(t *testing.T) {
+	ctx := context.Background()
+	dir := t.TempDir()
+
+	const fileCount = 30
+	paths := make([]string, fileCount)
+	for i := range fileCount {
+		name := fmt.Sprintf("doc_%02d.md", i)
+		content := fmt.Sprintf("# Heading %d\n\nBody paragraph %d.\n\nMore body %d.\n", i, i, i)
+		paths[i] = writeFile(t, dir, name, content)
+	}
+
+	hashes := make([]string, 5)
+	for i := range hashes {
+		st := testutil.OpenTestDB(t)
+		if _, err := Compile(ctx, st, WithPaths(paths), WithCompileRoot(dir), WithMessage("parallel")); err != nil {
+			t.Fatalf("Compile: %v", err)
+		}
+
+		hash, err := st.GetHeadCursorHash(ctx)
+		if err != nil {
+			t.Fatalf("GetHeadCursorHash: %v", err)
+		}
+		hashes[i] = hash
+	}
+	for i := 1; i < len(hashes); i++ {
+		if hashes[i] != hashes[0] {
+			t.Errorf("run %d cursor_hash = %q, want %q (parallel parse must produce deterministic output)", i, hashes[i], hashes[0])
+		}
+	}
+}
+
+func TestCompile_CtxCancelStopsParseFanout(t *testing.T) {
+	st := testutil.OpenTestDB(t)
+	dir := t.TempDir()
+
+	paths := make([]string, 50)
+	for i := range paths {
+		name := fmt.Sprintf("doc_%02d.md", i)
+		paths[i] = writeFile(t, dir, name, "# Title\n\nBody.\n")
+	}
+
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+
+	_, err := Compile(ctx, st, WithPaths(paths), WithCompileRoot(dir), WithMessage("cancelled"))
+	if err == nil {
+		t.Fatal("Compile: want error from cancelled ctx, got nil")
+	}
+	if !errors.Is(err, context.Canceled) {
+		t.Errorf("Compile error = %v, want errors.Is(err, context.Canceled)", err)
 	}
 }
 

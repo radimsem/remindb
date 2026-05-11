@@ -31,7 +31,7 @@ func TestTransform_Integration(t *testing.T) {
 		},
 	}
 
-	err := Transform(context.Background(), roots)
+	err := Transform(context.Background(), roots, "")
 	if err != nil {
 		t.Fatalf("Transform: %v", err)
 	}
@@ -87,7 +87,7 @@ func TestTransform_Integration(t *testing.T) {
 }
 
 func TestTransform_Empty(t *testing.T) {
-	if err := Transform(context.Background(), nil); err != nil {
+	if err := Transform(context.Background(), nil, ""); err != nil {
 		t.Fatalf("Transform(nil): %v", err)
 	}
 }
