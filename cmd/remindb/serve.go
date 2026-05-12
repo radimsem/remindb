@@ -36,6 +36,8 @@ func init() {
 }
 
 func runServe(cmd *cobra.Command, _ []string) error {
+	cmd.SilenceUsage = true
+
 	if err := applyServeEnv(cmd); err != nil {
 		return err
 	}

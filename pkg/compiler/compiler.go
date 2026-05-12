@@ -101,7 +101,7 @@ func Compile(ctx context.Context, st *store.Store, opts ...Option) (*Result, err
 
 			data, err := os.ReadFile(p)
 			if err != nil {
-				return fmt.Errorf("failed to read: %s: %w", p, err)
+				return fmt.Errorf("failed to read: %w", err)
 			}
 
 			nodes, err := parser.ParseBytes(p, data)
@@ -288,6 +288,10 @@ func CompileFile(ctx context.Context, st *store.Store, path, message string, opt
 	absPath, err := filepath.Abs(path)
 	if err != nil {
 		return nil, fmt.Errorf("failed to resolve: %s: %w", path, err)
+	}
+
+	if !fileext.Supported(path) {
+		return nil, fmt.Errorf("%w: %q", parser.ErrUnsupportedExt, filepath.Ext(path))
 	}
 
 	all := append([]Option{}, opts...)

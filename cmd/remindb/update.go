@@ -24,7 +24,9 @@ func init() {
 	rootCmd.AddCommand(updateCmd)
 }
 
-func runUpdate(_ *cobra.Command, _ []string) error {
+func runUpdate(cobraCmd *cobra.Command, _ []string) error {
+	cobraCmd.SilenceUsage = true
+
 	cmd, err := installCommand()
 	if err != nil {
 		return err

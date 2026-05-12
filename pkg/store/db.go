@@ -4,6 +4,10 @@ package store
 import (
 	"context"
 	"database/sql"
+	"errors"
+	"fmt"
+	"os"
+	"path/filepath"
 	"strings"
 	"sync"
 	"time"
@@ -19,6 +23,12 @@ type Store struct {
 
 func Open(path string) (*Store, error) {
 	inMemory := path == ":memory:"
+
+	if !inMemory {
+		if err := preflightDBPath(path); err != nil {
+			return nil, err
+		}
+	}
 
 	dsn := path
 	if !inMemory {
@@ -57,6 +67,26 @@ func Open(path string) (*Store, error) {
 
 func (s *Store) Close() error {
 	return s.db.Close()
+}
+
+// Catch the common SQLITE_CANTOPEN causes before the driver returns "unable to open database file".
+func preflightDBPath(path string) error {
+	dir := filepath.Dir(path)
+	if dir == "" || dir == "." {
+		return nil
+	}
+
+	fi, err := os.Stat(dir)
+	if err != nil {
+		if errors.Is(err, os.ErrNotExist) {
+			return fmt.Errorf("parent directory does not exist: %s", dir)
+		}
+		return fmt.Errorf("failed to stat: %w", err)
+	}
+	if !fi.IsDir() {
+		return fmt.Errorf("parent path is not a directory: %s", dir)
+	}
+	return nil
 }
 
 // Run fn inside a transaction; commit on nil error, roll back otherwise.
