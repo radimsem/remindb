@@ -7,6 +7,7 @@ import (
 
 var supported = map[string]bool{
 	".md": true, ".markdown": true,
+	".html": true, ".htm": true,
 	".yaml": true, ".yml": true,
 	".json":   true,
 	".jsonl":  true,
