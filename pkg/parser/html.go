@@ -26,10 +26,7 @@ func (p HtmlParser) parse(path string, data []byte) ([]*ContextNode, error) {
 		return nil, fmt.Errorf("failed to parse: html %s: %w", path, err)
 	}
 
-	var out []*ContextNode
-	stack := []frame{{level: 0}}
-	stack, out = p.walk(doc, path, stack, out)
-
+	_, out := p.walk(doc, path, []frame{{level: 0}}, nil)
 	return out, nil
 }
 
