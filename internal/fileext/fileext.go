@@ -15,7 +15,14 @@ var supported = map[string]bool{
 }
 
 var skipDirs = map[string]bool{
-	"node_modules": true,
+	"Pods":             true,
+	"__pycache__":      true,
+	"bower_components": true,
+	"dist":             true,
+	"node_modules":     true,
+	"target":           true,
+	"vendor":           true,
+	"venv":             true,
 }
 
 func Supported(path string) bool {
