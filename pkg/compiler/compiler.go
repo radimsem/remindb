@@ -290,6 +290,10 @@ func CompileFile(ctx context.Context, st *store.Store, path, message string, opt
 		return nil, fmt.Errorf("failed to resolve: %s: %w", path, err)
 	}
 
+	if !fileext.Supported(path) {
+		return nil, fmt.Errorf("%w: %q", parser.ErrUnsupportedExt, filepath.Ext(path))
+	}
+
 	all := append([]Option{}, opts...)
 	all = append(all,
 		WithPaths([]string{path}),
