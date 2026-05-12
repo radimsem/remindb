@@ -156,7 +156,7 @@ const deltaPatch = "\n\n## Bench synthetic section\n\nThis paragraph is appended
 	"introduces fresh content so MemoryDelta has a real change to describe " +
 	"rather than returning an empty diff.\n"
 
-// listDirFiles mirrors the naive `find` or `ls -R` output an agent would emit.
+// Mirror the naive `find` or `ls -R` output an agent would emit.
 func listDirFiles(dir string) string {
 	var b strings.Builder
 	_ = filepath.WalkDir(dir, func(path string, d os.DirEntry, err error) error {
