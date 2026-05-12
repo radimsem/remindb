@@ -11,6 +11,7 @@ import (
 
 	"github.com/radimsem/remindb/internal/ignore"
 	"github.com/radimsem/remindb/internal/testutil"
+	"github.com/radimsem/remindb/pkg/store"
 )
 
 func writeFile(t *testing.T, dir, name, content string) string {
@@ -430,6 +431,129 @@ func TestCompile_CtxCancelStopsParseFanout(t *testing.T) {
 	}
 	if !errors.Is(err, context.Canceled) {
 		t.Errorf("Compile error = %v, want errors.Is(err, context.Canceled)", err)
+	}
+}
+
+func countSourceFile(nodes []*store.Node, suffix string) int {
+	n := 0
+	for _, x := range nodes {
+		if strings.HasSuffix(x.SourceFile, suffix) {
+			n++
+		}
+	}
+	return n
+}
+
+func TestCompileDir_PrunesIgnored(t *testing.T) {
+	st := testutil.OpenTestDB(t)
+	ctx := context.Background()
+	dir := t.TempDir()
+
+	if err := os.MkdirAll(filepath.Join(dir, "drafts"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	writeFile(t, dir, "kept.md", "# Kept\n\nVisible body.\n")
+	writeFile(t, filepath.Join(dir, "drafts"), "notes.md", "# Draft\n\nDraft body.\n")
+
+	if _, err := CompileDir(ctx, st, dir, "v1"); err != nil {
+		t.Fatalf("CompileDir v1: %v", err)
+	}
+
+	before, err := st.GetAllNodes(ctx)
+	if err != nil {
+		t.Fatalf("GetAllNodes before: %v", err)
+	}
+	if countSourceFile(before, "notes.md") == 0 {
+		t.Fatal("expected draft nodes after initial compile")
+	}
+
+	writeFile(t, dir, ignore.FileName, "drafts/\n")
+	result, err := CompileDir(ctx, st, dir, "v2")
+	if err != nil {
+		t.Fatalf("CompileDir v2: %v", err)
+	}
+	if result.Removed == 0 {
+		t.Errorf("Removed = %d, want > 0 (drafts/ now ignored)", result.Removed)
+	}
+
+	after, err := st.GetAllNodes(ctx)
+	if err != nil {
+		t.Fatalf("GetAllNodes after: %v", err)
+	}
+	if got := countSourceFile(after, "notes.md"); got != 0 {
+		t.Errorf("draft nodes still present after ignore: %d", got)
+	}
+	if countSourceFile(after, "kept.md") == 0 {
+		t.Error("kept.md was pruned alongside the ignored file")
+	}
+}
+
+func TestCompileDir_PrunesDeleted(t *testing.T) {
+	st := testutil.OpenTestDB(t)
+	ctx := context.Background()
+	dir := t.TempDir()
+
+	writeFile(t, dir, "kept.md", "# Kept\n\nBody.\n")
+	oldPath := writeFile(t, dir, "old.md", "# Old\n\nBody.\n")
+
+	if _, err := CompileDir(ctx, st, dir, "v1"); err != nil {
+		t.Fatalf("CompileDir v1: %v", err)
+	}
+	if err := os.Remove(oldPath); err != nil {
+		t.Fatalf("Remove: %v", err)
+	}
+
+	result, err := CompileDir(ctx, st, dir, "v2")
+	if err != nil {
+		t.Fatalf("CompileDir v2: %v", err)
+	}
+	if result.Removed == 0 {
+		t.Errorf("Removed = %d, want > 0 (old.md deleted from disk)", result.Removed)
+	}
+
+	after, err := st.GetAllNodes(ctx)
+	if err != nil {
+		t.Fatalf("GetAllNodes: %v", err)
+	}
+	if got := countSourceFile(after, "old.md"); got != 0 {
+		t.Errorf("orphaned nodes from old.md remain: %d", got)
+	}
+}
+
+func TestCompileDir_PrunesRenamed(t *testing.T) {
+	st := testutil.OpenTestDB(t)
+	ctx := context.Background()
+	dir := t.TempDir()
+
+	aPath := writeFile(t, dir, "a.md", "# A\n\nBody.\n")
+
+	if _, err := CompileDir(ctx, st, dir, "v1"); err != nil {
+		t.Fatalf("CompileDir v1: %v", err)
+	}
+	if err := os.Rename(aPath, filepath.Join(dir, "b.md")); err != nil {
+		t.Fatalf("Rename: %v", err)
+	}
+
+	result, err := CompileDir(ctx, st, dir, "v2")
+	if err != nil {
+		t.Fatalf("CompileDir v2: %v", err)
+	}
+	if result.Removed == 0 {
+		t.Errorf("Removed = %d, want > 0 (a.md renamed to b.md)", result.Removed)
+	}
+	if result.Added == 0 {
+		t.Errorf("Added = %d, want > 0 (b.md is a new file)", result.Added)
+	}
+
+	after, err := st.GetAllNodes(ctx)
+	if err != nil {
+		t.Fatalf("GetAllNodes: %v", err)
+	}
+	if got := countSourceFile(after, "a.md"); got != 0 {
+		t.Errorf("orphaned nodes from a.md remain: %d", got)
+	}
+	if countSourceFile(after, "b.md") == 0 {
+		t.Error("b.md not added after rename")
 	}
 }
 
