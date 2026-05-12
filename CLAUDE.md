@@ -4,7 +4,7 @@ Routing map for Claude. Points at the rule, skill, agent, or file that owns the 
 
 ## Project at a glance
 
-`remindb` — token-efficient agentic memory database. Single SQLite file, MCP server on top. Go 1.23+. Pre-implementation stage, solo dev. **`dev` is the integration trunk; `main` is a release-marker branch — one squash commit per published release, signed by GitHub's web-flow key via PR from `dev`.** Topic branches (`feat/`, `fix/`, `chore/`, `docs/`) off `dev`, rc tags on `dev`, stable cuts tag `dev` then squash-PR `dev` → `main`; lazy `release/vX.Y` branches handle patches to non-current minors; subject-only signed commits everywhere (release squash on `main` carries the release notes as its body) — see `.claude/rules/git-versioning.md`.
+`remindb` — token-efficient agentic memory database. Single SQLite file, MCP server on top. Go 1.26+. Pre-1.0 beta, solo dev, no compatibility shims. **`dev` is the integration trunk; `main` is a release-marker branch — one squash commit per published release, signed by GitHub's web-flow key via PR from `dev`.** Topic branches (`feat/`, `fix/`, `chore/`, `docs/`) off `dev`, rc tags on `dev`, stable cuts tag `dev` then squash-PR `dev` → `main`; lazy `release/vX.Y` branches handle patches to non-current minors; subject-only signed commits everywhere (release squash on `main` carries the release notes as its body) — see `.claude/rules/git-versioning.md`.
 
 Pipeline: `parser → transformer → emitter → store`. Read side: `query → mcp/tools`. Background: `temperature` ticker decays/notifies.
 
@@ -19,11 +19,11 @@ Pipeline: `parser → transformer → emitter → store`. Read side: `query → 
 - `pkg/compiler/` — full-workspace compile pipeline
 - `pkg/mcp/` — MCP server; tools in `pkg/mcp/tools/` (one file per tool)
 - `pkg/temperature/` — decay/boost/cold-set + cold-node notifier
-- `cmd/remindb/` — CLI: `serve`, `compile`, `inspect`, `bench`
+- `cmd/remindb/` — CLI: `serve`, `compile`, `inspect`, `bench`, `update`
 - `migrations/` — `0001_init.sql`, `0002_*.sql`, applied via embed.FS in `migrations.go`
-- `internal/` — bench, contentid, fileext, mcptest, tempfile, testutil, tokens
+- `internal/` — bench, contentid, fileext, ignore, mcptest, tempfile, testutil, tokens
 - `skills/remind/`, `skills/memoize/` — **public** skills shipped to MCP clients: `remind` is the read path + mental model, `memoize` is the write path + Markdown-shape rules (distinct from `.claude/skills/`)
-- `plugins/` — per-agent plugin folders (claude-code, gemini-cli, codex, opencode)
+- `plugins/` — per-agent plugin folders (claude-code, gemini-cli, codex, opencode, openclaw)
 - Top-level: `integration_test.go`, `mcp_integration_test.go`, `bench_test.go`
 
 ## Where to read first — don't grep, don't ls
@@ -67,9 +67,9 @@ Read tools (`Search`, `Fetch`, `Tree`, `Delta`, `History`) **never** take `Store
 
 `Store.OpMu sync.Mutex` is exposed as a field. Call `.Lock()` / `.Unlock()` directly. **Do not** wrap in `LockOp` / `UnlockOp` helpers — explicit project preference (see auto-memory `feedback_sync_primitives.md`).
 
-### Pre-implementation stage — no compatibility shims
+### Pre-1.0 beta — no compatibility shims
 
-Solo, linear `dev`, no published clients yet. Don't add deprecation paths, version gates, or backwards-compat wrappers. Just change the code and update the rule/skill that documents it.
+Solo, linear `dev`, small surface area, no committed-to-stable-API yet. Don't add deprecation paths, version gates, or backwards-compat wrappers. Just change the code and update the rule/skill that documents it.
 
 ## Workflow shortcuts — task → skill
 

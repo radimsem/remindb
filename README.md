@@ -95,7 +95,7 @@ Lands at `%LOCALAPPDATA%\Programs\remindb\bin\remindb.exe`. Override with `-Pref
 ./install.ps1 -Prefix C:\tools\remindb
 ```
 
-### From source (Go 1.23+)
+### From source (Go 1.26+)
 
 ```bash
 git clone https://github.com/radimsem/remindb.git
@@ -127,13 +127,14 @@ Two phases, one SQLite file in between. The compiler turns source files into ver
 
 ## CLI
 
-Four subcommands, one shared flag (`--db`). Skip `--db` on a directory and remindb derives `./<dirname>.db` automatically.
+Five subcommands, one shared flag (`--db`). Skip `--db` on a directory and remindb derives `./<dirname>.db` automatically.
 
 ```
 remindb compile <path>   Ingest files or a directory into the database
 remindb serve            Start the MCP server (stdio)
-remindb inspect          Dump DB stats; optionally render the node tree
+remindb inspect          Dump DB stats; optionally render the node tree or file list
 remindb bench            Measure token savings vs. raw-file baselines
+remindb update           Reinstall remindb by re-running the install script
 ```
 
 ### `compile`
@@ -212,16 +213,18 @@ remindb serve --db ./notes.db --source ./notes --rescan-interval 30s -v
 
 ### `inspect`
 
-Read-only snapshot of what's in a database. Without `--tree` it prints stats; with `--tree` it renders the node hierarchy, temperatures colour-coded blue (cold) → red (hot).
+Read-only snapshot of what's in a database. Without `--tree` or `--files` it prints stats; `--tree` renders the node hierarchy (temperatures colour-coded blue cold → red hot); `--files` renders the compiled source files grouped by compile root.
 
 ```bash
 remindb inspect --db ./notes.db
 remindb inspect --db ./notes.db --tree --depth 6
+remindb inspect --db ./notes.db --files
 ```
 
 | Flag | Purpose |
 |------|---------|
 | `--tree` | Render the node tree. |
+| `--files` | Render compiled source files grouped by compile root. |
 | `--depth N` | Maximum depth when rendering. Default: `10`. Requires `--tree`. |
 
 `NO_COLOR=1` disables the ANSI palette.
@@ -241,6 +244,16 @@ remindb bench \
 | `--dir` | Source directory (inferred from the DB path if omitted). |
 | `--budget` | Token budget for search and fetch scenarios. Default: `1000`. |
 | `--query` | Repeatable. Skips the search scenario when empty. |
+
+### `update`
+
+Reinstalls remindb in place by re-running the official install script. The path it picks matches the install commands shown above — `install.sh` piped to `bash` on Linux / macOS, `install.ps1` piped to PowerShell on Windows.
+
+```bash
+remindb update
+```
+
+`serve` background-checks GitHub releases on startup and emits an `info` log when a newer tag is available, with `hint=remindb update` — so the prompt to upgrade comes from the server, the upgrade itself is one command.
 
 ## MCP tools
 

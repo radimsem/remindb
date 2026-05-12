@@ -6,17 +6,28 @@ Closes #<!-- required: replace with the GitHub issue number this PR addresses (e
 
 ## Self-review
 
-### Verified
-
-- [ ] Tested manually via CLI or local MCP plugin install
-- [ ] Ran the test suite with fuzzing (`make test-all`, `make fuzz`)
-
 ### Touched
 
-- [ ] **MCP tools or public skills** — code and skill stay in sync (`skills/remind/`, `skills/memoize/`)
-- [ ] **Temperature config** — both public skills reflect new values
-- [ ] **Parser** — fuzz target covers the change
-- [ ] **Schema or migrations** — FTS5 triggers in sync
-- [ ] **Write path** — each write tool call still produces exactly one snapshot
-- [ ] **Client output format** — unchanged, or breaking change noted in summary
-- [ ] **CLI** — user-facing changes documented in summary
+**Pipeline**
+
+- [ ] `pkg/parser/` — fuzz target covers any new shape
+- [ ] `pkg/transformer/` or `pkg/diff/` — ID stability / hash inputs unchanged
+- [ ] `pkg/emitter/` — exactly one snapshot per write
+- [ ] `pkg/store/` + `migrations/` — FTS5 triggers in sync; `add-store-query` followed
+- [ ] `pkg/query/` or `pkg/compiler/` — token budget honored
+
+**MCP surface**
+
+- [ ] `pkg/mcp/` — `skills/remind` (read) or `skills/memoize` (write) updated
+- [ ] `pkg/temperature/` — both public skills reflect new values
+
+**Edges**
+
+- [ ] `cmd/remindb/` — README CLI section updated
+- [ ] `internal/ignore/`, `internal/tempfile/`, `internal/bench/` — relevant fuzz / fixture / scenario added
+- [ ] `plugins/<agent>/` — manifest version bumped if shipping
+
+### Process
+
+- [ ] Tested manually via CLI or local MCP plugin install
+- [ ] `make test-all` + `make fuzz` green
