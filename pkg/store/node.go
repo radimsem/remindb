@@ -98,6 +98,16 @@ func (s *Store) GetNodesByFiles(ctx context.Context, paths []string) ([]*Node, e
 	return collectRows(rows)
 }
 
+func (s *Store) GetNodesByCompileRoot(ctx context.Context, root string) ([]*Node, error) {
+	rows, err := s.db.QueryContext(ctx, qSelectNodesByCompileRoot, root)
+	if err != nil {
+		return nil, err
+	}
+	defer func() { _ = rows.Close() }()
+
+	return collectRows(rows)
+}
+
 func (s *Store) GetChildren(ctx context.Context, parentID string) ([]*Node, error) {
 	rows, err := s.db.QueryContext(ctx, qSelectChildren, parentID)
 	if err != nil {

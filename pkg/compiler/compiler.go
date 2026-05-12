@@ -38,6 +38,7 @@ type options struct {
 	logger      *slog.Logger
 	ignore      *ignore.Matcher
 	ignoreSet   bool
+	fullRescan  bool
 }
 
 func WithPaths(p []string) Option {
@@ -65,6 +66,10 @@ func WithIgnore(m *ignore.Matcher) Option {
 		o.ignore = m
 		o.ignoreSet = true
 	}
+}
+
+func WithFullRescan() Option {
+	return func(o *options) { o.fullRescan = true }
 }
 
 func Compile(ctx context.Context, st *store.Store, opts ...Option) (*Result, error) {
@@ -132,7 +137,7 @@ func Compile(ctx context.Context, st *store.Store, opts ...Option) (*Result, err
 
 	flat := parser.Flatten(roots)
 
-	prev, err := buildPrevState(ctx, st, flat)
+	prev, err := buildPrevState(ctx, st, flat, o.fullRescan, o.compileRoot)
 	if err != nil {
 		return nil, err
 	}
@@ -233,6 +238,7 @@ func CompileDir(ctx context.Context, st *store.Store, dir, message string, opts 
 		WithMessage(message),
 		WithCompileRoot(absDir),
 		WithTemps(temps),
+		WithFullRescan(),
 	)
 	return Compile(ctx, st, all...)
 }
@@ -276,10 +282,8 @@ func resolveTemps(dir string, paths []string) (map[string]*float64, error) {
 	return temps, nil
 }
 
-func buildPrevState(ctx context.Context, st *store.Store, flat []*parser.ContextNode) (map[string]diff.NodeState, error) {
-	files := uniqueFilesFlat(flat)
-
-	existing, err := st.GetNodesByFiles(ctx, files)
+func buildPrevState(ctx context.Context, st *store.Store, flat []*parser.ContextNode, fullRescan bool, compileRoot string) (map[string]diff.NodeState, error) {
+	existing, err := loadPrevNodes(ctx, st, flat, fullRescan, compileRoot)
 	if err != nil {
 		return nil, fmt.Errorf("failed to get nodes: %w", err)
 	}
@@ -289,6 +293,13 @@ func buildPrevState(ctx context.Context, st *store.Store, flat []*parser.Context
 		prev[n.ID] = diff.NodeState{Hash: n.ContentHash, Content: n.Content}
 	}
 	return prev, nil
+}
+
+func loadPrevNodes(ctx context.Context, st *store.Store, flat []*parser.ContextNode, fullRescan bool, compileRoot string) ([]*store.Node, error) {
+	if fullRescan && compileRoot != "" {
+		return st.GetNodesByCompileRoot(ctx, compileRoot)
+	}
+	return st.GetNodesByFiles(ctx, uniqueFilesFlat(flat))
 }
 
 func uniqueFilesFlat(flat []*parser.ContextNode) []string {
