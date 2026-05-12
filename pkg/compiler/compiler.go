@@ -39,6 +39,7 @@ type options struct {
 	ignore      *ignore.Matcher
 	ignoreSet   bool
 	fullRescan  bool
+	reseedTemps bool
 }
 
 func WithPaths(p []string) Option {
@@ -70,6 +71,10 @@ func WithIgnore(m *ignore.Matcher) Option {
 
 func WithFullRescan() Option {
 	return func(o *options) { o.fullRescan = true }
+}
+
+func WithReseedTemperatures() Option {
+	return func(o *options) { o.reseedTemps = true }
 }
 
 func Compile(ctx context.Context, st *store.Store, opts ...Option) (*Result, error) {
@@ -240,7 +245,42 @@ func CompileDir(ctx context.Context, st *store.Store, dir, message string, opts 
 		WithTemps(temps),
 		WithFullRescan(),
 	)
-	return Compile(ctx, st, all...)
+
+	result, err := Compile(ctx, st, all...)
+	if err != nil {
+		return nil, err
+	}
+
+	if o.reseedTemps && len(temps) > 0 {
+		if err := reseedTemperatures(ctx, st, absDir, temps); err != nil {
+			return nil, fmt.Errorf("failed to reseed temperatures: %w", err)
+		}
+	}
+	return result, nil
+}
+
+// Bypasses the emitter so the temperature update does not create a new snapshot.
+func reseedTemperatures(ctx context.Context, st *store.Store, compileRoot string, temps map[string]*float64) error {
+	byTemp := make(map[float64][]string, len(temps))
+
+	for path, t := range temps {
+		if t == nil {
+			continue
+		}
+
+		rel, err := filepath.Rel(compileRoot, path)
+		if err != nil {
+			return fmt.Errorf("failed to resolve: relative path for %s: %w", path, err)
+		}
+		byTemp[*t] = append(byTemp[*t], rel)
+	}
+
+	for temp, paths := range byTemp {
+		if err := st.ResetTemperaturesByFiles(ctx, paths, temp); err != nil {
+			return err
+		}
+	}
+	return nil
 }
 
 // Compile a single file; compile root anchors at the file's parent directory.

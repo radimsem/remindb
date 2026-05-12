@@ -573,3 +573,167 @@ func TestCompile_SkipsUnsupported(t *testing.T) {
 		t.Error("expected nodes from the .md file")
 	}
 }
+
+func nodeTemps(t *testing.T, ctx context.Context, st *store.Store, sourceFile string) []float64 {
+	t.Helper()
+
+	nodes, err := st.GetNodesByFile(ctx, sourceFile)
+	if err != nil {
+		t.Fatalf("GetNodesByFile %s: %v", sourceFile, err)
+	}
+	if len(nodes) == 0 {
+		t.Fatalf("no nodes for %s", sourceFile)
+	}
+
+	out := make([]float64, len(nodes))
+	for i, n := range nodes {
+		out[i] = n.Temperature
+	}
+	return out
+}
+
+func setAllTemps(t *testing.T, ctx context.Context, st *store.Store, sourceFile string, temp float64) {
+	t.Helper()
+
+	nodes, err := st.GetNodesByFile(ctx, sourceFile)
+	if err != nil {
+		t.Fatalf("GetNodesByFile %s: %v", sourceFile, err)
+	}
+	for _, n := range nodes {
+		if err := st.UpdateTemperature(ctx, n.ID, temp); err != nil {
+			t.Fatalf("UpdateTemperature %s: %v", n.ID, err)
+		}
+	}
+}
+
+func assertAllTempsEqual(t *testing.T, got []float64, want float64) {
+	t.Helper()
+
+	for i, g := range got {
+		if g != want {
+			t.Errorf("node[%d].Temperature = %g, want %g", i, g, want)
+		}
+	}
+}
+
+func TestCompileDir_ReseedTemperatures_OverridesUnchanged(t *testing.T) {
+	st := testutil.OpenTestDB(t)
+	ctx := context.Background()
+	dir := t.TempDir()
+
+	writeFile(t, dir, ".temp.json", `{"doc.md": 0.9}`)
+	writeFile(t, dir, "doc.md", "# Hi\n\nBody one.\n\nBody two.\n")
+
+	if _, err := CompileDir(ctx, st, dir, "v1"); err != nil {
+		t.Fatalf("CompileDir v1: %v", err)
+	}
+	assertAllTempsEqual(t, nodeTemps(t, ctx, st, "doc.md"), 0.9)
+
+	setAllTemps(t, ctx, st, "doc.md", 0.3)
+	writeFile(t, dir, ".temp.json", `{"doc.md": 0.1}`)
+
+	if _, err := CompileDir(ctx, st, dir, "v2", WithReseedTemperatures()); err != nil {
+		t.Fatalf("CompileDir v2: %v", err)
+	}
+	assertAllTempsEqual(t, nodeTemps(t, ctx, st, "doc.md"), 0.1)
+}
+
+func TestCompileDir_ReseedTemperatures_DefaultPreservesExisting(t *testing.T) {
+	st := testutil.OpenTestDB(t)
+	ctx := context.Background()
+	dir := t.TempDir()
+
+	writeFile(t, dir, ".temp.json", `{"doc.md": 0.9}`)
+	writeFile(t, dir, "doc.md", "# Hi\n\nBody one.\n\nBody two.\n")
+
+	if _, err := CompileDir(ctx, st, dir, "v1"); err != nil {
+		t.Fatalf("CompileDir v1: %v", err)
+	}
+
+	setAllTemps(t, ctx, st, "doc.md", 0.3)
+	writeFile(t, dir, ".temp.json", `{"doc.md": 0.1}`)
+
+	if _, err := CompileDir(ctx, st, dir, "v2"); err != nil {
+		t.Fatalf("CompileDir v2: %v", err)
+	}
+	assertAllTempsEqual(t, nodeTemps(t, ctx, st, "doc.md"), 0.3)
+}
+
+func TestCompileDir_ReseedTemperatures_LeavesUnseededFilesAlone(t *testing.T) {
+	st := testutil.OpenTestDB(t)
+	ctx := context.Background()
+	dir := t.TempDir()
+
+	writeFile(t, dir, ".temp.json", `{"a.md": 0.9}`)
+	writeFile(t, dir, "a.md", "# A\n\nAlpha.\n")
+	writeFile(t, dir, "b.md", "# B\n\nBeta.\n")
+
+	if _, err := CompileDir(ctx, st, dir, "v1"); err != nil {
+		t.Fatalf("CompileDir v1: %v", err)
+	}
+
+	setAllTemps(t, ctx, st, "a.md", 0.3)
+	setAllTemps(t, ctx, st, "b.md", 0.4)
+
+	writeFile(t, dir, ".temp.json", `{"a.md": 0.1}`)
+
+	if _, err := CompileDir(ctx, st, dir, "v2", WithReseedTemperatures()); err != nil {
+		t.Fatalf("CompileDir v2: %v", err)
+	}
+
+	assertAllTempsEqual(t, nodeTemps(t, ctx, st, "a.md"), 0.1)
+	assertAllTempsEqual(t, nodeTemps(t, ctx, st, "b.md"), 0.4)
+}
+
+func TestCompileDir_ReseedTemperatures_NoTempFile(t *testing.T) {
+	st := testutil.OpenTestDB(t)
+	ctx := context.Background()
+	dir := t.TempDir()
+
+	writeFile(t, dir, "doc.md", "# Hi\n\nBody.\n")
+
+	if _, err := CompileDir(ctx, st, dir, "v1"); err != nil {
+		t.Fatalf("CompileDir v1: %v", err)
+	}
+
+	setAllTemps(t, ctx, st, "doc.md", 0.3)
+
+	if _, err := CompileDir(ctx, st, dir, "v2", WithReseedTemperatures()); err != nil {
+		t.Fatalf("CompileDir v2: %v", err)
+	}
+	assertAllTempsEqual(t, nodeTemps(t, ctx, st, "doc.md"), 0.3)
+}
+
+func TestCompileDir_ReseedTemperatures_NoNewSnapshot(t *testing.T) {
+	st := testutil.OpenTestDB(t)
+	ctx := context.Background()
+	dir := t.TempDir()
+
+	writeFile(t, dir, ".temp.json", `{"doc.md": 0.9}`)
+	writeFile(t, dir, "doc.md", "# Hi\n\nBody.\n")
+
+	if _, err := CompileDir(ctx, st, dir, "v1"); err != nil {
+		t.Fatalf("CompileDir v1: %v", err)
+	}
+
+	setAllTemps(t, ctx, st, "doc.md", 0.3)
+
+	before, err := st.GetStats(ctx)
+	if err != nil {
+		t.Fatalf("GetStats before: %v", err)
+	}
+
+	if _, err := CompileDir(ctx, st, dir, "v2", WithReseedTemperatures()); err != nil {
+		t.Fatalf("CompileDir v2: %v", err)
+	}
+
+	after, err := st.GetStats(ctx)
+	if err != nil {
+		t.Fatalf("GetStats after: %v", err)
+	}
+
+	if got := after.SnapshotCount - before.SnapshotCount; got != 0 {
+		t.Errorf("SnapshotCount delta = %d, want 0 (reseed-only run must not emit)", got)
+	}
+	assertAllTempsEqual(t, nodeTemps(t, ctx, st, "doc.md"), 0.9)
+}

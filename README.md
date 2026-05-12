@@ -145,12 +145,14 @@ One-shot ingestion of a file or directory. Creates a new snapshot and records di
 remindb compile ./notes # → ./notes.db
 remindb compile ./notes --db memory.db -m "add Q2 notes"
 remindb compile ./docs/architecture.md --db project.db
+remindb compile ./notes --reseed-temperatures # force .temp.json values onto unchanged nodes
 ```
 
 | Flag | Purpose |
 |------|---------|
 | `--db PATH` | Target database. Default: derived from the source directory name, else `memory.db`. |
 | `-m, --message` | Snapshot message (defaults to `compile:<path>`). |
+| `--reseed-temperatures` | Push `.temp.json` values through to nodes whose source files didn't change on disk. Directory compiles only; no new snapshot. See [Pre-seeding temperatures with `.temp.json`](#pre-seeding-temperatures-with-tempjson). |
 
 #### Filtering with `.remindb.ignore`
 
@@ -194,6 +196,8 @@ Slash-keys and nested objects mix freely — `"src/api/routes.yaml"` and `{"src"
 Two keys that resolve to the same leaf with disagreeing values fail at load time with the offending path named. Missing file is silently skipped; everything starts at the engine default of `0.50`.
 
 Supported: numbers in `[0, 1]`, nested objects, slash-keys, `*` glob at any level, leading `./` and trailing `/` (both normalized). Anything else — out-of-range numbers, string values, leading `/`, `..` segments, empty segments from `//` — fails the command at startup with the offending key named.
+
+By default, edits to `.temp.json` reach only the nodes whose source files also changed in the same compile — agent activity (`MemoryFetch` boosts, the decay tick) shouldn't be wiped silently every time the workspace is recompiled. Pass `remindb compile <dir> --reseed-temperatures` when you mean it: the flag overrides stored temperatures for every node whose source file is keyed in `.temp.json`, regardless of whether its content changed. The reseed pass is a temperature update, not a content change, so it does not create a new snapshot. The flag only applies to directory compiles (`compile <dir>`); single-file compiles ignore it, and the `MemoryCompile` MCP tool does not expose it (agents cannot use it to overwrite their own temperature signal).
 
 ### `serve`
 
