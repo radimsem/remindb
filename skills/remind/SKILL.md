@@ -17,7 +17,7 @@ The smallest unit of memory is a **node**. Every node has:
 - An **11-char base62 ID** (e.g. `3kGXxidmWBp`), content-addressed with xxhash64. Use it as the anchor in all follow-up calls; never guess or edit it.
 - A `parent_id` — nodes form a tree.
 - A `label` — a short, scannable title (first meaningful line, ≤80 chars).
-- A `node_type` — one of `heading`, `list`, `kv`, `table`, `preamble`, `text`, `code`. Types hint at shape, not behavior.
+- A `node_type` — one of `heading`, `list`, `kv`, `table`, `preamble`, `text`, `code`, `embed`. Types hint at shape, not behavior. (`embed` references an external resource — image, video, audio, iframe — from HTML. Inline `<svg>` / `<canvas>` markup lives on `code` with `format` set to the tag name. The `format` column distinguishes the medium in both cases.)
 - A `token_count` — estimated cl100k-base tokens. The query layer uses this to honor budgets.
 - A `temperature` in `[0.0, 1.0]` — how "warm" the node is. Reads boost it (`+0.15`, capped at 1.0 by SQL `min(1.0, …)`). A background tick (default every 5 minutes) decays everything by `factor = exp(-0.05 × elapsed_hours)` — roughly 5% per hour. Two thresholds gate downstream behavior, both default to `0.1`:
   - `ColdThreshold` — used by `GetColdNodes` and the search ranking floor; nodes below it are "cold".

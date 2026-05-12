@@ -41,6 +41,8 @@ func ParseBytes(path string, data []byte) ([]*ContextNode, error) {
 	switch ext {
 	case ".md", ".markdown":
 		return parseMarkdown(path, data)
+	case ".htm", ".html":
+		return parseHtml(path, data)
 	case ".yml", ".yaml":
 		return parseYaml(path, data)
 	case ".json":
