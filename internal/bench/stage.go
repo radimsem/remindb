@@ -150,6 +150,7 @@ func copySourceTree(src, dst string, matcher *ignore.Matcher) error {
 			}
 			return nil
 		}
+
 		if relSlash == ignore.FileName {
 			return nil
 		}
