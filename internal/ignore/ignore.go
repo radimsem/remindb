@@ -101,6 +101,7 @@ func parsePattern(raw string) (pattern, error) {
 		p.negated = true
 		s = s[1:]
 	}
+
 	if strings.HasPrefix(s, "/") {
 		p.anchored = true
 		s = s[1:]

@@ -121,6 +121,7 @@ func insertKey(root, leaf *entry, key string) error {
 			next = &entry{children: make(map[string]*entry)}
 			curr.children[seg] = next
 		}
+
 		if next.temp != nil {
 			path := strings.Join(segments[:i+1], "/")
 			return fmt.Errorf("conflicting temperatures for %q", path)
