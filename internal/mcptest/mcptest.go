@@ -58,6 +58,7 @@ func (e *Env) CallTool(t *testing.T, name string, args map[string]any) *mcp.Call
 	if err != nil {
 		t.Fatalf("CallTool %s: %v", name, err)
 	}
+
 	if result.IsError {
 		msg := "unknown error"
 		if len(result.Content) > 0 {

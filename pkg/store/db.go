@@ -59,7 +59,7 @@ func (s *Store) Close() error {
 	return s.db.Close()
 }
 
-// Tx runs fn inside a transaction. Commits on nil error, rolls back otherwise.
+// Run fn inside a transaction; commit on nil error, roll back otherwise.
 func (s *Store) Tx(ctx context.Context, fn func(tx *sql.Tx) error) error {
 	s.txMu.Lock()
 	defer s.txMu.Unlock()

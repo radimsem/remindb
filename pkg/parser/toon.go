@@ -26,10 +26,10 @@ func (p ToonParser) parse(path string, data []byte) ([]*ContextNode, error) {
 	return []*ContextNode{buildNode(path, "", root, 1)}, nil
 }
 
-// ToonSavingsThreshold is the minimum fraction of bytes TOON must save versus plain rendering before it is preferred.
+// Minimum byte-savings fraction TOON must beat over plain rendering before it's preferred.
 const ToonSavingsThreshold = 0.15
 
-// Try TOON encoding for items under key. Returns (encoded, true) when the array is TOON-friendly and the encoded form beats plain by ToonSavingsThreshold.
+// Try TOON-encoding items under key; succeeds when the array is TOON-friendly and beats plain by ToonSavingsThreshold.
 func tryToonList(key string, items []any, plain string) (string, bool) {
 	if !isToonFriendly(items) {
 		return "", false

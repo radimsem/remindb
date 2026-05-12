@@ -14,13 +14,16 @@ import (
 
 func openBenchStore(b *testing.B) *store.Store {
 	b.Helper()
+
 	st, err := store.Open(":memory:")
 	if err != nil {
 		b.Fatal(err)
 	}
+
 	if err := st.Migrate(context.Background()); err != nil {
 		b.Fatal(err)
 	}
+
 	b.Cleanup(func() { _ = st.Close() })
 	return st
 }

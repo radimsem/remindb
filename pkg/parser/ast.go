@@ -19,8 +19,7 @@ const (
 	FormatToon  = "toon"
 )
 
-// MaxInlineFields is the threshold for promoting a nested map or array to its
-// own ContextNode. Smaller structures stay inlined in the parent's Content.
+// Promote a nested map or array to its own ContextNode at or above this many entries; smaller structures stay inlined.
 const MaxInlineFields = 5
 
 type ContextNode struct {
