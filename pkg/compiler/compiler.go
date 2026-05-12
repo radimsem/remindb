@@ -101,7 +101,7 @@ func Compile(ctx context.Context, st *store.Store, opts ...Option) (*Result, err
 
 			data, err := os.ReadFile(p)
 			if err != nil {
-				return fmt.Errorf("failed to read: %s: %w", p, err)
+				return fmt.Errorf("failed to read: %w", err)
 			}
 
 			nodes, err := parser.ParseBytes(p, data)

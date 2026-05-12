@@ -30,6 +30,8 @@ func init() {
 }
 
 func runBench(cmd *cobra.Command, _ []string) error {
+	cmd.SilenceUsage = true
+
 	if err := deriveDefaultDBPath(cmd, benchDir); err != nil {
 		return err
 	}

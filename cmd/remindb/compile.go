@@ -29,6 +29,7 @@ func init() {
 }
 
 func runCompile(cmd *cobra.Command, args []string) error {
+	cmd.SilenceUsage = true
 	path := args[0]
 
 	if err := deriveDefaultDBPath(cmd, path); err != nil {
@@ -53,7 +54,7 @@ func runCompile(cmd *cobra.Command, args []string) error {
 
 	fi, err := os.Stat(path)
 	if err != nil {
-		return fmt.Errorf("failed to stat: %s: %w", path, err)
+		return fmt.Errorf("failed to stat: %w", err)
 	}
 
 	var result *compiler.Result

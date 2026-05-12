@@ -27,7 +27,7 @@ func Parse(path string, r io.Reader) ([]*ContextNode, error) {
 func ParseFile(path string) ([]*ContextNode, error) {
 	data, err := os.ReadFile(path)
 	if err != nil {
-		return nil, fmt.Errorf("failed to read: %s: %w", path, err)
+		return nil, fmt.Errorf("failed to read: %w", err)
 	}
 	return ParseBytes(path, data)
 }
