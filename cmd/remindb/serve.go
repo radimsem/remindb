@@ -33,10 +33,10 @@ var serveCmd = &cobra.Command{
 
 func init() {
 	serveCmd.Flags().StringVar(&sourceDir, "source", "", "Source directory to watch for changes (falls back to REMINDB_SOURCE)")
-	serveCmd.Flags().DurationVar(&rescanInterval, "rescan-interval", 0, "Rescan interval (e.g. 30s, 5m); 0 uses default (falls back to REMINDB_RESCAN_INTERVAL)")
+	serveCmd.Flags().DurationVar(&rescanInterval, "rescan-interval", 0, "Rescan interval (e.g. 30s, 5m), requires --source; 0 uses default (falls back to REMINDB_RESCAN_INTERVAL)")
 	serveCmd.Flags().BoolVarP(&verbose, "verbose", "v", false, "Emit debug-level logs (default level is info)")
 	serveCmd.Flags().StringVar(&transport, "transport", remindb.TransportStdio, "Transport for the MCP server (stdio|http); falls back to REMINDB_TRANSPORT")
-	serveCmd.Flags().StringVar(&listen, "listen", remindb.DefaultListenAddr, "Listen address for HTTP transport (ignored for stdio); falls back to REMINDB_LISTEN")
+	serveCmd.Flags().StringVar(&listen, "listen", remindb.DefaultListenAddr, "Listen address for HTTP transport, requires --transport=http; falls back to REMINDB_LISTEN")
 	rootCmd.AddCommand(serveCmd)
 }
 
