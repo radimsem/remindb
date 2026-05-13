@@ -126,12 +126,18 @@ func (p HtmlParser) attachCode(n *html.Node, path string, stack []frame, out []*
 }
 
 func (p HtmlParser) attachMath(n *html.Node, path string, stack []frame, out []*ContextNode) []*ContextNode {
-	content := p.serializeNode(n)
-	if content == "" {
+	xml := p.serializeNode(n)
+	if xml == "" {
 		return out
 	}
 
-	cn := &ContextNode{SourceFile: path, NodeType: NodeCode, Content: content, Format: FormatMathml}
+	content, format := xml, FormatMathml
+	if latex, ok := mathmlToLatex(n); ok && beatsXml(xml, latex) {
+		content = latex
+		format = FormatLatex
+	}
+
+	cn := &ContextNode{SourceFile: path, NodeType: NodeCode, Content: content, Format: format}
 	return attachNode(stack, out, cn)
 }
 
