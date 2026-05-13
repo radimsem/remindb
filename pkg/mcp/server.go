@@ -11,6 +11,7 @@ import (
 	"github.com/radimsem/remindb/pkg/query"
 	"github.com/radimsem/remindb/pkg/store"
 	"github.com/radimsem/remindb/pkg/temperature"
+	"github.com/radimsem/remindb/pkg/version"
 )
 
 const (
@@ -83,7 +84,7 @@ func NewServer(st *store.Store, tracker *temperature.Tracker, cfg temperature.Co
 	s := &Server{
 		mcp: mcp.NewServer(&mcp.Implementation{
 			Name:    "remindb",
-			Version: "0.1.0",
+			Version: version.Get(),
 		}, nil),
 		logger:          logger,
 		notifyThreshold: cfg.NotifyThreshold,
