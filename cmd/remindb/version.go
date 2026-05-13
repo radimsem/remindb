@@ -25,6 +25,9 @@ func checkLatestVersion(ctx context.Context, current string, logger *slog.Logger
 	if !strings.HasPrefix(current, "v") {
 		return
 	}
+	if i := strings.Index(current, "+"); i >= 0 {
+		current = current[:i]
+	}
 
 	ctx, cancel := context.WithTimeout(ctx, versionCheckTTL)
 	defer cancel()
