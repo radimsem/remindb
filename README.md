@@ -122,7 +122,7 @@ Two phases, one SQLite file in between. The compiler turns source files into ver
 | **Store** | SQLite with WAL mode. Tables: `nodes`, `snapshots`, `diffs`, `cursors`, plus the `nodes_fts` virtual table. |
 | **Query Engine** | Token-budgeted context assembly. Walks ancestors and descendants via `parent_id`, ranks by relevance weighted by temperature, formats output. |
 | **Temperature** | Boosts on read, decays on a tick. Cold nodes get flagged for summarization. |
-| **MCP Server** | `modelcontextprotocol/go-sdk` over stdio. Registers the `Memory*` tool suite, dispatches to the query engine, and notifies clients when nodes go cold. |
+| **MCP Server** | `modelcontextprotocol/go-sdk` over stdio or streamable HTTP. Registers the `Memory*` tool suite, dispatches to the query engine, and notifies clients when nodes go cold. |
 | **Rescan Loop** | Optional background goroutine that polls the source directory and triggers incremental recompilation without bringing the server down. |
 
 ## CLI
@@ -131,7 +131,7 @@ Five subcommands, one shared flag (`--db`). Skip `--db` on a directory and remin
 
 ```
 remindb compile <path>   Ingest files or a directory into the database
-remindb serve            Start the MCP server (stdio)
+remindb serve            Start the MCP server (stdio or HTTP)
 remindb inspect          Dump DB stats; optionally render the node tree or file list
 remindb bench            Measure token savings vs. raw-file baselines
 remindb update           Reinstall remindb by re-running the install script
@@ -201,18 +201,24 @@ By default, edits to `.temp.json` reach only the nodes whose source files also c
 
 ### `serve`
 
-Starts the MCP server on stdio. With `--source` set, remindb runs an initial compile (if the DB is empty) and keeps a background rescan loop running.
+Starts the MCP server. Default transport is stdio (one server per client process); pass `--transport http` to expose the same `Memory*` suite over streamable HTTP so a CI worker or a hosted agent session can connect to the same memory database. With `--source` set, remindb runs an initial compile (if the DB is empty) and keeps a background rescan loop running.
 
 ```bash
 remindb serve --db ./notes.db --source ./notes
 remindb serve --db ./notes.db --source ./notes --rescan-interval 30s -v
+remindb serve --db ./notes.db --source ./notes --transport http
+remindb serve --db ./notes.db --source ./notes --transport http --listen 127.0.0.1:7474
 ```
+
+HTTP defaults to `127.0.0.1:7474`. Binding to a non-loopback address (e.g. `--listen 0.0.0.0:7474`) emits a one-time Warn at startup — there is no built-in authentication yet, so put a reverse proxy in front before exposing the server beyond localhost.
 
 | Flag | Env | Purpose |
 |------|-----|---------|
 | `--db` | `REMINDB_DB` | Database file. |
 | `--source` | `REMINDB_SOURCE` | Source directory to watch and incrementally recompile. |
 | `--rescan-interval` | `REMINDB_RESCAN_INTERVAL` | e.g. `30s`, `5m`. `0` keeps the tracker's default. |
+| `--transport` | `REMINDB_TRANSPORT` | `stdio` (default) or `http`. |
+| `--listen` | `REMINDB_LISTEN` | Listen address for HTTP transport. Default `127.0.0.1:7474`; ignored for stdio. |
 | `-v, --verbose` | — | Debug-level logs. Default is info. |
 
 ### `inspect`
@@ -289,7 +295,7 @@ Five plugin folders ship with the repo, one per supported coding agent. Each has
 > [!TIP]
 > **Pair the plugin with the two companion skills** — [`remind`](./skills/remind/) (read path) and [`memoize`](./skills/memoize/) (write path). They teach the agent the MCP tool suite so you don't re-explain it each session. Per-agent install instructions live in [`skills/README.md`](./skills/).
 
-For any other MCP-capable agent, add this to its MCP config by hand:
+For any other MCP-capable agent, add this to its MCP config by hand. Stdio (the default — one server per client process):
 
 ```json
 {
@@ -299,6 +305,19 @@ For any other MCP-capable agent, add this to its MCP config by hand:
       "command": "remindb",
       "args": ["serve", "--db", "/absolute/path/to/memory.db", "--source", "/absolute/path/to/notes"],
       "env": {}
+    }
+  }
+}
+```
+
+Or HTTP, when you want one long-running server that multiple agent sessions (a local IDE, a CI worker, a hosted session) share. Start `remindb serve --transport http --db ... --source ...` once, then point each client at the listen URL:
+
+```json
+{
+  "mcpServers": {
+    "remindb": {
+      "type": "http",
+      "url": "http://127.0.0.1:7474"
     }
   }
 }
