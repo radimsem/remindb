@@ -20,6 +20,8 @@ var (
 	sourceDir      string
 	rescanInterval time.Duration
 	verbose        bool
+	transport      string
+	listen         string
 )
 
 var serveCmd = &cobra.Command{
@@ -32,6 +34,8 @@ func init() {
 	serveCmd.Flags().StringVar(&sourceDir, "source", "", "Source directory to watch for changes (falls back to REMINDB_SOURCE)")
 	serveCmd.Flags().DurationVar(&rescanInterval, "rescan-interval", 0, "Rescan interval (e.g. 30s, 5m); 0 uses default (falls back to REMINDB_RESCAN_INTERVAL)")
 	serveCmd.Flags().BoolVarP(&verbose, "verbose", "v", false, "Emit debug-level logs (default level is info)")
+	serveCmd.Flags().StringVar(&transport, "transport", remindb.TransportStdio, "Transport for the MCP server (stdio|http); falls back to REMINDB_TRANSPORT")
+	serveCmd.Flags().StringVar(&listen, "listen", remindb.DefaultListenAddr, "Listen address for HTTP transport (ignored for stdio); falls back to REMINDB_LISTEN")
 	rootCmd.AddCommand(serveCmd)
 }
 
@@ -66,6 +70,8 @@ func runServe(cmd *cobra.Command, _ []string) error {
 	srv := remindb.NewServer(st, tracker, cfg,
 		remindb.WithSourceDir(sourceDir),
 		remindb.WithLogger(logger),
+		remindb.WithTransport(transport),
+		remindb.WithListen(listen),
 	)
 
 	logger.Info("serve: starting",
@@ -73,6 +79,8 @@ func runServe(cmd *cobra.Command, _ []string) error {
 		"source", sourceDir,
 		"rescan_interval", rescanInterval,
 		"tick_interval", cfg.TickInterval,
+		"transport", transport,
+		"listen", listen,
 		"verbose", verbose,
 		"version", version,
 	)
@@ -150,6 +158,23 @@ func applyServeEnv(cmd *cobra.Command) error {
 			}
 			rescanInterval = d
 		}
+	}
+
+	if !cmd.Flags().Changed("transport") {
+		if v := os.Getenv("REMINDB_TRANSPORT"); v != "" {
+			transport = v
+		}
+	}
+	if !cmd.Flags().Changed("listen") {
+		if v := os.Getenv("REMINDB_LISTEN"); v != "" {
+			listen = v
+		}
+	}
+
+	switch transport {
+	case remindb.TransportStdio, remindb.TransportHttp:
+	default:
+		return fmt.Errorf("unsupported transport %q (want %q or %q)", transport, remindb.TransportStdio, remindb.TransportHttp)
 	}
 	return nil
 }
