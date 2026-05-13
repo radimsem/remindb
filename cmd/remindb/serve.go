@@ -12,6 +12,7 @@ import (
 	remindb "github.com/radimsem/remindb/pkg/mcp"
 	"github.com/radimsem/remindb/pkg/store"
 	"github.com/radimsem/remindb/pkg/temperature"
+	"github.com/radimsem/remindb/pkg/version"
 	"github.com/spf13/cobra"
 	"golang.org/x/sync/errgroup"
 )
@@ -82,10 +83,10 @@ func runServe(cmd *cobra.Command, _ []string) error {
 		"transport", transport,
 		"listen", listen,
 		"verbose", verbose,
-		"version", version,
+		"version", version.Get(),
 	)
 
-	go checkLatestVersion(ctx, version, logger)
+	go checkLatestVersion(ctx, version.Get(), logger)
 
 	if sourceDir != "" {
 		if err := remindb.MaybeInitialCompile(ctx, st, sourceDir, logger); err != nil {
