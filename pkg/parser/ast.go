@@ -19,6 +19,7 @@ const (
 	FormatPlain  = "plain"
 	FormatToon   = "toon"
 	FormatMathml = "mathml"
+	FormatLatex  = "latex"
 )
 
 // Promote a nested map or array to its own ContextNode at or above this many entries; smaller structures stay inlined.

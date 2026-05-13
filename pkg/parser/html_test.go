@@ -381,11 +381,32 @@ func TestParseHtml_Math(t *testing.T) {
 	}
 
 	math := nodes[1]
+	if math.NodeType != NodeCode || math.Format != FormatLatex {
+		t.Errorf("math = {%v, %q}, want {NodeCode, latex}", math.NodeType, math.Format)
+	}
+	if math.Content != "x = 1" {
+		t.Errorf("math.Content = %q, want %q", math.Content, "x = 1")
+	}
+}
+
+func TestParseHtml_Math_UnsupportedFallsBackToMathml(t *testing.T) {
+	src := `<math><mmultiscripts><mi>x</mi><mn>1</mn><mn>2</mn></mmultiscripts></math>`
+
+	nodes, err := parseHtml("doc.html", []byte(src))
+	if err != nil {
+		t.Fatalf("parseHtml: %v", err)
+	}
+
+	if len(nodes) != 1 {
+		t.Fatalf("len(nodes) = %d, want 1", len(nodes))
+	}
+
+	math := nodes[0]
 	if math.NodeType != NodeCode || math.Format != FormatMathml {
 		t.Errorf("math = {%v, %q}, want {NodeCode, mathml}", math.NodeType, math.Format)
 	}
 	if !strings.Contains(math.Content, "<math") {
-		t.Errorf("math content missing markup: %q", math.Content)
+		t.Errorf("math content missing raw markup: %q", math.Content)
 	}
 }
 
