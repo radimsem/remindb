@@ -26,6 +26,18 @@ const (
 	// IN clause is closed by the caller after appending placeholders.
 	qSelectNodesByFilesPrefix = `SELECT ` + nodeColumns + ` FROM nodes WHERE source_file IN (`
 
+	// Nodes whose most recent diffs entry was written under the given compile_root.
+	qSelectNodesByCompileRoot = `
+		WITH latest_per_node AS (
+			SELECT node_id, MAX(snapshot_id) AS sid
+			FROM diffs
+			GROUP BY node_id
+		)
+		SELECT ` + nodeColumnsAliased + ` FROM nodes n
+		JOIN latest_per_node lpn ON lpn.node_id = n.id
+		JOIN snapshots s ON s.id = lpn.sid
+		WHERE s.compile_root = ?`
+
 	qSelectChildren = `SELECT ` + nodeColumns + ` FROM nodes WHERE parent_id = ?`
 
 	qSelectAncestors = `
@@ -180,4 +192,8 @@ const (
 		WHERE temperature > 0`
 
 	qSelectColdNodes = `SELECT ` + nodeColumns + ` FROM nodes WHERE temperature < ? ORDER BY temperature ASC LIMIT ?`
+
+	// IN clause is closed by the caller after appending placeholders.
+	qResetTemperaturesByFilesPrefix = `UPDATE nodes SET temperature = ?, updated_at = unixepoch()
+		WHERE source_file IN (`
 )

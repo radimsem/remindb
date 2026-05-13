@@ -2,6 +2,7 @@ package mcptest
 
 import (
 	"context"
+	"net"
 	"testing"
 
 	"github.com/modelcontextprotocol/go-sdk/mcp"
@@ -46,6 +47,52 @@ func NewEnv(t *testing.T) *Env {
 	return &Env{Session: session, Store: st}
 }
 
+func NewHttpEnv(t *testing.T) *Env {
+	t.Helper()
+
+	st := testutil.OpenTestDB(t)
+	cfg := temperature.DefaultConfig()
+
+	tracker, err := temperature.NewTracker(st, cfg, nil)
+	if err != nil {
+		t.Fatalf("NewTracker: %v", err)
+	}
+
+	ln, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatalf("failed to listen: %v", err)
+	}
+
+	srv := remindb.NewServer(st, tracker, cfg,
+		remindb.WithTransport(remindb.TransportHttp),
+		remindb.WithListener(ln),
+	)
+
+	ctx, cancel := context.WithCancel(context.Background())
+	runErr := make(chan error, 1)
+	go func() { runErr <- srv.Run(ctx) }()
+
+	client := mcp.NewClient(&mcp.Implementation{Name: "test-agent", Version: "0.1.0"}, nil)
+	transport := &mcp.StreamableClientTransport{Endpoint: "http://" + ln.Addr().String()}
+
+	session, err := client.Connect(ctx, transport, nil)
+	if err != nil {
+		cancel()
+		<-runErr
+		t.Fatalf("client connect: %v", err)
+	}
+
+	t.Cleanup(func() {
+		_ = session.Close()
+		cancel()
+		if err := <-runErr; err != nil {
+			t.Logf("server run returned: %v", err)
+		}
+	})
+
+	return &Env{Session: session, Store: st}
+}
+
 func (e *Env) CallTool(t *testing.T, name string, args map[string]any) *mcp.CallToolResult {
 	t.Helper()
 
@@ -58,6 +105,7 @@ func (e *Env) CallTool(t *testing.T, name string, args map[string]any) *mcp.Call
 	if err != nil {
 		t.Fatalf("CallTool %s: %v", name, err)
 	}
+
 	if result.IsError {
 		msg := "unknown error"
 		if len(result.Content) > 0 {

@@ -2,19 +2,32 @@ package mcp
 
 import (
 	"context"
+	"fmt"
 	"log/slog"
+	"net"
 
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 	"github.com/radimsem/remindb/pkg/mcp/tools"
 	"github.com/radimsem/remindb/pkg/query"
 	"github.com/radimsem/remindb/pkg/store"
 	"github.com/radimsem/remindb/pkg/temperature"
+	"github.com/radimsem/remindb/pkg/version"
+)
+
+const (
+	TransportStdio = "stdio"
+	TransportHttp  = "http"
+
+	DefaultListenAddr = "127.0.0.1:7474"
 )
 
 type Server struct {
 	mcp             *mcp.Server
 	logger          *slog.Logger
 	notifyThreshold float64
+	transport       string
+	listen          string
+	listener        net.Listener
 }
 
 type Option func(*options)
@@ -22,6 +35,9 @@ type Option func(*options)
 type options struct {
 	sourceDir string
 	logger    *slog.Logger
+	transport string
+	listen    string
+	listener  net.Listener
 }
 
 func WithSourceDir(dir string) Option {
@@ -30,6 +46,18 @@ func WithSourceDir(dir string) Option {
 
 func WithLogger(l *slog.Logger) Option {
 	return func(o *options) { o.logger = l }
+}
+
+func WithTransport(t string) Option {
+	return func(o *options) { o.transport = t }
+}
+
+func WithListen(addr string) Option {
+	return func(o *options) { o.listen = addr }
+}
+
+func WithListener(l net.Listener) Option {
+	return func(o *options) { o.listener = l }
 }
 
 func NewServer(st *store.Store, tracker *temperature.Tracker, cfg temperature.Config, opts ...Option) *Server {
@@ -43,13 +71,26 @@ func NewServer(st *store.Store, tracker *temperature.Tracker, cfg temperature.Co
 		logger = slog.New(slog.DiscardHandler)
 	}
 
+	transport := o.transport
+	if transport == "" {
+		transport = TransportStdio
+	}
+
+	listen := o.listen
+	if listen == "" {
+		listen = DefaultListenAddr
+	}
+
 	s := &Server{
 		mcp: mcp.NewServer(&mcp.Implementation{
 			Name:    "remindb",
-			Version: "0.1.0",
+			Version: version.Get(),
 		}, nil),
 		logger:          logger,
 		notifyThreshold: cfg.NotifyThreshold,
+		transport:       transport,
+		listen:          listen,
+		listener:        o.listener,
 	}
 
 	deps := &tools.Deps{
@@ -66,7 +107,14 @@ func NewServer(st *store.Store, tracker *temperature.Tracker, cfg temperature.Co
 }
 
 func (s *Server) Run(ctx context.Context) error {
-	return s.mcp.Run(ctx, &mcp.StdioTransport{})
+	switch s.transport {
+	case TransportStdio:
+		return s.mcp.Run(ctx, &mcp.StdioTransport{})
+	case TransportHttp:
+		return s.runHttp(ctx)
+	default:
+		return fmt.Errorf("unsupported transport %q", s.transport)
+	}
 }
 
 func (s *Server) Connect(ctx context.Context, t mcp.Transport) (*mcp.ServerSession, error) {

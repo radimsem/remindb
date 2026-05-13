@@ -117,6 +117,34 @@ func TestLabel_Preamble(t *testing.T) {
 	}
 }
 
+func TestLabel_EmbedImage(t *testing.T) {
+	n := &parser.ContextNode{
+		NodeType: parser.NodeEmbed,
+		Format:   "image",
+		Content:  "![A cat](cat.png)",
+	}
+	setLabel(n)
+
+	const want = "Image: A cat"
+	if n.Label != want {
+		t.Errorf("Label = %q, want %q", n.Label, want)
+	}
+}
+
+func TestLabel_EmbedVideoNoAlt(t *testing.T) {
+	n := &parser.ContextNode{
+		NodeType: parser.NodeEmbed,
+		Format:   "video",
+		Content:  "[](clip.mp4)",
+	}
+	setLabel(n)
+
+	const want = "Video: clip.mp4"
+	if n.Label != want {
+		t.Errorf("Label = %q, want %q", n.Label, want)
+	}
+}
+
 func TestLabel_Truncation(t *testing.T) {
 	long := strings.Repeat("x", 100)
 	n := &parser.ContextNode{NodeType: parser.NodeHeading, Content: long}

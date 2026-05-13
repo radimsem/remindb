@@ -180,7 +180,7 @@ If you touch X, update Y. CI won't catch a desynced public skill or stale README
 |---|---|
 | MCP tool added / renamed / removed | `skills/remind/SKILL.md` (read tools) or `skills/memoize/SKILL.md` (write tools); both if the change is shared. README's MCP tools table. |
 | Temperature config (`pkg/temperature/Config`) | Both public skills — `skills/remind/` documents the mental model, `skills/memoize/` documents the workflow it triggers. |
-| New parser format | README's "Why I built this" formats list (currently *Markdown, JSON, YAML, TOON*). |
+| New parser format | README's "Why I built this" formats list (currently *Markdown, HTML, JSON, YAML, TOON*). |
 | CLI flag added / removed / renamed | README's CLI section. Each plugin README in `plugins/` that demos the flag. |
 | New migration | README's "How it's put together" Store row if the schema description shifts. The `add-store-query` skill if a new convention emerged. |
 | New private skill (`.claude/skills/`) | The `Workflow shortcuts` table in CLAUDE.md and (if it's a common task) in this CONTRIBUTING.md. |

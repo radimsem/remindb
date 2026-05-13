@@ -27,7 +27,7 @@ func Parse(path string, r io.Reader) ([]*ContextNode, error) {
 func ParseFile(path string) ([]*ContextNode, error) {
 	data, err := os.ReadFile(path)
 	if err != nil {
-		return nil, fmt.Errorf("failed to read: %s: %w", path, err)
+		return nil, fmt.Errorf("failed to read: %w", err)
 	}
 	return ParseBytes(path, data)
 }
@@ -41,6 +41,8 @@ func ParseBytes(path string, data []byte) ([]*ContextNode, error) {
 	switch ext {
 	case ".md", ".markdown":
 		return parseMarkdown(path, data)
+	case ".htm", ".html":
+		return parseHtml(path, data)
 	case ".yml", ".yaml":
 		return parseYaml(path, data)
 	case ".json":

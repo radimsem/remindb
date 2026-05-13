@@ -64,6 +64,27 @@ func (s *Store) DecayTemperatures(ctx context.Context, factor float64) (int64, e
 	return affected, err
 }
 
+func (s *Store) ResetTemperaturesByFiles(ctx context.Context, paths []string, temp float64) error {
+	if len(paths) == 0 {
+		return nil
+	}
+
+	placeholders := make([]string, len(paths))
+	args := make([]any, 0, len(paths)+1)
+	args = append(args, temp)
+
+	for i, p := range paths {
+		placeholders[i] = "?"
+		args = append(args, p)
+	}
+
+	query := qResetTemperaturesByFilesPrefix + strings.Join(placeholders, ",") + `)`
+	return s.Tx(ctx, func(tx *sql.Tx) error {
+		_, err := tx.ExecContext(ctx, query, args...)
+		return err
+	})
+}
+
 func (s *Store) GetColdNodes(ctx context.Context, threshold float64, limit int) ([]*Node, error) {
 	rows, err := s.db.QueryContext(ctx, qSelectColdNodes, threshold, limit)
 	if err != nil {

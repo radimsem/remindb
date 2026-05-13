@@ -26,7 +26,7 @@ type pattern struct {
 	negated  bool
 }
 
-// Load reads <dir>/.remindb.ignore. Returns (nil, nil) if absent.
+// Read <dir>/.remindb.ignore; (nil, nil) if absent.
 func Load(dir string) (*Matcher, error) {
 	f, err := os.Open(filepath.Join(dir, FileName))
 	if err != nil {
@@ -101,6 +101,7 @@ func parsePattern(raw string) (pattern, error) {
 		p.negated = true
 		s = s[1:]
 	}
+
 	if strings.HasPrefix(s, "/") {
 		p.anchored = true
 		s = s[1:]

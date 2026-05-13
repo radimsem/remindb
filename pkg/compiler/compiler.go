@@ -38,6 +38,8 @@ type options struct {
 	logger      *slog.Logger
 	ignore      *ignore.Matcher
 	ignoreSet   bool
+	fullRescan  bool
+	reseedTemps bool
 }
 
 func WithPaths(p []string) Option {
@@ -67,6 +69,14 @@ func WithIgnore(m *ignore.Matcher) Option {
 	}
 }
 
+func WithFullRescan() Option {
+	return func(o *options) { o.fullRescan = true }
+}
+
+func WithReseedTemperatures() Option {
+	return func(o *options) { o.reseedTemps = true }
+}
+
 func Compile(ctx context.Context, st *store.Store, opts ...Option) (*Result, error) {
 	var o options
 	for _, opt := range opts {
@@ -91,7 +101,7 @@ func Compile(ctx context.Context, st *store.Store, opts ...Option) (*Result, err
 
 			data, err := os.ReadFile(p)
 			if err != nil {
-				return fmt.Errorf("failed to read: %s: %w", p, err)
+				return fmt.Errorf("failed to read: %w", err)
 			}
 
 			nodes, err := parser.ParseBytes(p, data)
@@ -132,7 +142,7 @@ func Compile(ctx context.Context, st *store.Store, opts ...Option) (*Result, err
 
 	flat := parser.Flatten(roots)
 
-	prev, err := buildPrevState(ctx, st, flat)
+	prev, err := buildPrevState(ctx, st, flat, o.fullRescan, o.compileRoot)
 	if err != nil {
 		return nil, err
 	}
@@ -233,8 +243,44 @@ func CompileDir(ctx context.Context, st *store.Store, dir, message string, opts 
 		WithMessage(message),
 		WithCompileRoot(absDir),
 		WithTemps(temps),
+		WithFullRescan(),
 	)
-	return Compile(ctx, st, all...)
+
+	result, err := Compile(ctx, st, all...)
+	if err != nil {
+		return nil, err
+	}
+
+	if o.reseedTemps && len(temps) > 0 {
+		if err := reseedTemperatures(ctx, st, absDir, temps); err != nil {
+			return nil, fmt.Errorf("failed to reseed temperatures: %w", err)
+		}
+	}
+	return result, nil
+}
+
+// Bypasses the emitter so the temperature update does not create a new snapshot.
+func reseedTemperatures(ctx context.Context, st *store.Store, compileRoot string, temps map[string]*float64) error {
+	byTemp := make(map[float64][]string, len(temps))
+
+	for path, t := range temps {
+		if t == nil {
+			continue
+		}
+
+		rel, err := filepath.Rel(compileRoot, path)
+		if err != nil {
+			return fmt.Errorf("failed to resolve: relative path for %s: %w", path, err)
+		}
+		byTemp[*t] = append(byTemp[*t], rel)
+	}
+
+	for temp, paths := range byTemp {
+		if err := st.ResetTemperaturesByFiles(ctx, paths, temp); err != nil {
+			return err
+		}
+	}
+	return nil
 }
 
 // Compile a single file; compile root anchors at the file's parent directory.
@@ -242,6 +288,10 @@ func CompileFile(ctx context.Context, st *store.Store, path, message string, opt
 	absPath, err := filepath.Abs(path)
 	if err != nil {
 		return nil, fmt.Errorf("failed to resolve: %s: %w", path, err)
+	}
+
+	if !fileext.Supported(path) {
+		return nil, fmt.Errorf("%w: %q", parser.ErrUnsupportedExt, filepath.Ext(path))
 	}
 
 	all := append([]Option{}, opts...)
@@ -276,10 +326,8 @@ func resolveTemps(dir string, paths []string) (map[string]*float64, error) {
 	return temps, nil
 }
 
-func buildPrevState(ctx context.Context, st *store.Store, flat []*parser.ContextNode) (map[string]diff.NodeState, error) {
-	files := uniqueFilesFlat(flat)
-
-	existing, err := st.GetNodesByFiles(ctx, files)
+func buildPrevState(ctx context.Context, st *store.Store, flat []*parser.ContextNode, fullRescan bool, compileRoot string) (map[string]diff.NodeState, error) {
+	existing, err := loadPrevNodes(ctx, st, flat, fullRescan, compileRoot)
 	if err != nil {
 		return nil, fmt.Errorf("failed to get nodes: %w", err)
 	}
@@ -289,6 +337,13 @@ func buildPrevState(ctx context.Context, st *store.Store, flat []*parser.Context
 		prev[n.ID] = diff.NodeState{Hash: n.ContentHash, Content: n.Content}
 	}
 	return prev, nil
+}
+
+func loadPrevNodes(ctx context.Context, st *store.Store, flat []*parser.ContextNode, fullRescan bool, compileRoot string) ([]*store.Node, error) {
+	if fullRescan && compileRoot != "" {
+		return st.GetNodesByCompileRoot(ctx, compileRoot)
+	}
+	return st.GetNodesByFiles(ctx, uniqueFilesFlat(flat))
 }
 
 func uniqueFilesFlat(flat []*parser.ContextNode) []string {

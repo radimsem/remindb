@@ -11,6 +11,7 @@ import (
 
 	"github.com/radimsem/remindb/internal/ignore"
 	"github.com/radimsem/remindb/internal/testutil"
+	"github.com/radimsem/remindb/pkg/store"
 )
 
 func writeFile(t *testing.T, dir, name, content string) string {
@@ -433,6 +434,129 @@ func TestCompile_CtxCancelStopsParseFanout(t *testing.T) {
 	}
 }
 
+func countSourceFile(nodes []*store.Node, suffix string) int {
+	n := 0
+	for _, x := range nodes {
+		if strings.HasSuffix(x.SourceFile, suffix) {
+			n++
+		}
+	}
+	return n
+}
+
+func TestCompileDir_PrunesIgnored(t *testing.T) {
+	st := testutil.OpenTestDB(t)
+	ctx := context.Background()
+	dir := t.TempDir()
+
+	if err := os.MkdirAll(filepath.Join(dir, "drafts"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	writeFile(t, dir, "kept.md", "# Kept\n\nVisible body.\n")
+	writeFile(t, filepath.Join(dir, "drafts"), "notes.md", "# Draft\n\nDraft body.\n")
+
+	if _, err := CompileDir(ctx, st, dir, "v1"); err != nil {
+		t.Fatalf("CompileDir v1: %v", err)
+	}
+
+	before, err := st.GetAllNodes(ctx)
+	if err != nil {
+		t.Fatalf("GetAllNodes before: %v", err)
+	}
+	if countSourceFile(before, "notes.md") == 0 {
+		t.Fatal("expected draft nodes after initial compile")
+	}
+
+	writeFile(t, dir, ignore.FileName, "drafts/\n")
+	result, err := CompileDir(ctx, st, dir, "v2")
+	if err != nil {
+		t.Fatalf("CompileDir v2: %v", err)
+	}
+	if result.Removed == 0 {
+		t.Errorf("Removed = %d, want > 0 (drafts/ now ignored)", result.Removed)
+	}
+
+	after, err := st.GetAllNodes(ctx)
+	if err != nil {
+		t.Fatalf("GetAllNodes after: %v", err)
+	}
+	if got := countSourceFile(after, "notes.md"); got != 0 {
+		t.Errorf("draft nodes still present after ignore: %d", got)
+	}
+	if countSourceFile(after, "kept.md") == 0 {
+		t.Error("kept.md was pruned alongside the ignored file")
+	}
+}
+
+func TestCompileDir_PrunesDeleted(t *testing.T) {
+	st := testutil.OpenTestDB(t)
+	ctx := context.Background()
+	dir := t.TempDir()
+
+	writeFile(t, dir, "kept.md", "# Kept\n\nBody.\n")
+	oldPath := writeFile(t, dir, "old.md", "# Old\n\nBody.\n")
+
+	if _, err := CompileDir(ctx, st, dir, "v1"); err != nil {
+		t.Fatalf("CompileDir v1: %v", err)
+	}
+	if err := os.Remove(oldPath); err != nil {
+		t.Fatalf("Remove: %v", err)
+	}
+
+	result, err := CompileDir(ctx, st, dir, "v2")
+	if err != nil {
+		t.Fatalf("CompileDir v2: %v", err)
+	}
+	if result.Removed == 0 {
+		t.Errorf("Removed = %d, want > 0 (old.md deleted from disk)", result.Removed)
+	}
+
+	after, err := st.GetAllNodes(ctx)
+	if err != nil {
+		t.Fatalf("GetAllNodes: %v", err)
+	}
+	if got := countSourceFile(after, "old.md"); got != 0 {
+		t.Errorf("orphaned nodes from old.md remain: %d", got)
+	}
+}
+
+func TestCompileDir_PrunesRenamed(t *testing.T) {
+	st := testutil.OpenTestDB(t)
+	ctx := context.Background()
+	dir := t.TempDir()
+
+	aPath := writeFile(t, dir, "a.md", "# A\n\nBody.\n")
+
+	if _, err := CompileDir(ctx, st, dir, "v1"); err != nil {
+		t.Fatalf("CompileDir v1: %v", err)
+	}
+	if err := os.Rename(aPath, filepath.Join(dir, "b.md")); err != nil {
+		t.Fatalf("Rename: %v", err)
+	}
+
+	result, err := CompileDir(ctx, st, dir, "v2")
+	if err != nil {
+		t.Fatalf("CompileDir v2: %v", err)
+	}
+	if result.Removed == 0 {
+		t.Errorf("Removed = %d, want > 0 (a.md renamed to b.md)", result.Removed)
+	}
+	if result.Added == 0 {
+		t.Errorf("Added = %d, want > 0 (b.md is a new file)", result.Added)
+	}
+
+	after, err := st.GetAllNodes(ctx)
+	if err != nil {
+		t.Fatalf("GetAllNodes: %v", err)
+	}
+	if got := countSourceFile(after, "a.md"); got != 0 {
+		t.Errorf("orphaned nodes from a.md remain: %d", got)
+	}
+	if countSourceFile(after, "b.md") == 0 {
+		t.Error("b.md not added after rename")
+	}
+}
+
 func TestCompile_SkipsUnsupported(t *testing.T) {
 	st := testutil.OpenTestDB(t)
 	ctx := context.Background()
@@ -448,4 +572,168 @@ func TestCompile_SkipsUnsupported(t *testing.T) {
 	if result.Added == 0 {
 		t.Error("expected nodes from the .md file")
 	}
+}
+
+func nodeTemps(t *testing.T, ctx context.Context, st *store.Store, sourceFile string) []float64 {
+	t.Helper()
+
+	nodes, err := st.GetNodesByFile(ctx, sourceFile)
+	if err != nil {
+		t.Fatalf("GetNodesByFile %s: %v", sourceFile, err)
+	}
+	if len(nodes) == 0 {
+		t.Fatalf("no nodes for %s", sourceFile)
+	}
+
+	out := make([]float64, len(nodes))
+	for i, n := range nodes {
+		out[i] = n.Temperature
+	}
+	return out
+}
+
+func setAllTemps(t *testing.T, ctx context.Context, st *store.Store, sourceFile string, temp float64) {
+	t.Helper()
+
+	nodes, err := st.GetNodesByFile(ctx, sourceFile)
+	if err != nil {
+		t.Fatalf("GetNodesByFile %s: %v", sourceFile, err)
+	}
+	for _, n := range nodes {
+		if err := st.UpdateTemperature(ctx, n.ID, temp); err != nil {
+			t.Fatalf("UpdateTemperature %s: %v", n.ID, err)
+		}
+	}
+}
+
+func assertAllTempsEqual(t *testing.T, got []float64, want float64) {
+	t.Helper()
+
+	for i, g := range got {
+		if g != want {
+			t.Errorf("node[%d].Temperature = %g, want %g", i, g, want)
+		}
+	}
+}
+
+func TestCompileDir_ReseedTemperatures_OverridesUnchanged(t *testing.T) {
+	st := testutil.OpenTestDB(t)
+	ctx := context.Background()
+	dir := t.TempDir()
+
+	writeFile(t, dir, ".temp.json", `{"doc.md": 0.9}`)
+	writeFile(t, dir, "doc.md", "# Hi\n\nBody one.\n\nBody two.\n")
+
+	if _, err := CompileDir(ctx, st, dir, "v1"); err != nil {
+		t.Fatalf("CompileDir v1: %v", err)
+	}
+	assertAllTempsEqual(t, nodeTemps(t, ctx, st, "doc.md"), 0.9)
+
+	setAllTemps(t, ctx, st, "doc.md", 0.3)
+	writeFile(t, dir, ".temp.json", `{"doc.md": 0.1}`)
+
+	if _, err := CompileDir(ctx, st, dir, "v2", WithReseedTemperatures()); err != nil {
+		t.Fatalf("CompileDir v2: %v", err)
+	}
+	assertAllTempsEqual(t, nodeTemps(t, ctx, st, "doc.md"), 0.1)
+}
+
+func TestCompileDir_ReseedTemperatures_DefaultPreservesExisting(t *testing.T) {
+	st := testutil.OpenTestDB(t)
+	ctx := context.Background()
+	dir := t.TempDir()
+
+	writeFile(t, dir, ".temp.json", `{"doc.md": 0.9}`)
+	writeFile(t, dir, "doc.md", "# Hi\n\nBody one.\n\nBody two.\n")
+
+	if _, err := CompileDir(ctx, st, dir, "v1"); err != nil {
+		t.Fatalf("CompileDir v1: %v", err)
+	}
+
+	setAllTemps(t, ctx, st, "doc.md", 0.3)
+	writeFile(t, dir, ".temp.json", `{"doc.md": 0.1}`)
+
+	if _, err := CompileDir(ctx, st, dir, "v2"); err != nil {
+		t.Fatalf("CompileDir v2: %v", err)
+	}
+	assertAllTempsEqual(t, nodeTemps(t, ctx, st, "doc.md"), 0.3)
+}
+
+func TestCompileDir_ReseedTemperatures_LeavesUnseededFilesAlone(t *testing.T) {
+	st := testutil.OpenTestDB(t)
+	ctx := context.Background()
+	dir := t.TempDir()
+
+	writeFile(t, dir, ".temp.json", `{"a.md": 0.9}`)
+	writeFile(t, dir, "a.md", "# A\n\nAlpha.\n")
+	writeFile(t, dir, "b.md", "# B\n\nBeta.\n")
+
+	if _, err := CompileDir(ctx, st, dir, "v1"); err != nil {
+		t.Fatalf("CompileDir v1: %v", err)
+	}
+
+	setAllTemps(t, ctx, st, "a.md", 0.3)
+	setAllTemps(t, ctx, st, "b.md", 0.4)
+
+	writeFile(t, dir, ".temp.json", `{"a.md": 0.1}`)
+
+	if _, err := CompileDir(ctx, st, dir, "v2", WithReseedTemperatures()); err != nil {
+		t.Fatalf("CompileDir v2: %v", err)
+	}
+
+	assertAllTempsEqual(t, nodeTemps(t, ctx, st, "a.md"), 0.1)
+	assertAllTempsEqual(t, nodeTemps(t, ctx, st, "b.md"), 0.4)
+}
+
+func TestCompileDir_ReseedTemperatures_NoTempFile(t *testing.T) {
+	st := testutil.OpenTestDB(t)
+	ctx := context.Background()
+	dir := t.TempDir()
+
+	writeFile(t, dir, "doc.md", "# Hi\n\nBody.\n")
+
+	if _, err := CompileDir(ctx, st, dir, "v1"); err != nil {
+		t.Fatalf("CompileDir v1: %v", err)
+	}
+
+	setAllTemps(t, ctx, st, "doc.md", 0.3)
+
+	if _, err := CompileDir(ctx, st, dir, "v2", WithReseedTemperatures()); err != nil {
+		t.Fatalf("CompileDir v2: %v", err)
+	}
+	assertAllTempsEqual(t, nodeTemps(t, ctx, st, "doc.md"), 0.3)
+}
+
+func TestCompileDir_ReseedTemperatures_NoNewSnapshot(t *testing.T) {
+	st := testutil.OpenTestDB(t)
+	ctx := context.Background()
+	dir := t.TempDir()
+
+	writeFile(t, dir, ".temp.json", `{"doc.md": 0.9}`)
+	writeFile(t, dir, "doc.md", "# Hi\n\nBody.\n")
+
+	if _, err := CompileDir(ctx, st, dir, "v1"); err != nil {
+		t.Fatalf("CompileDir v1: %v", err)
+	}
+
+	setAllTemps(t, ctx, st, "doc.md", 0.3)
+
+	before, err := st.GetStats(ctx)
+	if err != nil {
+		t.Fatalf("GetStats before: %v", err)
+	}
+
+	if _, err := CompileDir(ctx, st, dir, "v2", WithReseedTemperatures()); err != nil {
+		t.Fatalf("CompileDir v2: %v", err)
+	}
+
+	after, err := st.GetStats(ctx)
+	if err != nil {
+		t.Fatalf("GetStats after: %v", err)
+	}
+
+	if got := after.SnapshotCount - before.SnapshotCount; got != 0 {
+		t.Errorf("SnapshotCount delta = %d, want 0 (reseed-only run must not emit)", got)
+	}
+	assertAllTempsEqual(t, nodeTemps(t, ctx, st, "doc.md"), 0.9)
 }

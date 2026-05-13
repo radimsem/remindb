@@ -1,5 +1,5 @@
-// Package parser turns source files (Markdown, YAML, JSON) into a unified
-// ContextNode tree.
+// Package parser turns source files (Markdown, HTML, YAML, JSON, TOON) into
+// a unified ContextNode tree.
 package parser
 
 type NodeType string
@@ -12,15 +12,17 @@ const (
 	NodeText     NodeType = "text"
 	NodeKV       NodeType = "kv"
 	NodePreamble NodeType = "preamble"
+	NodeEmbed    NodeType = "embed"
 )
 
 const (
-	FormatPlain = "plain"
-	FormatToon  = "toon"
+	FormatPlain  = "plain"
+	FormatToon   = "toon"
+	FormatMathml = "mathml"
+	FormatLatex  = "latex"
 )
 
-// MaxInlineFields is the threshold for promoting a nested map or array to its
-// own ContextNode. Smaller structures stay inlined in the parent's Content.
+// Promote a nested map or array to its own ContextNode at or above this many entries; smaller structures stay inlined.
 const MaxInlineFields = 5
 
 type ContextNode struct {

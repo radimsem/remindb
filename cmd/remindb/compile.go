@@ -10,7 +10,10 @@ import (
 	"github.com/spf13/cobra"
 )
 
-var compileMsg string
+var (
+	compileMsg         string
+	compileReseedTemps bool
+)
 
 var compileCmd = &cobra.Command{
 	Use:   "compile <path>",
@@ -21,10 +24,12 @@ var compileCmd = &cobra.Command{
 
 func init() {
 	compileCmd.Flags().StringVarP(&compileMsg, "message", "m", "", "Snapshot message")
+	compileCmd.Flags().BoolVar(&compileReseedTemps, "reseed-temperatures", false, "Override stored temperatures with .temp.json values on unchanged nodes (directory compiles only)")
 	rootCmd.AddCommand(compileCmd)
 }
 
 func runCompile(cmd *cobra.Command, args []string) error {
+	cmd.SilenceUsage = true
 	path := args[0]
 
 	if err := deriveDefaultDBPath(cmd, path); err != nil {
@@ -49,12 +54,17 @@ func runCompile(cmd *cobra.Command, args []string) error {
 
 	fi, err := os.Stat(path)
 	if err != nil {
-		return fmt.Errorf("failed to stat: %s: %w", path, err)
+		return fmt.Errorf("failed to stat: %w", err)
 	}
 
 	var result *compiler.Result
 	if fi.IsDir() {
-		result, err = compiler.CompileDir(ctx, st, path, msg)
+		var dirOpts []compiler.Option
+		if compileReseedTemps {
+			dirOpts = append(dirOpts, compiler.WithReseedTemperatures())
+		}
+
+		result, err = compiler.CompileDir(ctx, st, path, msg, dirOpts...)
 	} else {
 		result, err = compiler.CompileFile(ctx, st, path, msg)
 	}

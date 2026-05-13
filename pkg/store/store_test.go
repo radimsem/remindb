@@ -857,3 +857,97 @@ func TestGetDiffsForNode(t *testing.T) {
 		t.Errorf("Op = %q, want add", diffs[0].Op)
 	}
 }
+
+func upsertNodeAt(t *testing.T, st *Store, ctx context.Context, id, compileRoot string) {
+	t.Helper()
+	err := st.Tx(ctx, func(tx *sql.Tx) error {
+		if err := st.UpsertNodeTx(ctx, tx, testNode(id, "")); err != nil {
+			return err
+		}
+
+		snapID, err := st.CreateSnapshotTx(ctx, tx, "h_"+id+"_"+compileRoot, "m", compileRoot)
+		if err != nil {
+			return err
+		}
+
+		if err := st.InsertDiffTx(ctx, tx, &DiffRecord{
+			SnapshotID: snapID, NodeID: id, Op: "add", NewHash: "hash" + id, NewContent: "content " + id,
+		}); err != nil {
+			return err
+		}
+
+		return st.AdvanceCursorTx(ctx, tx, snapID)
+	})
+	must(t, err)
+}
+
+func TestGetNodesByCompileRoot(t *testing.T) {
+	st := openTestDB(t)
+	ctx := context.Background()
+
+	upsertNodeAt(t, st, ctx, "aaaaaaaa", "/abs/foo")
+	upsertNodeAt(t, st, ctx, "bbbbbbbb", "/abs/foo")
+	upsertNodeAt(t, st, ctx, "cccccccc", "/abs/bar")
+
+	foo, err := st.GetNodesByCompileRoot(ctx, "/abs/foo")
+	if err != nil {
+		t.Fatalf("GetNodesByCompileRoot foo: %v", err)
+	}
+	if len(foo) != 2 {
+		t.Errorf("foo nodes = %d, want 2", len(foo))
+	}
+
+	for _, n := range foo {
+		if n.ID == "cccccccc" {
+			t.Errorf("foo result includes node from bar: %s", n.ID)
+		}
+	}
+
+	bar, err := st.GetNodesByCompileRoot(ctx, "/abs/bar")
+	if err != nil {
+		t.Fatalf("GetNodesByCompileRoot bar: %v", err)
+	}
+	if len(bar) != 1 || bar[0].ID != "cccccccc" {
+		t.Errorf("bar nodes = %+v, want [cccccccc]", bar)
+	}
+}
+
+func TestGetNodesByCompileRoot_SiblingPrefixNotMatched(t *testing.T) {
+	st := openTestDB(t)
+	ctx := context.Background()
+
+	upsertNodeAt(t, st, ctx, "aaaaaaaa", "/abs/foo")
+	upsertNodeAt(t, st, ctx, "bbbbbbbb", "/abs/foo-bar")
+
+	got, err := st.GetNodesByCompileRoot(ctx, "/abs/foo")
+	if err != nil {
+		t.Fatalf("GetNodesByCompileRoot: %v", err)
+	}
+	if len(got) != 1 || got[0].ID != "aaaaaaaa" {
+		t.Errorf("got = %+v, want [aaaaaaaa] (no false positive on /abs/foo-bar)", got)
+	}
+}
+
+func TestGetNodesByCompileRoot_LatestSnapshotWins(t *testing.T) {
+	st := openTestDB(t)
+	ctx := context.Background()
+
+	upsertNodeAt(t, st, ctx, "aaaaaaaa", "/abs/foo")
+	upsertNodeAt(t, st, ctx, "aaaaaaaa", "/abs/bar")
+
+	foo, err := st.GetNodesByCompileRoot(ctx, "/abs/foo")
+	if err != nil {
+		t.Fatalf("GetNodesByCompileRoot foo: %v", err)
+	}
+	if len(foo) != 0 {
+		t.Errorf("foo nodes = %d, want 0 (node moved to bar)", len(foo))
+	}
+
+	bar, err := st.GetNodesByCompileRoot(ctx, "/abs/bar")
+	if err != nil {
+		t.Fatalf("GetNodesByCompileRoot bar: %v", err)
+	}
+	if len(bar) != 1 || bar[0].ID != "aaaaaaaa" {
+		t.Errorf("bar nodes = %+v, want [aaaaaaaa] (latest snapshot wins)", bar)
+	}
+}

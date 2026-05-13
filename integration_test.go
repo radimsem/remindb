@@ -14,8 +14,7 @@ import (
 	"github.com/radimsem/remindb/pkg/temperature"
 )
 
-// Simulates compiling an OpenClaw agent definition,
-// then searching and fetching context as the agent would at runtime.
+// Simulate compiling an OpenClaw agent definition, then searching and fetching context as the agent would at runtime.
 func TestOpenClawAgentWorkflow(t *testing.T) {
 	st := testutil.OpenTestDB(t)
 	ctx := context.Background()

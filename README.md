@@ -31,11 +31,11 @@ The problem is *how* the agent consumes it. Every session starts by re-reading t
 
 Raw markdown is the wrong shape for memory. Not because it can't hold the words — it can — but because it forces the agent to pay full freight on every read.
 
-`remindb` is a single SQLite file your agent treats as long-term memory. It parses your notes (Markdown, JSON, YAML, [TOON](https://github.com/toon-format/toon)) into a structured tree, hashes every node, encodes repetitive structures compactly when it saves tokens, and surfaces the whole thing through a tight MCP tool suite.
+`remindb` is a single SQLite file your agent treats as long-term memory. It parses your notes (Markdown, HTML, JSON, YAML, [TOON](https://github.com/toon-format/toon)) into a structured tree, hashes every node, encodes repetitive structures compactly when it saves tokens, and surfaces the whole thing through a tight MCP tool suite.
 
 ### What you get
 
-**A tree the agent can index, not skim.** Instead of `ls`-ing a folder and reading every file to orient, the agent calls `MemoryTree` once. Each entry is a typed node — `[heading]`, `[list]`, `[kv]`, `[table]`, `[preamble]`, `[text]`, `[code]` — with an ID, a short label, a temperature, and a token count. Think of it as `ls -la` for memory: one call, a scannable index, hot stuff floats up.
+**A tree the agent can index, not skim.** Instead of `ls`-ing a folder and reading every file to orient, the agent calls `MemoryTree` once. Each entry is a typed node — `[heading]`, `[list]`, `[kv]`, `[table]`, `[preamble]`, `[text]`, `[code]`, `[embed]` — with an ID, a short label, a temperature, and a token count. Think of it as `ls -la` for memory: one call, a scannable index, hot stuff floats up.
 
 A real slice (from `remindb inspect --tree`):
 
@@ -95,7 +95,7 @@ Lands at `%LOCALAPPDATA%\Programs\remindb\bin\remindb.exe`. Override with `-Pref
 ./install.ps1 -Prefix C:\tools\remindb
 ```
 
-### From source (Go 1.23+)
+### From source (Go 1.26+)
 
 ```bash
 git clone https://github.com/radimsem/remindb.git
@@ -115,25 +115,26 @@ Two phases, one SQLite file in between. The compiler turns source files into ver
 
 | Layer | Responsibility |
 |-------|----------------|
-| **Parser** | One dispatcher, format-specific stages for Markdown, YAML, JSON/JSONL, TOON. Emits a unified `[]*ContextNode` tree with `id`, `parent_id`, `label`, `content`, `node_type`, `depth`, `token_count`, `content_hash`. |
+| **Parser** | One dispatcher, format-specific stages for Markdown, HTML, YAML, JSON/JSONL, TOON. Emits a unified `[]*ContextNode` tree with `id`, `parent_id`, `label`, `content`, `node_type`, `depth`, `token_count`, `content_hash`. |
 | **Transformer** | Generates 11-char base62 IDs (xxhash64), estimates cl100k-base tokens, compresses whitespace, decides plain vs. TOON per node. |
 | **Diff Engine** | Compares the fresh AST against the last snapshot, produces `add`/`mod`/`rem` deltas, hashes the full state into a new `cursor_hash`. |
 | **Emitter** | Writes nodes, diffs, and the new snapshot in one transaction; maintains the FTS5 index via triggers. |
 | **Store** | SQLite with WAL mode. Tables: `nodes`, `snapshots`, `diffs`, `cursors`, plus the `nodes_fts` virtual table. |
 | **Query Engine** | Token-budgeted context assembly. Walks ancestors and descendants via `parent_id`, ranks by relevance weighted by temperature, formats output. |
 | **Temperature** | Boosts on read, decays on a tick. Cold nodes get flagged for summarization. |
-| **MCP Server** | `modelcontextprotocol/go-sdk` over stdio. Registers the `Memory*` tool suite, dispatches to the query engine, and notifies clients when nodes go cold. |
+| **MCP Server** | `modelcontextprotocol/go-sdk` over stdio or streamable HTTP. Registers the `Memory*` tool suite, dispatches to the query engine, and notifies clients when nodes go cold. |
 | **Rescan Loop** | Optional background goroutine that polls the source directory and triggers incremental recompilation without bringing the server down. |
 
 ## CLI
 
-Four subcommands, one shared flag (`--db`). Skip `--db` on a directory and remindb derives `./<dirname>.db` automatically.
+Five subcommands, one shared flag (`--db`). Skip `--db` on a directory and remindb derives `./<dirname>.db` automatically.
 
 ```
 remindb compile <path>   Ingest files or a directory into the database
-remindb serve            Start the MCP server (stdio)
-remindb inspect          Dump DB stats; optionally render the node tree
+remindb serve            Start the MCP server (stdio or HTTP)
+remindb inspect          Dump DB stats; optionally render the node tree or file list
 remindb bench            Measure token savings vs. raw-file baselines
+remindb update           Reinstall remindb by re-running the install script
 ```
 
 ### `compile`
@@ -144,12 +145,14 @@ One-shot ingestion of a file or directory. Creates a new snapshot and records di
 remindb compile ./notes # → ./notes.db
 remindb compile ./notes --db memory.db -m "add Q2 notes"
 remindb compile ./docs/architecture.md --db project.db
+remindb compile ./notes --reseed-temperatures # force .temp.json values onto unchanged nodes
 ```
 
 | Flag | Purpose |
 |------|---------|
 | `--db PATH` | Target database. Default: derived from the source directory name, else `memory.db`. |
 | `-m, --message` | Snapshot message (defaults to `compile:<path>`). |
+| `--reseed-temperatures` | Push `.temp.json` values through to nodes whose source files didn't change on disk. Directory compiles only; no new snapshot. See [Pre-seeding temperatures with `.temp.json`](#pre-seeding-temperatures-with-tempjson). |
 
 #### Filtering with `.remindb.ignore`
 
@@ -194,34 +197,44 @@ Two keys that resolve to the same leaf with disagreeing values fail at load time
 
 Supported: numbers in `[0, 1]`, nested objects, slash-keys, `*` glob at any level, leading `./` and trailing `/` (both normalized). Anything else — out-of-range numbers, string values, leading `/`, `..` segments, empty segments from `//` — fails the command at startup with the offending key named.
 
+By default, edits to `.temp.json` reach only the nodes whose source files also changed in the same compile — agent activity (`MemoryFetch` boosts, the decay tick) shouldn't be wiped silently every time the workspace is recompiled. Pass `remindb compile <dir> --reseed-temperatures` when you mean it: the flag overrides stored temperatures for every node whose source file is keyed in `.temp.json`, regardless of whether its content changed. The reseed pass is a temperature update, not a content change, so it does not create a new snapshot. The flag only applies to directory compiles (`compile <dir>`); single-file compiles ignore it, and the `MemoryCompile` MCP tool does not expose it (agents cannot use it to overwrite their own temperature signal).
+
 ### `serve`
 
-Starts the MCP server on stdio. With `--source` set, remindb runs an initial compile (if the DB is empty) and keeps a background rescan loop running.
+Starts the MCP server. Default transport is stdio (one server per client process); pass `--transport http` to expose the same `Memory*` suite over streamable HTTP so a CI worker or a hosted agent session can connect to the same memory database. With `--source` set, remindb runs an initial compile (if the DB is empty) and keeps a background rescan loop running.
 
 ```bash
 remindb serve --db ./notes.db --source ./notes
 remindb serve --db ./notes.db --source ./notes --rescan-interval 30s -v
+remindb serve --db ./notes.db --source ./notes --transport http
+remindb serve --db ./notes.db --source ./notes --transport http --listen 127.0.0.1:7474
 ```
+
+HTTP defaults to `127.0.0.1:7474`. Binding to a non-loopback address (e.g. `--listen 0.0.0.0:7474`) emits a one-time Warn at startup — there is no built-in authentication yet, so put a reverse proxy in front before exposing the server beyond localhost.
 
 | Flag | Env | Purpose |
 |------|-----|---------|
 | `--db` | `REMINDB_DB` | Database file. |
 | `--source` | `REMINDB_SOURCE` | Source directory to watch and incrementally recompile. |
 | `--rescan-interval` | `REMINDB_RESCAN_INTERVAL` | e.g. `30s`, `5m`. `0` keeps the tracker's default. |
+| `--transport` | `REMINDB_TRANSPORT` | `stdio` (default) or `http`. |
+| `--listen` | `REMINDB_LISTEN` | Listen address for HTTP transport. Default `127.0.0.1:7474`; ignored for stdio. |
 | `-v, --verbose` | — | Debug-level logs. Default is info. |
 
 ### `inspect`
 
-Read-only snapshot of what's in a database. Without `--tree` it prints stats; with `--tree` it renders the node hierarchy, temperatures colour-coded blue (cold) → red (hot).
+Read-only snapshot of what's in a database. Without `--tree` or `--files` it prints stats; `--tree` renders the node hierarchy (temperatures colour-coded blue cold → red hot); `--files` renders the compiled source files grouped by compile root.
 
 ```bash
 remindb inspect --db ./notes.db
 remindb inspect --db ./notes.db --tree --depth 6
+remindb inspect --db ./notes.db --files
 ```
 
 | Flag | Purpose |
 |------|---------|
 | `--tree` | Render the node tree. |
+| `--files` | Render compiled source files grouped by compile root. |
 | `--depth N` | Maximum depth when rendering. Default: `10`. Requires `--tree`. |
 
 `NO_COLOR=1` disables the ANSI palette.
@@ -241,6 +254,16 @@ remindb bench \
 | `--dir` | Source directory (inferred from the DB path if omitted). |
 | `--budget` | Token budget for search and fetch scenarios. Default: `1000`. |
 | `--query` | Repeatable. Skips the search scenario when empty. |
+
+### `update`
+
+Reinstalls remindb in place by re-running the official install script. The path it picks matches the install commands shown above — `install.sh` piped to `bash` on Linux / macOS, `install.ps1` piped to PowerShell on Windows.
+
+```bash
+remindb update
+```
+
+`serve` background-checks GitHub releases on startup and emits an `info` log when a newer tag is available, with `hint=remindb update` — so the prompt to upgrade comes from the server, the upgrade itself is one command.
 
 ## MCP tools
 
@@ -272,7 +295,7 @@ Five plugin folders ship with the repo, one per supported coding agent. Each has
 > [!TIP]
 > **Pair the plugin with the two companion skills** — [`remind`](./skills/remind/) (read path) and [`memoize`](./skills/memoize/) (write path). They teach the agent the MCP tool suite so you don't re-explain it each session. Per-agent install instructions live in [`skills/README.md`](./skills/).
 
-For any other MCP-capable agent, add this to its MCP config by hand:
+For any other MCP-capable agent, add this to its MCP config by hand. Stdio (the default — one server per client process):
 
 ```json
 {
@@ -282,6 +305,19 @@ For any other MCP-capable agent, add this to its MCP config by hand:
       "command": "remindb",
       "args": ["serve", "--db", "/absolute/path/to/memory.db", "--source", "/absolute/path/to/notes"],
       "env": {}
+    }
+  }
+}
+```
+
+Or HTTP, when you want one long-running server that multiple agent sessions (a local IDE, a CI worker, a hosted session) share. Start `remindb serve --transport http --db ... --source ...` once, then point each client at the listen URL:
+
+```json
+{
+  "mcpServers": {
+    "remindb": {
+      "type": "http",
+      "url": "http://127.0.0.1:7474"
     }
   }
 }

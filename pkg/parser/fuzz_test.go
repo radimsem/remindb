@@ -11,6 +11,12 @@ func FuzzParseBytes(f *testing.F) {
 	f.Add("data.yaml", []byte("key: value\nnested:\n  a: 1"))
 	f.Add("data.json", []byte(`{"name":"test","items":[1,2,3]}`))
 	f.Add("file.toon", []byte("col1\tcol2\nval1\tval2"))
+	f.Add("page.html", []byte("<h1>Title</h1><p>Body <a href=\"x\">link</a></p>"))
+	f.Add("page.html", []byte("<html></html>"))
+	f.Add("page.html", []byte("<p>open<span>unclosed"))
+	f.Add("page.html", []byte("<p>visible</p><script>alert(1)</script><style>p{}</style>"))
+	f.Add("PAGE.HTML", []byte("<img src=\"x.png\" alt=\"a\">"))
+	f.Add("page.htm", []byte("<table><tr><td>a</td></tr></table>"))
 	f.Add("", []byte("no extension"))
 	f.Add("file.unknown", []byte("unsupported"))
 	f.Add("FILE.MD", []byte("# Upper case extension"))
@@ -20,8 +26,15 @@ func FuzzParseBytes(f *testing.F) {
 	f.Add("file.json", []byte(`{"a":{"b":{"c":{"d":"deep"}}}}`))
 	f.Add("file.md", []byte("---\n+++\n---\n# mixed delimiters"))
 
-	f.Add("file.md", []byte{0xe3})         // incomplete multi-byte sequence
-	f.Add("file.json", []byte{0xff, 0xfe}) // BOM-like invalid bytes
+	f.Add("file.md", []byte{0xe3})
+	f.Add("file.json", []byte{0xff, 0xfe})
+
+	f.Add("page.html", []byte("<math><mfrac><mi>x</mi></mfrac></math>"))
+	f.Add("page.html", []byte("<math><mroot></mroot></math>"))
+	f.Add("page.html", []byte("<math><mi>x</mi><mo>="))
+	f.Add("page.html", []byte("<math><mmultiscripts><mi>x</mi></mmultiscripts>"))
+	f.Add("page.html", []byte("<math><ms>contains{brace}</ms></math>"))
+	f.Add("page.html", []byte("<math><munderover><mo>∑</mo><mi>i</mi></munderover></math>"))
 
 	f.Fuzz(func(t *testing.T, path string, data []byte) {
 		// Must never panic regardless of input.

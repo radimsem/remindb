@@ -6,9 +6,10 @@ import (
 	"fmt"
 	"log/slog"
 	"net/http"
-	"runtime/debug"
 	"strings"
 	"time"
+
+	"github.com/radimsem/remindb/pkg/version"
 )
 
 const (
@@ -16,17 +17,8 @@ const (
 	versionCheckTTL = 5 * time.Second
 )
 
-var version = "dev"
-
 func init() {
-	if version == "dev" {
-		if info, ok := debug.ReadBuildInfo(); ok {
-			if v := info.Main.Version; v != "" && v != "(devel)" {
-				version = v
-			}
-		}
-	}
-	rootCmd.Version = version
+	rootCmd.Version = version.Get()
 }
 
 func checkLatestVersion(ctx context.Context, current string, logger *slog.Logger) {

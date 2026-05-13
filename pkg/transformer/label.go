@@ -31,9 +31,44 @@ func setLabel(n *parser.ContextNode) {
 		n.Label = labelKV(n)
 	case parser.NodePreamble:
 		n.Label = labelPreamble(n)
+	case parser.NodeEmbed:
+		n.Label = labelEmbed(n)
 	default:
 		n.Label = truncate(n.Content, maxLabelLen)
 	}
+}
+
+func labelEmbed(n *parser.ContextNode) string {
+	kind := n.Format
+	if kind == "" {
+		kind = "embed"
+	}
+	title := strings.ToUpper(kind[:1]) + kind[1:]
+
+	text := embedAltOrSrc(n.Content)
+	if text == "" {
+		return title
+	}
+	return truncate(title+": "+text, maxLabelLen)
+}
+
+// Extract alt text (preferred) or src from the [alt](src) / ![alt](src) shape.
+func embedAltOrSrc(s string) string {
+	s = strings.TrimPrefix(strings.TrimPrefix(s, "!"), "[")
+
+	alt, tail, ok := strings.Cut(s, "]")
+	if !ok {
+		return ""
+	}
+	if alt != "" {
+		return alt
+	}
+
+	src, _, ok := strings.Cut(strings.TrimPrefix(tail, "("), ")")
+	if !ok {
+		return ""
+	}
+	return src
 }
 
 func labelList(n *parser.ContextNode) string {

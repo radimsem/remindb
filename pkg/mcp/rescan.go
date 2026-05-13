@@ -103,6 +103,7 @@ func (r *RescanLoop) scan(ctx context.Context) {
 			}
 			return nil
 		}
+
 		if rel == ignore.FileName {
 			return nil
 		}

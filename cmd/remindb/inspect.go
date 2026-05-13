@@ -53,6 +53,8 @@ func init() {
 }
 
 func runInspect(cmd *cobra.Command, _ []string) error {
+	cmd.SilenceUsage = true
+
 	if !inspectShowTree && cmd.Flags().Changed("depth") {
 		return errors.New("--depth requires --tree")
 	}

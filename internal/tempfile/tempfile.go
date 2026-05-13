@@ -21,7 +21,7 @@ type Resolver struct {
 	root *entry
 }
 
-// Load reads a .temp.json from dir. Returns nil, nil if the file does not exist.
+// Read .temp.json from dir; (nil, nil) if the file is absent.
 func Load(dir string) (*Resolver, error) {
 	data, err := os.ReadFile(filepath.Join(dir, FileName))
 	if err != nil {
@@ -44,7 +44,6 @@ func Load(dir string) (*Resolver, error) {
 	return &Resolver{root: root}, nil
 }
 
-// Resolve returns the pre-seeded temperature for a relative file path.
 func (r *Resolver) Resolve(relPath string) (float64, bool) {
 	if r == nil || r.root == nil {
 		return 0, false
@@ -122,6 +121,7 @@ func insertKey(root, leaf *entry, key string) error {
 			next = &entry{children: make(map[string]*entry)}
 			curr.children[seg] = next
 		}
+
 		if next.temp != nil {
 			path := strings.Join(segments[:i+1], "/")
 			return fmt.Errorf("conflicting temperatures for %q", path)
