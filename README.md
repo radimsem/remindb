@@ -317,6 +317,7 @@ A `Memory*` tool suite, registered once, surfaced to any MCP-capable agent (Clau
 | **`MemoryCompile`** | Compiles source files or a directory into the database from inside a session. Same engine as the `compile` CLI. |
 | **`MemoryRelated`** | Traverses the relations graph from an anchor — outgoing/incoming/both, up to 5 hops, ranked by summed path weight. Surfaces what an authored `[[Label]]` wiki-link connects to. |
 | **`MemoryRelate`** | Creates a manual edge between two existing nodes. Resolves the target the same way parsed wiki-links do (id → source+label → label only). Does not create a snapshot — relations are a sideband. |
+| **`MemoryStats`** | Reports DB health and shape: total nodes (with per-`node_type` breakdown), tokens, snapshot/latest-cursor summary, temperature spread (avg/median/hot/cold/pinned), relations (with per-`origin` breakdown plus pending), and FTS row count. Read-only, single round-trip. Same data the `remindb inspect` CLI renders. |
 
 ### Agent integrations
 

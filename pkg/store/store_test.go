@@ -701,25 +701,97 @@ func TestGetStats(t *testing.T) {
 	if stats.NodeCount != 0 {
 		t.Errorf("NodeCount = %d, want 0", stats.NodeCount)
 	}
+	if stats.MedianTemp != 0 {
+		t.Errorf("MedianTemp = %f, want 0 on empty DB", stats.MedianTemp)
+	}
 
 	// Add nodes with varying temperature.
 	must(t, st.UpsertNode(ctx, testNode("aaaaaaaa", "")))
 	must(t, st.UpdateTemperature(ctx, "aaaaaaaa", 0.8))
 	must(t, st.UpsertNode(ctx, testNode("bbbbbbbb", "")))
 	must(t, st.UpdateTemperature(ctx, "bbbbbbbb", 0.05))
+	must(t, st.UpsertNode(ctx, testNode("cccccccc", "")))
+	must(t, st.UpdateTemperature(ctx, "cccccccc", 0.4))
+	must(t, st.SetPinned(ctx, "aaaaaaaa", true, nil))
 
 	stats, err = st.GetStats(ctx)
 	if err != nil {
 		t.Fatalf("GetStats: %v", err)
 	}
-	if stats.NodeCount != 2 {
-		t.Errorf("NodeCount = %d, want 2", stats.NodeCount)
+	if stats.NodeCount != 3 {
+		t.Errorf("NodeCount = %d, want 3", stats.NodeCount)
 	}
 	if stats.HotCount != 1 {
 		t.Errorf("HotCount = %d, want 1", stats.HotCount)
 	}
 	if stats.ColdCount != 1 {
 		t.Errorf("ColdCount = %d, want 1", stats.ColdCount)
+	}
+	if stats.PinnedCount != 1 {
+		t.Errorf("PinnedCount = %d, want 1", stats.PinnedCount)
+	}
+	// testNode uses TokenCount=10; 3 nodes → 30.
+	if stats.TokenCountTotal != 30 {
+		t.Errorf("TokenCountTotal = %d, want 30", stats.TokenCountTotal)
+	}
+	// median of (0.05, 0.4, 0.8) = 0.4
+	if stats.MedianTemp < 0.39 || stats.MedianTemp > 0.41 {
+		t.Errorf("MedianTemp = %f, want ~0.4", stats.MedianTemp)
+	}
+	if stats.FTSRowCount != 3 {
+		t.Errorf("FTSRowCount = %d, want 3", stats.FTSRowCount)
+	}
+}
+
+func TestGetNodeCountsByType(t *testing.T) {
+	st := openTestDB(t)
+	ctx := context.Background()
+
+	n1 := testNode("aaaaaaaa", "")
+	n1.NodeType = "heading"
+	must(t, st.UpsertNode(ctx, n1))
+
+	n2 := testNode("bbbbbbbb", "")
+	n2.NodeType = "list"
+	must(t, st.UpsertNode(ctx, n2))
+
+	n3 := testNode("cccccccc", "")
+	n3.NodeType = "list"
+	must(t, st.UpsertNode(ctx, n3))
+
+	counts, err := st.GetNodeCountsByType(ctx)
+	if err != nil {
+		t.Fatalf("GetNodeCountsByType: %v", err)
+	}
+	if counts["heading"] != 1 {
+		t.Errorf("heading = %d, want 1", counts["heading"])
+	}
+	if counts["list"] != 2 {
+		t.Errorf("list = %d, want 2", counts["list"])
+	}
+}
+
+func TestGetRelationCountsByOrigin(t *testing.T) {
+	st := openTestDB(t)
+	ctx := context.Background()
+
+	must(t, st.UpsertNode(ctx, testNode("aaaaaaaa", "")))
+	must(t, st.UpsertNode(ctx, testNode("bbbbbbbb", "")))
+	must(t, st.UpsertNode(ctx, testNode("cccccccc", "")))
+
+	must(t, st.UpsertRelation(ctx, &Relation{SourceNodeID: "aaaaaaaa", TargetNodeID: "bbbbbbbb", Weight: 1.0, Origin: OriginParsed}))
+	must(t, st.UpsertRelation(ctx, &Relation{SourceNodeID: "aaaaaaaa", TargetNodeID: "cccccccc", Weight: 1.0, Origin: OriginManual}))
+	must(t, st.UpsertRelation(ctx, &Relation{SourceNodeID: "bbbbbbbb", TargetNodeID: "cccccccc", Weight: 1.0, Origin: OriginParsed}))
+
+	counts, err := st.GetRelationCountsByOrigin(ctx)
+	if err != nil {
+		t.Fatalf("GetRelationCountsByOrigin: %v", err)
+	}
+	if counts[OriginParsed] != 2 {
+		t.Errorf("parsed = %d, want 2", counts[OriginParsed])
+	}
+	if counts[OriginManual] != 1 {
+		t.Errorf("manual = %d, want 1", counts[OriginManual])
 	}
 }
 

@@ -45,7 +45,7 @@ These zones have either an external contract or a silent-drift hazard. Don't cha
 
 ### MCP tool surface (`pkg/mcp/tools/`, `pkg/mcp/server.go`)
 
-The ten `Memory*` tools are a contract shipped to clients via two public skills: `skills/remind/SKILL.md` (read tools — `MemoryTree`, `MemorySearch`, `MemoryFetch`, `MemoryDelta`, `MemoryHistory`, `MemoryRelated`) and `skills/memoize/SKILL.md` (write tools — `MemoryWrite`, `MemorySummarize`, `MemoryCompile`, `MemoryRelate`). Renaming, removing, or changing semantics breaks every client and desyncs the relevant public skill. Use the **`add-mcp-tool` skill** for any new/modified tool, follow `.claude/rules/mcp-tool-conventions.md`, and dispatch the **`mcp-surface-reviewer` agent** before merge.
+The eleven `Memory*` tools are a contract shipped to clients via two public skills: `skills/remind/SKILL.md` (read tools — `MemoryTree`, `MemorySearch`, `MemoryFetch`, `MemoryDelta`, `MemoryHistory`, `MemoryRelated`, `MemoryStats`) and `skills/memoize/SKILL.md` (write tools — `MemoryWrite`, `MemorySummarize`, `MemoryCompile`, `MemoryRelate`). Renaming, removing, or changing semantics breaks every client and desyncs the relevant public skill. Use the **`add-mcp-tool` skill** for any new/modified tool, follow `.claude/rules/mcp-tool-conventions.md`, and dispatch the **`mcp-surface-reviewer` agent** before merge.
 
 ### SQLite schema & migrations (`migrations/`, `pkg/store/`)
 

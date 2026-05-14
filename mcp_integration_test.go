@@ -585,6 +585,40 @@ func TestMcp_FetchBatchWorkflow(t *testing.T) {
 	}
 }
 
+func TestMcp_StatsWorkflow(t *testing.T) {
+	env := mcptest.NewEnv(t)
+	dir, _ := filepath.Abs("testdata/openclaw")
+
+	env.CallTool(t, "MemoryCompile", map[string]any{
+		"path":    dir,
+		"message": "stats-init",
+	})
+
+	statsResult := env.CallTool(t, "MemoryStats", map[string]any{})
+	statsText := env.TextContent(t, statsResult)
+
+	for _, want := range []string{
+		"Database:",
+		"Nodes:",
+		"Snapshots:",
+		"Temperature:",
+		"Relations:",
+		"FTS rows:",
+		"pinned:",
+	} {
+		if !strings.Contains(statsText, want) {
+			t.Errorf("MemoryStats missing %q in:\n%s", want, statsText)
+		}
+	}
+
+	if strings.Contains(statsText, "Nodes:              0") {
+		t.Errorf("MemoryStats reports zero nodes after compile:\n%s", statsText)
+	}
+	if !strings.Contains(statsText, "├─") && !strings.Contains(statsText, "└─") {
+		t.Errorf("MemoryStats missing tree branch glyphs:\n%s", statsText)
+	}
+}
+
 // Verifies that the client can list all available tools.
 func TestMcp_ToolDiscovery(t *testing.T) {
 	env := mcptest.NewEnv(t)
@@ -606,6 +640,9 @@ func TestMcp_ToolDiscovery(t *testing.T) {
 		"MemoryTree":       false,
 		"MemoryRelated":    false,
 		"MemoryRelate":     false,
+		"MemoryPin":        false,
+		"MemoryUnpin":      false,
+		"MemoryStats":      false,
 	}
 
 	for _, tool := range tools.Tools {

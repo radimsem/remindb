@@ -224,6 +224,43 @@ func TestHandleFetchBatch_DuplicatesDoNotEcho(t *testing.T) {
 	}
 }
 
+func TestHandleStats(t *testing.T) {
+	d, st := setup(t)
+	ctx := context.Background()
+
+	mustUpsertBatchNode(t, st, ctx, "aaaaaaaa", "alpha", 10)
+	mustUpsertBatchNode(t, st, ctx, "bbbbbbbb", "beta", 10)
+
+	if err := st.UpsertRelation(ctx, &store.Relation{
+		SourceNodeID: "aaaaaaaa", TargetNodeID: "bbbbbbbb",
+		Weight: 1.0, Origin: store.OriginManual,
+	}); err != nil {
+		t.Fatalf("UpsertRelation: %v", err)
+	}
+	if err := st.SetPinned(ctx, "aaaaaaaa", true, nil); err != nil {
+		t.Fatalf("SetPinned: %v", err)
+	}
+
+	result, _, err := d.HandleStats(ctx, &gomcp.CallToolRequest{}, StatsInput{})
+	if err != nil {
+		t.Fatalf("HandleStats: %v", err)
+	}
+
+	text := textContent(t, result)
+	for _, want := range []string{
+		"Nodes:",
+		"Relations:",
+		"Temperature:",
+		"FTS rows:",
+		"pinned:",
+		store.OriginManual + ":",
+	} {
+		if !strings.Contains(text, want) {
+			t.Errorf("HandleStats missing %q in:\n%s", want, text)
+		}
+	}
+}
+
 func mustUpsertBatchNode(t *testing.T, st *store.Store, ctx context.Context, id, content string, tok int) {
 	t.Helper()
 	n := &store.Node{

@@ -9,24 +9,27 @@ import (
 	"path/filepath"
 	"sort"
 	"strings"
-	"unicode/utf8"
 
+	"github.com/radimsem/remindb/pkg/inspect"
 	"github.com/radimsem/remindb/pkg/store"
 	"github.com/spf13/cobra"
 )
 
 const (
-	ansiReset   = "\x1b[0m"
-	ansiBold    = "\x1b[1m"
-	ansiDim     = "\x1b[2m"
-	ansiYellow  = "\x1b[33m"
-	ansiCyan    = "\x1b[36m"
-	ansiBrightW = "\x1b[97m"
+	ansiReset       = "\x1b[0m"
+	ansiBold        = "\x1b[1m"
+	ansiDim         = "\x1b[2m"
+	ansiYellow      = "\x1b[33m"
+	ansiCyan        = "\x1b[36m"
+	ansiBrightWhite = "\x1b[97m"
 )
 
 const (
 	defaultInspectDepth = 10
-	inspectLabelPad     = 14
+	inspectBranchPad    = 4
+	inspectGlyphWidth   = 2
+	inspectSubKeyPad    = 14
+	inspectLabelPad     = inspectBranchPad + inspectGlyphWidth + 1 + inspectSubKeyPad
 	hotThreshold        = 0.5
 	coldThreshold       = 0.1
 	gradientGreen       = 60
@@ -72,9 +75,9 @@ func runInspect(cmd *cobra.Command, _ []string) error {
 		return fmt.Errorf("failed to migrate: %w", err)
 	}
 
-	stats, err := st.GetStats(ctx)
+	stats, err := inspect.Collect(ctx, st)
 	if err != nil {
-		return fmt.Errorf("failed to get stats: %w", err)
+		return fmt.Errorf("failed to collect stats: %w", err)
 	}
 
 	w := os.Stdout
@@ -215,7 +218,7 @@ func renderTrieNode(w io.Writer, t *fileTrie, prefix string) {
 
 		if child.summary != nil {
 			stats := paint(ansiDim, fmt.Sprintf("(%d nodes, %d tok)", child.summary.NodeCount, child.summary.TokenCount))
-			_, _ = fmt.Fprintf(w, "%s%s%s %s\n", prefix, branch, paint(ansiBrightW, k), stats)
+			_, _ = fmt.Fprintf(w, "%s%s%s %s\n", prefix, branch, paint(ansiBrightWhite, k), stats)
 		} else {
 			_, _ = fmt.Fprintf(w, "%s%s%s\n", prefix, branch, paint(ansiYellow, k+"/"))
 		}
@@ -224,30 +227,107 @@ func renderTrieNode(w io.Writer, t *fileTrie, prefix string) {
 	}
 }
 
-func printStats(w io.Writer, s *store.Stats) {
-	header := "=== Database: " + dbPath
-	if fi, err := os.Stat(dbPath); err == nil {
-		header += " (" + humanSize(fi.Size()) + ")"
+type ttyBranch struct {
+	key   string
+	value string
+}
+
+func num(n int) string { return paint(ansiBrightWhite, fmt.Sprintf("%d", n)) }
+
+func num64(n int64) string { return paint(ansiBrightWhite, fmt.Sprintf("%d", n)) }
+
+func printStats(w io.Writer, s *inspect.Stats) {
+	header := "=== Database: " + s.DBPath
+	if s.DBSizeBytes > 0 {
+		header += " (" + inspect.HumanSize(s.DBSizeBytes) + ")"
 	}
 
 	header += " ==="
 	_, _ = fmt.Fprintln(w, paint(ansiBold+ansiCyan, header))
 
-	row := func(label, value string) {
-		padded := runePad(label, inspectLabelPad)
-		_, _ = fmt.Fprintf(w, "%s %s\n", paint(ansiDim, padded), value)
+	nodesValue := fmt.Sprintf("%s (%s tokens)", num(s.NodeCount), num64(s.TokenCountTotal))
+	ttyRow(w, "Nodes:", nodesValue)
+	ttyBranches(w, mapTTYBranches(s.NodeCountsByType))
+
+	ttyRow(w, "Snapshots:", num(s.SnapshotCount))
+	if s.Latest != nil {
+		latest := fmt.Sprintf("%s, %s ago",
+			paint(ansiBrightWhite, fmt.Sprintf("#%d", s.Latest.ID)),
+			paint(ansiBrightWhite, inspect.HumanDuration(s.Latest.AgeSeconds)),
+		)
+		if s.Latest.Message != "" {
+			latest += fmt.Sprintf(", %s", paint(ansiDim, fmt.Sprintf("%q", s.Latest.Message)))
+		}
+
+		branches := []ttyBranch{{key: "latest:", value: latest}}
+		if s.Latest.CursorHash != "" {
+			branches = append(branches, ttyBranch{key: "cursor:", value: paint(ansiDim, inspect.TruncateHash(s.Latest.CursorHash))})
+		}
+
+		ttyBranches(w, branches)
 	}
-	num := func(n int) string { return paint(ansiBrightW, fmt.Sprintf("%d", n)) }
 
-	hotLabel := fmt.Sprintf("Hot (≥%.1f):", hotThreshold)
-	coldLabel := fmt.Sprintf("Cold (<%.1f):", coldThreshold)
+	ttyRow(w, "Temperature:", "")
+	tempBranches := []ttyBranch{
+		{key: "avg:", value: tempPaint(s.AvgTemp)},
+		{key: "median:", value: tempPaint(s.MedianTemp)},
+		{key: fmt.Sprintf("hot (≥%.1f):", hotThreshold), value: num(s.HotCount)},
+		{key: fmt.Sprintf("cold (<%.1f):", coldThreshold), value: num(s.ColdCount)},
+		{key: "pinned:", value: num(s.PinnedCount)},
+	}
 
-	row("Nodes:", num(s.NodeCount))
-	row("Snapshots:", num(s.SnapshotCount))
-	row("Avg temp:", tempPaint(s.AvgTemp))
-	row(hotLabel, num(s.HotCount))
-	row(coldLabel, num(s.ColdCount))
+	ttyBranches(w, tempBranches)
+	ttyRow(w, "Relations:", num(s.RelationCount))
+
+	relBranches := mapTTYBranches(s.RelationsByOrigin)
+	if s.PendingRelationCount > 0 {
+		relBranches = append(relBranches, ttyBranch{key: "pending:", value: num(s.PendingRelationCount)})
+	}
+
+	ttyBranches(w, relBranches)
+	ttyRow(w, "FTS rows:", num(s.FTSRowCount))
+
 	_, _ = fmt.Fprintln(w)
+}
+
+func ttyRow(w io.Writer, label, value string) {
+	padded := inspect.RunePad(label, inspectLabelPad)
+
+	if value == "" {
+		_, _ = fmt.Fprintln(w, paint(ansiDim, padded))
+		return
+	}
+	_, _ = fmt.Fprintf(w, "%s %s\n", paint(ansiDim, padded), value)
+}
+
+func ttyBranches(w io.Writer, branches []ttyBranch) {
+	prefix := strings.Repeat(" ", inspectBranchPad)
+
+	for i, br := range branches {
+		glyph := "├─"
+		if i == len(branches)-1 {
+			glyph = "└─"
+		}
+
+		key := paint(ansiDim, inspect.RunePad(br.key, inspectSubKeyPad))
+		_, _ = fmt.Fprintf(w, "%s%s %s %s\n", prefix, paint(ansiDim, glyph), key, br.value)
+	}
+}
+
+func mapTTYBranches(m map[string]int) []ttyBranch {
+	keys := make([]string, 0, len(m))
+	for k := range m {
+		keys = append(keys, k)
+	}
+
+	sort.Strings(keys)
+
+	out := make([]ttyBranch, 0, len(keys))
+	for _, k := range keys {
+		out = append(out, ttyBranch{key: k + ":", value: num(m[k])})
+	}
+
+	return out
 }
 
 func printTree(w io.Writer, children map[string][]*store.Node, n *store.Node, parentSource, compileRoot string, depth, maxDepth int) {
@@ -256,7 +336,7 @@ func printTree(w io.Writer, children map[string][]*store.Node, n *store.Node, pa
 	_, _ = fmt.Fprintf(w, "%s%s %s (%s",
 		indent,
 		paint(ansiYellow, "["+n.NodeType+"]"),
-		paint(ansiBrightW, n.Label),
+		paint(ansiBrightWhite, n.Label),
 		paint(ansiDim, "id="+n.ID),
 	)
 
@@ -325,26 +405,4 @@ func isTerminal(f *os.File) bool {
 		return false
 	}
 	return fi.Mode()&os.ModeCharDevice != 0
-}
-
-func runePad(s string, width int) string {
-	n := utf8.RuneCountInString(s)
-	if n >= width {
-		return s
-	}
-	return s + strings.Repeat(" ", width-n)
-}
-
-func humanSize(n int64) string {
-	const unit = 1024
-	if n < unit {
-		return fmt.Sprintf("%d B", n)
-	}
-	div, exp := int64(unit), 0
-
-	for x := n / unit; x >= unit; x /= unit {
-		div *= unit
-		exp++
-	}
-	return fmt.Sprintf("%.1f %cB", float64(n)/float64(div), "KMGTPE"[exp])
 }
