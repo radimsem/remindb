@@ -168,12 +168,35 @@ const (
 )
 
 // stats
-const qSelectStats = `
-	SELECT count(*), coalesce(avg(temperature), 0),
-		coalesce(sum(temperature >= ?), 0),
-		coalesce(sum(temperature < ?), 0),
-		(SELECT count(*) FROM snapshots)
-	FROM nodes`
+const (
+	qSelectStats = `
+		SELECT
+			count(*),
+			coalesce(avg(temperature), 0),
+			coalesce((
+				SELECT temperature FROM nodes
+				ORDER BY temperature
+				LIMIT 1 OFFSET (SELECT count(*) / 2 FROM nodes)
+			), 0),
+			coalesce(sum(temperature >= ?), 0),
+			coalesce(sum(temperature < ?), 0),
+			coalesce(sum(pinned), 0),
+			coalesce(sum(token_count), 0),
+			(SELECT count(*) FROM snapshots),
+			(SELECT count(*) FROM nodes_fts),
+			(SELECT count(*) FROM pending_relations)
+		FROM nodes`
+
+	qSelectNodeCountsByType = `
+		SELECT node_type, count(*) FROM nodes
+		GROUP BY node_type
+		ORDER BY node_type`
+
+	qSelectRelationCountsByOrigin = `
+		SELECT origin, count(*) FROM relations
+		GROUP BY origin
+		ORDER BY origin`
+)
 
 // relations & pending_relations
 const (

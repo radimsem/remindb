@@ -258,4 +258,9 @@ func registerTools(srv *mcp.Server, d *tools.Deps) {
 		Name:        "MemoryUnpin",
 		Description: "Release a previously pinned node back into the temperature lifecycle (does not snapshot)",
 	}, d.HandleUnpin)
+
+	mcp.AddTool(srv, &mcp.Tool{
+		Name:        "MemoryStats",
+		Description: "Report database health and shape: node counts (with per-type breakdown), token totals, snapshot summary, temperature spread, relation counts (with per-origin breakdown), pinned/cold/hot tallies",
+	}, d.HandleStats)
 }
