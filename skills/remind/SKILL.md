@@ -1,13 +1,13 @@
 ---
 name: remind
-description: Read memory from a remindb MCP server — orient, search, fetch, resync. Covers the node/snapshot/temperature model and FTS5 query syntax. Pair with `memoize` for writes.
+description: Read memory from a remindb MCP server — orient, search, fetch, resync, traverse the relations graph. Covers the node/snapshot/temperature/relations model and FTS5 query syntax. Pair with `memoize` for writes.
 ---
 
 # Remind — read from remindb so you don't re-grep
 
-remindb is a compiled SQLite view of a workspace, served over MCP as eight `Memory*` tools. It's long-term memory for your session — call it instead of re-reading files or grepping.
+remindb is a compiled SQLite view of a workspace, served over MCP as ten `Memory*` tools. It's long-term memory for your session — call it instead of re-reading files or grepping.
 
-This skill covers the **read path** and the shared mental model. For *writing* memory (authoring payloads, updating nodes, summarizing cold nodes, recompiling source), pair this with the **`memoize`** skill — it owns `MemoryWrite`, `MemorySummarize`, and `MemoryCompile` plus the Markdown-shape rules that determine how well your writes index.
+This skill covers the **read path** (`MemoryTree`, `MemorySearch`, `MemoryFetch`, `MemoryDelta`, `MemoryHistory`, `MemoryRelated`) and the shared mental model. For *writing* memory (authoring payloads, updating nodes, summarizing cold nodes, recompiling source, creating manual edges), pair this with the **`memoize`** skill — it owns `MemoryWrite`, `MemorySummarize`, `MemoryCompile`, and `MemoryRelate` plus the Markdown-shape rules that determine how well your writes index.
 
 ## Mental model
 
@@ -31,6 +31,23 @@ Every `MemoryCompile` or `MemoryWrite` creates a **snapshot** — a row with an 
 ### Diffs
 
 Every snapshot carries per-node diffs: `add`, `mod`, or `rem`, with old and new content preserved. `MemoryDelta` is how you read diffs since a known snapshot; `MemoryHistory` is how you read the diff trail for one specific node.
+
+### Relations — the graph layer
+
+Beyond the parent/child tree, nodes can be connected by **directed weighted edges**: the relations graph. Two row kinds:
+
+- **Resolved edges** — `source → target` between two real node IDs. Created either by the parser (when source content contains a `[[Label]]` wiki-link) or by `MemoryRelate` (a `memoize`-side write tool).
+- **Pending edges** — the target couldn't be resolved at compile time (forward reference, label typo, target not yet compiled). Stored with the unresolved hint and retried on every subsequent compile.
+
+Edge fields:
+
+- `weight` (`REAL`, default `1.0`) — authored via `[[Label; w=2.5]]`. **Higher weight = more important connection.** Used to rank `MemoryRelated` output and as a `weight_min` filter. Not yet folded into `MemorySearch` ranking.
+- `origin` — `parsed` (from `[[Label]]` markers) or `manual` (from `MemoryRelate`). Both can coexist for the same pair — `UNIQUE(source, target, origin)`.
+- Direction is one-way (Obsidian-style). Backlinks are queryable as `direction=in`.
+
+**Relations don't appear in `MemoryDelta` / `MemoryHistory`.** The graph is a sideband — only node content changes show up in the diff trail, and `MemoryRelate` deliberately does not snapshot. To see the current state of the graph, call `MemoryRelated`.
+
+When a target node is deleted, all incoming edges move from resolved back to pending (with the deleted node's label preserved). If a same-label heading reappears later, the next compile re-resolves it — edges self-heal.
 
 ### Ranking
 
@@ -128,7 +145,7 @@ query: "rate AND limiter AND redis"
   → passed through, requires all three
 ```
 
-## The three read patterns
+## The four read patterns
 
 ### 1. Orient: tree first, always
 
@@ -163,6 +180,22 @@ remindb__MemoryDelta(since_snapshot=0)     # all changes ever (rarely what you w
 
 Returns a list of `[op] node_id (snapshot N)` lines. Fetch the specific nodes you care about if you need content. `since_snapshot=0` returns every diff in history — expensive. Keep the last snapshot id from a prior tree/search/write result.
 
+### 4. Traverse: MemoryRelated
+
+When fetched content shows a `[[Label]]` marker, that's an authored cross-reference — the source called this content "related to" something else. Call `MemoryRelated` to surface the linked context:
+
+```
+remindb__MemoryRelated(anchor="<node_id>", direction="out", depth=1)
+remindb__MemoryRelated(anchor="<node_id>", direction="both", depth=2, weight_min=1.5)
+```
+
+- `direction` — `out` (forward edges from anchor), `in` (backlinks), or `both` (default).
+- `depth` — hops 1–5 (default 1). Higher depth surfaces transitive connections.
+- `weight_min` — drop edges below this importance (default 0). Set to `1.0` to ignore weak/tentative links.
+- `budget` — token cap on the response (default 1000).
+
+Results rank by **summed path weight** (each hop's edge weight adds up; the heaviest path to each target wins), then by node temperature. A direct edge with `w=2.5` beats a 2-hop chain of `1+1`; a 2-hop chain of `1.5+2.0` (path weight 3.5) wins over both. Each row shows `hop=N` for the shortest path and `weight=N.N` for that path's accumulated weight. Surfaced target nodes get a temperature boost (same as `MemorySearch` results).
+
 ## Inspect history before rewriting
 
 Before overwriting a node (a `memoize`-side action), check how it evolved:
@@ -175,11 +208,12 @@ Returns snapshot-ordered `add`/`mod`/`rem` entries with truncated old and new co
 
 ## Handing off to `memoize`
 
-This skill stops where mutation begins. Three triggers send you to `memoize`:
+This skill stops where mutation begins. Four triggers send you to `memoize`:
 
 - **The user asks you to remember, save, or note something.** → `memoize` for `MemoryWrite` and the Markdown-shape rules that determine how well the new content indexes.
 - **A `level: "warning"` / `logger: "remindb.temperature"` notification arrives.** → `memoize` for the `MemoryFetch` → `MemorySummarize` compaction workflow.
 - **Source files on disk drifted from the database** (external edit, disabled watcher, fresh `git pull`). → `memoize` for `MemoryCompile`.
+- **The user wants to connect two existing notes that don't already share a `[[Label]]` wiki-link.** → `memoize` for `MemoryRelate` (manual edge; no snapshot).
 
 ## Anti-patterns — do not
 
@@ -192,3 +226,5 @@ This skill stops where mutation begins. Three triggers send you to `memoize`:
 - Don't confuse **snapshot id** (int64, passed to `MemoryDelta`) with **cursor_hash** (xxhash64 string, a fingerprint for equality comparison only).
 - Don't ignore a `level: "warning"` / `logger: "remindb.temperature"` notification. It's the server's only summarization cue and won't fire again for the same node until it warms and re-cools. Hand off to `memoize` and call `MemorySummarize` on each `id`.
 - Don't confuse `ColdThreshold` with `NotifyThreshold`. Both default to `0.1`, but they're independent knobs — `ColdThreshold` drives the cold-node *query*, `NotifyThreshold` drives the *push*. A deployment can tune them separately.
+- Don't ignore `[[Label]]` markers in fetched content. They're an explicit cross-reference the source author left for you — call `MemoryRelated` to surface the linked context before responding.
+- Don't expect `MemoryDelta` or `MemoryHistory` to show relation changes. Edges are a sideband; the diff trail tracks node content only. Call `MemoryRelated` to inspect the current graph.

@@ -1,11 +1,11 @@
 ---
 name: memoize
-description: Write memory to a remindb MCP server with Markdown that indexes well into the node tree. Covers shape rules for good indexing, search-first updates, cold-node summarization, and source recompile. Pair with `remind` for reads.
+description: Write memory to a remindb MCP server with Markdown that indexes well into the node tree. Covers shape rules for good indexing, search-first updates, cold-node summarization, source recompile, wiki-link authoring, and manual relation edges. Pair with `remind` for reads.
 ---
 
 # Memoize — write to remindb so it indexes well
 
-This skill owns the **write path** of remindb's MCP surface: `MemoryWrite`, `MemorySummarize`, `MemoryCompile`. It assumes you already know the read-side mental model (nodes, snapshots, IDs, ranking, notifications, budgets) — that's `remind`'s job. If those terms aren't loaded, read `remind` first.
+This skill owns the **write path** of remindb's MCP surface: `MemoryWrite`, `MemorySummarize`, `MemoryCompile`, and `MemoryRelate`. It assumes you already know the read-side mental model (nodes, snapshots, IDs, ranking, notifications, budgets, relations) — that's `remind`'s job. If those terms aren't loaded, read `remind` first.
 
 ## Why payload shape matters
 
@@ -142,6 +142,85 @@ A new sibling node next to an existing one on the same topic is almost always a 
 
 Every write creates a snapshot. Don't write per-keystroke or per-token. If you have three independent facts to record, that's three calls — but each call should be one coherent note. Bundling unrelated facts into a single call gives you one node with mixed content; bundling related facts into a single well-structured payload (headings + lists) gives you a clean subtree.
 
+## Authoring wiki-links — graph relations in your payload
+
+A `[[Label]]` marker in a Markdown or HTML payload becomes a **parsed edge** in the relations graph (see `remind`'s "Relations — the graph layer" section for the mental model). The parser strips resolver parameters from the stored content and captures them as edge metadata; what readers see is the clean normalized marker.
+
+### Markdown syntax
+
+```
+[[Architecture]]                                        # bare label
+[[Architecture; w=2.76]]                                # with weight
+[[Architecture; w=2.76; source=docs/ARCH.md]]           # source-qualified
+[[Architecture; w=2.76; id=3kGXxidmWBp]]                # explicit target ID
+[[3kGXxidmWBp]]                                         # bare ID (11 base62 chars)
+```
+
+After parsing, `[[Architecture; w=2.76; source=docs/ARCH.md]]` is stored in `nodes.content` as `[[Architecture]]`. The resolver params (`w`, `source`, `id`) live in the source file on disk — re-extracted on every `MemoryCompile`.
+
+### HTML alternative
+
+```
+<knowledge>Architecture</knowledge>
+<knowledge weight="2.76">Architecture</knowledge>
+<knowledge weight="2.76" source="docs/ARCH.md">Architecture</knowledge>
+<knowledge weight="2.76" id="3kGXxidmWBp">Architecture</knowledge>
+```
+
+Both syntaxes produce the same normalized `[[Label]]` in the stored content. Agents should learn one pattern across formats.
+
+### Resolution priority
+
+The resolver tries each marker in this exact order:
+
+1. `id=<hint>` present → look up by ID. **No fallback if the ID doesn't exist** — the edge goes pending.
+2. `source=<file>` + label → label match restricted to that file. **No fallback if the (source, label) pair misses** — the edge goes pending. `source=docs/x.md` matches both the exact stored path and absolute paths ending in `/docs/x.md`.
+3. Label only → label match across all heading nodes, case-insensitive, whitespace-trimmed. First match wins by `(source_file ASC, depth ASC, id ASC)`.
+
+The **hard-constraint** rule for IDs and source qualifiers is intentional: a typo in `source=docs/x.md` produces a discoverable pending row instead of silently linking to whatever heading shares the label elsewhere. Fix the qualifier and the next compile self-heals the edge.
+
+### Weight semantics
+
+`weight` is `REAL`, default `1.0`. **Higher weight = more important connection.**
+
+- `1.0` — regular link (default).
+- `2.0`–`5.0` — emphasized; a connection you want to surface first.
+- `< 1.0` — weak / tentative link.
+
+In `MemoryRelated`, results rank by **sum-along-path weight** — `weight_min` filters out edges below the threshold. Authoring `[[X; w=3]]` is a deliberate signal that the link matters; don't waste it on incidental references.
+
+### Code blocks and code spans bypass extraction
+
+`[[X]]` inside fenced code blocks or `<code>` elements is example text, not a link. The parser leaves the marker in the content verbatim and emits no edge. This is intentional — example syntax in documentation must not generate relations.
+
+## MemoryRelate — manual edges between existing nodes
+
+Use `MemoryRelate` when the user wants to connect two nodes that don't have a `[[Label]]` marker in their source — typically after a conversation where two previously-disconnected memories turn out to be related.
+
+```
+remindb__MemoryRelate(source_id="<node_id>", target_label="Architecture")
+remindb__MemoryRelate(source_id="<node_id>", target_label="Architecture", target_source="docs/ARCH.md", weight=2.5)
+remindb__MemoryRelate(source_id="<node_id>", target_id="3kGXxidmWBp", weight=2.0)
+```
+
+Resolution uses the same priority as parsed wiki-links (id → source+label → label only, both narrowing modifiers are hard constraints). Hit → edge in resolved relations. Miss → pending edge, retried on every subsequent compile.
+
+### Snapshot-free by design
+
+**`MemoryRelate` does NOT create a snapshot.** Edges are a sideband — they don't appear in `MemoryDelta` or `MemoryHistory`, and the cursor doesn't move. The only way to inspect the current graph is to call `MemoryRelated`.
+
+This is different from `MemoryWrite` / `MemorySummarize` / `MemoryCompile`, which all snapshot. The rationale: edges churn faster than content does, and binding them to the cursor chain would either pollute the diff trail or force batching that defeats the agent's flexibility.
+
+### Prefer `target_label` + `target_source` over `target_id`
+
+Structural node IDs are content-addressed on `(source_file, parent_id, sibling_index)`. Reordering siblings in a file rotates the IDs of every later sibling. A `target_id=<id>` manual edge doesn't self-heal — if the target's ID changes, the edge silently points at the wrong node (or, if no node has the old ID, becomes orphaned).
+
+**Recommended pattern:** `target_label` + `target_source` for manual edges. The next compile re-resolves the label against the current state of the headings, so sibling reorders don't break the edge. Use `target_id` only for short-lived references.
+
+### Origin coexistence
+
+`parsed` and `manual` are independent origins. If both a `[[Architecture]]` marker in source *and* a `MemoryRelate(..., target_label="Architecture")` resolve to the same target, both rows exist — `UNIQUE(source_node_id, target_node_id, origin)` permits the pair. `MemoryRelated` deduplicates by target node in its output, so the agent sees one row per related node regardless.
+
 ## Summarize a cold node — the notification handoff
 
 `remind` describes the notification: `level: "warning"`, `logger: "remindb.temperature"`, `data.message: "Cold nodes detected; consider summarizing via MemorySummarize"`, `data.nodes: [{id, label, file, temperature}, …]`.
@@ -192,3 +271,7 @@ If a `.remindb.ignore` file lives at the source root, `MemoryCompile` (and the b
 - Don't ignore a `level: "warning"` / `logger: "remindb.temperature"` notification. Walk the `nodes` array and `MemorySummarize` each `id`. The server won't re-push the same node until it warms and re-cools.
 - Don't summarize *toward* a flat paragraph. Apply the same shape rules — a summary that loses structure is a summary that won't index.
 - Don't `MemoryCompile` the entire source tree when one file changed. Narrow the path.
+- Don't author `[[Label]]` inside a fenced code block or `<code>` element expecting it to become a relation — the parser bypasses extraction in code contexts by design.
+- Don't use `target_id` for long-lived `MemoryRelate` edges. Sibling reorders rotate IDs; `target_label` + `target_source` self-heals on the next compile.
+- Don't expect `MemoryRelate` to show up in `MemoryDelta` or move the cursor. Relations are a sideband — call `MemoryRelated` to inspect the current graph.
+- Don't rely on label-only matching when the target heading shares a name with another file's heading. The first-match rule is deterministic but the "first" is whichever file sorts earliest by `(source_file, depth, id)` — pin `source=` if you mean a specific file.
