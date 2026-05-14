@@ -1,13 +1,13 @@
 ---
 name: remind
-description: Read memory from a remindb MCP server — orient, search, fetch (single or batched), resync, traverse the relations graph. Covers the node/snapshot/temperature/relations model and FTS5 query syntax. Pair with `memoize` for writes.
+description: Read memory from a remindb MCP server — orient, search, fetch (single or batched), resync, traverse the relations graph, inspect DB health. Covers the node/snapshot/temperature/relations model and FTS5 query syntax. Pair with `memoize` for writes.
 ---
 
 # Remind — read from remindb so you don't re-grep
 
-remindb is a compiled SQLite view of a workspace, served over MCP as eleven `Memory*` tools. It's long-term memory for your session — call it instead of re-reading files or grepping.
+remindb is a compiled SQLite view of a workspace, served over MCP as fourteen `Memory*` tools. It's long-term memory for your session — call it instead of re-reading files or grepping.
 
-This skill covers the **read path** (`MemoryTree`, `MemorySearch`, `MemoryFetch`, `MemoryFetchBatch`, `MemoryDelta`, `MemoryHistory`, `MemoryRelated`) and the shared mental model. For *writing* memory (authoring payloads, updating nodes, summarizing cold nodes, recompiling source, creating manual edges), pair this with the **`memoize`** skill — it owns `MemoryWrite`, `MemorySummarize`, `MemoryCompile`, and `MemoryRelate` plus the Markdown-shape rules that determine how well your writes index.
+This skill covers the **read path** (`MemoryTree`, `MemorySearch`, `MemoryFetch`, `MemoryFetchBatch`, `MemoryDelta`, `MemoryHistory`, `MemoryRelated`, `MemoryStats`) and the shared mental model. For *writing* memory (authoring payloads, updating nodes, summarizing cold nodes, recompiling source, creating manual edges), pair this with the **`memoize`** skill — it owns `MemoryWrite`, `MemorySummarize`, `MemoryCompile`, and `MemoryRelate` plus the Markdown-shape rules that determine how well your writes index.
 
 ## Mental model
 
@@ -204,6 +204,29 @@ remindb__MemoryRelated(anchor="<node_id>", direction="both", depth=2, weight_min
 - `budget` — token cap on the response (default 1000).
 
 Results rank by **summed path weight** (each hop's edge weight adds up; the heaviest path to each target wins), then by node temperature. A direct edge with `w=2.5` beats a 2-hop chain of `1+1`; a 2-hop chain of `1.5+2.0` (path weight 3.5) wins over both. Each row shows `hop=N` for the shortest path and `weight=N.N` for that path's accumulated weight. Surfaced target nodes get a temperature boost (same as `MemorySearch` results).
+
+## Health check: MemoryStats
+
+When you need to sanity-check the database — fresh session, suspicious search results, before a `MemoryCompile` — call `MemoryStats` for a one-call summary:
+
+```
+remindb__MemoryStats()
+```
+
+Returns a plain-text block: DB path + on-disk size, total node count with per-`node_type` breakdown as tree branches, total token count, snapshot count + latest snapshot id/age/cursor, temperature spread (avg, median, hot, cold, pinned), relation count with per-`origin` breakdown (`parsed`, `manual`, plus `pending` when non-zero), and the FTS5 row count. The per-category counts hang off the total root for the same unit:
+
+```
+Nodes:             42 (1280 tokens)
+    ├─ heading:    17
+    ├─ list:       12
+    └─ text:       13
+Relations:         8
+    ├─ manual:     2
+    ├─ parsed:     5
+    └─ pending:    1
+```
+
+`MemoryStats` is read-only — no `OpMu`, no temperature boost, no payload attrs in the call log. Use it freely; the cost is one cheap query roundtrip.
 
 ## Inspect history before rewriting
 

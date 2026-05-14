@@ -16,6 +16,7 @@ Re-reading raw notes and source files every session burns tokens on prose the mo
 - **Compile when files drift.** `remindb__MemoryCompile <path>` re-ingests files that changed on disk since the last compile. `MemoryCompile` does not expand `~`; pass absolute paths.
 - **Summarize on cold-node notifications.** When the server pushes a "node has gone cold" notification, follow up with `remindb__MemorySummarize <node-id> <shorter rewrite>` to compact it in place.
 - **Browse history.** `remindb__MemoryHistory <node-id>` walks the per-node version trail (rollback-capable via stored old content).
+- **Health check.** `remindb__MemoryStats` returns a one-call summary — node/snapshot/relation counts (with per-category tree branches), token totals, temperature spread, latest cursor. Use it on a fresh session, before a recompile, or when search results feel off.
 
 ## Companion skills
 
