@@ -33,10 +33,10 @@ var serveCmd = &cobra.Command{
 
 func init() {
 	serveCmd.Flags().StringVar(&sourceDir, "source", "", "Source directory to watch for changes (falls back to REMINDB_SOURCE)")
-	serveCmd.Flags().DurationVar(&rescanInterval, "rescan-interval", 0, "Rescan interval (e.g. 30s, 5m); 0 uses default (falls back to REMINDB_RESCAN_INTERVAL)")
+	serveCmd.Flags().DurationVar(&rescanInterval, "rescan-interval", 0, "Rescan interval (e.g. 30s, 5m), requires --source; 0 uses default (falls back to REMINDB_RESCAN_INTERVAL)")
 	serveCmd.Flags().BoolVarP(&verbose, "verbose", "v", false, "Emit debug-level logs (default level is info)")
 	serveCmd.Flags().StringVar(&transport, "transport", remindb.TransportStdio, "Transport for the MCP server (stdio|http); falls back to REMINDB_TRANSPORT")
-	serveCmd.Flags().StringVar(&listen, "listen", remindb.DefaultListenAddr, "Listen address for HTTP transport (ignored for stdio); falls back to REMINDB_LISTEN")
+	serveCmd.Flags().StringVar(&listen, "listen", remindb.DefaultListenAddr, "Listen address for HTTP transport, requires --transport=http; falls back to REMINDB_LISTEN")
 	rootCmd.AddCommand(serveCmd)
 }
 
@@ -75,16 +75,7 @@ func runServe(cmd *cobra.Command, _ []string) error {
 		remindb.WithListen(listen),
 	)
 
-	logger.Info("serve: starting",
-		"db", dbPath,
-		"source", sourceDir,
-		"rescan_interval", rescanInterval,
-		"tick_interval", cfg.TickInterval,
-		"transport", transport,
-		"listen", listen,
-		"verbose", verbose,
-		"version", version.Get(),
-	)
+	logger.Info("serve: starting", startupAttrs(cfg.TickInterval)...)
 
 	go checkLatestVersion(ctx, version.Get(), logger)
 
@@ -115,6 +106,7 @@ func runServe(cmd *cobra.Command, _ []string) error {
 		if err != nil {
 			return err
 		}
+
 		g.Go(func() error {
 			rescan.Run(ctx)
 			return nil
@@ -126,6 +118,7 @@ func runServe(cmd *cobra.Command, _ []string) error {
 		return err
 	}
 	logger.Info("serve: stopped")
+
 	return nil
 }
 
@@ -135,6 +128,25 @@ func newServeLogger(verbose bool) *slog.Logger {
 		level = slog.LevelDebug
 	}
 	return slog.New(slog.NewTextHandler(os.Stderr, &slog.HandlerOptions{Level: level}))
+}
+
+func startupAttrs(tickInterval time.Duration) []any {
+	attrs := []any{
+		"db", dbPath,
+		"transport", transport,
+		"tick_interval", tickInterval,
+		"verbose", verbose,
+		"version", version.Get(),
+	}
+
+	if sourceDir != "" {
+		attrs = append(attrs, "source", sourceDir, "rescan_interval", rescanInterval)
+	}
+	if transport == remindb.TransportHttp {
+		attrs = append(attrs, "listen", listen)
+	}
+
+	return attrs
 }
 
 func applyServeEnv(cmd *cobra.Command) error {
@@ -151,14 +163,21 @@ func applyServeEnv(cmd *cobra.Command) error {
 		sourceDir = os.Getenv("REMINDB_SOURCE")
 	}
 
+	rescanFromEnv := false
 	if !cmd.Flags().Changed("rescan-interval") {
 		if v := os.Getenv("REMINDB_RESCAN_INTERVAL"); v != "" {
 			d, err := time.ParseDuration(v)
 			if err != nil {
 				return fmt.Errorf("failed to parse: REMINDB_RESCAN_INTERVAL=%q: %w", v, err)
 			}
+
 			rescanInterval = d
+			rescanFromEnv = true
 		}
+	}
+
+	if sourceDir == "" && (cmd.Flags().Changed("rescan-interval") || rescanFromEnv) {
+		return fmt.Errorf("rescan interval requires --source (or REMINDB_SOURCE)")
 	}
 
 	if !cmd.Flags().Changed("transport") {
@@ -166,9 +185,12 @@ func applyServeEnv(cmd *cobra.Command) error {
 			transport = v
 		}
 	}
+
+	listenFromEnv := false
 	if !cmd.Flags().Changed("listen") {
 		if v := os.Getenv("REMINDB_LISTEN"); v != "" {
 			listen = v
+			listenFromEnv = true
 		}
 	}
 
@@ -176,6 +198,10 @@ func applyServeEnv(cmd *cobra.Command) error {
 	case remindb.TransportStdio, remindb.TransportHttp:
 	default:
 		return fmt.Errorf("unsupported transport %q (want %q or %q)", transport, remindb.TransportStdio, remindb.TransportHttp)
+	}
+
+	if transport != remindb.TransportHttp && (cmd.Flags().Changed("listen") || listenFromEnv) {
+		return fmt.Errorf("listen address requires --transport=http")
 	}
 	return nil
 }

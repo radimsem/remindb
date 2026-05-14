@@ -12,7 +12,7 @@ builds:
       - -trimpath
     ldflags:
       - -s -w
-      - -X main.version={{.Tag}}
+      - -X github.com/radimsem/remindb/pkg/version.Override={{.Tag}}
     goos:
       - linux
       - darwin

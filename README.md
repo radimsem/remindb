@@ -201,13 +201,14 @@ By default, edits to `.temp.json` reach only the nodes whose source files also c
 
 ### `serve`
 
-Starts the MCP server. Default transport is stdio (one server per client process); pass `--transport http` to expose the same `Memory*` suite over streamable HTTP so a CI worker or a hosted agent session can connect to the same memory database. With `--source` set, remindb runs an initial compile (if the DB is empty) and keeps a background rescan loop running.
+Starts the MCP server. Default transport is stdio (one server per client process); pass `--transport http` to expose the same `Memory*` suite over streamable HTTP so a CI worker or a hosted agent session can connect to the same memory database. With `--source` set, remindb runs an initial compile (if the DB is empty) and keeps a background rescan loop running. Omit `--source` (and `REMINDB_SOURCE`) to run in DB-only mode — the server opens an existing DB and exposes the MCP surface without filesystem watching.
 
 ```bash
 remindb serve --db ./notes.db --source ./notes
 remindb serve --db ./notes.db --source ./notes --rescan-interval 30s -v
 remindb serve --db ./notes.db --source ./notes --transport http
 remindb serve --db ./notes.db --source ./notes --transport http --listen 127.0.0.1:7474
+remindb serve --db ./notes.db                                                          # DB-only (no source, no rescan)
 ```
 
 HTTP defaults to `127.0.0.1:7474`. Binding to a non-loopback address (e.g. `--listen 0.0.0.0:7474`) emits a one-time Warn at startup — there is no built-in authentication yet, so put a reverse proxy in front before exposing the server beyond localhost.
@@ -215,10 +216,10 @@ HTTP defaults to `127.0.0.1:7474`. Binding to a non-loopback address (e.g. `--li
 | Flag | Env | Purpose |
 |------|-----|---------|
 | `--db` | `REMINDB_DB` | Database file. |
-| `--source` | `REMINDB_SOURCE` | Source directory to watch and incrementally recompile. |
-| `--rescan-interval` | `REMINDB_RESCAN_INTERVAL` | e.g. `30s`, `5m`. `0` keeps the tracker's default. |
+| `--source` | `REMINDB_SOURCE` | Source directory to watch and incrementally recompile. Omit for DB-only mode. |
+| `--rescan-interval` | `REMINDB_RESCAN_INTERVAL` | e.g. `30s`, `5m`. `0` keeps the tracker's default. Requires `--source`. |
 | `--transport` | `REMINDB_TRANSPORT` | `stdio` (default) or `http`. |
-| `--listen` | `REMINDB_LISTEN` | Listen address for HTTP transport. Default `127.0.0.1:7474`; ignored for stdio. |
+| `--listen` | `REMINDB_LISTEN` | Listen address for HTTP transport. Default `127.0.0.1:7474`; requires `--transport=http`. |
 | `-v, --verbose` | — | Debug-level logs. Default is info. |
 
 ### `inspect`
