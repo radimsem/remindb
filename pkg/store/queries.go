@@ -172,6 +172,98 @@ const qSelectStats = `
 		(SELECT count(*) FROM snapshots)
 	FROM nodes`
 
+// relations & pending_relations
+const (
+	pendingColumns = `id, source_node_id, target_label, target_source, target_id_hint,
+	weight, origin, created_at`
+
+	qUpsertRelation = `
+		INSERT INTO relations (source_node_id, target_node_id, weight, origin)
+		VALUES (?, ?, ?, ?)
+		ON CONFLICT(source_node_id, target_node_id, origin)
+		DO UPDATE SET weight = excluded.weight`
+
+	qInsertPendingRelation = `
+		INSERT INTO pending_relations (source_node_id, target_label, target_source, target_id_hint, weight, origin)
+		VALUES (?, ?, ?, ?, ?, ?)`
+
+	qDeletePendingByID = `DELETE FROM pending_relations WHERE id = ?`
+
+	qDeleteParsedPendingForSource = `
+		DELETE FROM pending_relations
+		WHERE source_node_id = ? AND origin = 'parsed'`
+
+	qSelectAllPendingRelations = `SELECT ` + pendingColumns + ` FROM pending_relations ORDER BY id`
+
+	qSelectPendingBySource = `SELECT ` + pendingColumns + ` FROM pending_relations WHERE source_node_id = ?`
+
+	qRelatedOut = `
+		WITH RECURSIVE walk(target, hop, weight) AS (
+			SELECT target_node_id, 1, weight FROM relations
+			WHERE source_node_id = ? AND weight >= ?
+			UNION ALL
+			SELECT r.target_node_id, w.hop + 1, r.weight
+			FROM walk w
+			JOIN relations r ON r.source_node_id = w.target
+			WHERE w.hop < ? AND r.weight >= ?
+		)
+		SELECT ` + nodeColumnsAliased + `, MIN(w.hop), MAX(w.weight)
+		FROM walk w
+		JOIN nodes n ON n.id = w.target
+		WHERE w.target != ?
+		GROUP BY n.id
+		ORDER BY MAX(w.weight) DESC, n.temperature DESC
+		LIMIT ?`
+
+	qRelatedIn = `
+		WITH RECURSIVE walk(src, hop, weight) AS (
+			SELECT source_node_id, 1, weight FROM relations
+			WHERE target_node_id = ? AND weight >= ?
+			UNION ALL
+			SELECT r.source_node_id, w.hop + 1, r.weight
+			FROM walk w
+			JOIN relations r ON r.target_node_id = w.src
+			WHERE w.hop < ? AND r.weight >= ?
+		)
+		SELECT ` + nodeColumnsAliased + `, MIN(w.hop), MAX(w.weight)
+		FROM walk w
+		JOIN nodes n ON n.id = w.src
+		WHERE w.src != ?
+		GROUP BY n.id
+		ORDER BY MAX(w.weight) DESC, n.temperature DESC
+		LIMIT ?`
+
+	qRelatedBoth = `
+		WITH RECURSIVE
+		out_walk(nid, hop, weight) AS (
+			SELECT target_node_id, 1, weight FROM relations
+			WHERE source_node_id = ? AND weight >= ?
+			UNION ALL
+			SELECT r.target_node_id, w.hop + 1, r.weight
+			FROM out_walk w
+			JOIN relations r ON r.source_node_id = w.nid
+			WHERE w.hop < ? AND r.weight >= ?
+		),
+		in_walk(nid, hop, weight) AS (
+			SELECT source_node_id, 1, weight FROM relations
+			WHERE target_node_id = ? AND weight >= ?
+			UNION ALL
+			SELECT r.source_node_id, w.hop + 1, r.weight
+			FROM in_walk w
+			JOIN relations r ON r.target_node_id = w.nid
+			WHERE w.hop < ? AND r.weight >= ?
+		)
+		SELECT ` + nodeColumnsAliased + `, MIN(c.hop), MAX(c.weight)
+		FROM (SELECT nid, hop, weight FROM out_walk
+			  UNION ALL
+			  SELECT nid, hop, weight FROM in_walk) c
+		JOIN nodes n ON n.id = c.nid
+		WHERE c.nid != ?
+		GROUP BY n.id
+		ORDER BY MAX(c.weight) DESC, n.temperature DESC
+		LIMIT ?`
+)
+
 // temperature
 const (
 	qUpdateTemperature = `UPDATE nodes SET temperature = ?, updated_at = unixepoch() WHERE id = ?`
