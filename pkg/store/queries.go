@@ -233,6 +233,20 @@ const (
 		ORDER BY MAX(w.weight) DESC, n.temperature DESC
 		LIMIT ?`
 
+	qFindHeadingByLabel = `
+		SELECT id FROM nodes
+		WHERE node_type = 'heading' AND LOWER(TRIM(label)) = LOWER(TRIM(?))
+		ORDER BY source_file ASC, depth ASC, id ASC
+		LIMIT 1`
+
+	qFindHeadingByLabelInFile = `
+		SELECT id FROM nodes
+		WHERE node_type = 'heading'
+		  AND (source_file = ? OR source_file LIKE '%/' || ?)
+		  AND LOWER(TRIM(label)) = LOWER(TRIM(?))
+		ORDER BY depth ASC, id ASC
+		LIMIT 1`
+
 	qRelatedBoth = `
 		WITH RECURSIVE
 		out_walk(nid, hop, weight) AS (

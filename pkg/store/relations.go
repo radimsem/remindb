@@ -3,6 +3,7 @@ package store
 import (
 	"context"
 	"database/sql"
+	"errors"
 	"fmt"
 )
 
@@ -80,14 +81,44 @@ func (s *Store) InsertPendingRelationTx(ctx context.Context, tx *sql.Tx, p *Pend
 	return err
 }
 
+func (s *Store) DeletePendingByID(ctx context.Context, id int64) error {
+	_, err := s.db.ExecContext(ctx, qDeletePendingByID, id)
+	return err
+}
+
 func (s *Store) DeletePendingByIDTx(ctx context.Context, tx *sql.Tx, id int64) error {
 	_, err := tx.ExecContext(ctx, qDeletePendingByID, id)
+	return err
+}
+
+func (s *Store) DeleteParsedPendingForSource(ctx context.Context, sourceID string) error {
+	_, err := s.db.ExecContext(ctx, qDeleteParsedPendingForSource, sourceID)
 	return err
 }
 
 func (s *Store) DeleteParsedPendingForSourceTx(ctx context.Context, tx *sql.Tx, sourceID string) error {
 	_, err := tx.ExecContext(ctx, qDeleteParsedPendingForSource, sourceID)
 	return err
+}
+
+// Look up a heading node ID by case-insensitive trimmed label match across all files.
+func (s *Store) FindHeadingByLabel(ctx context.Context, label string) (string, error) {
+	var id string
+	err := s.db.QueryRowContext(ctx, qFindHeadingByLabel, label).Scan(&id)
+	if errors.Is(err, sql.ErrNoRows) {
+		return "", nil
+	}
+	return id, err
+}
+
+// Look up a heading node ID by label scoped to a source file.
+func (s *Store) FindHeadingByLabelInFile(ctx context.Context, sourceFile, label string) (string, error) {
+	var id string
+	err := s.db.QueryRowContext(ctx, qFindHeadingByLabelInFile, sourceFile, sourceFile, label).Scan(&id)
+	if errors.Is(err, sql.ErrNoRows) {
+		return "", nil
+	}
+	return id, err
 }
 
 func (s *Store) GetAllPendingRelations(ctx context.Context) ([]*PendingRelation, error) {
