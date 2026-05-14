@@ -1,13 +1,13 @@
 ---
 name: remind
-description: Read memory from a remindb MCP server — orient, search, fetch, resync, traverse the relations graph. Covers the node/snapshot/temperature/relations model and FTS5 query syntax. Pair with `memoize` for writes.
+description: Read memory from a remindb MCP server — orient, search, fetch (single or batched), resync, traverse the relations graph. Covers the node/snapshot/temperature/relations model and FTS5 query syntax. Pair with `memoize` for writes.
 ---
 
 # Remind — read from remindb so you don't re-grep
 
-remindb is a compiled SQLite view of a workspace, served over MCP as ten `Memory*` tools. It's long-term memory for your session — call it instead of re-reading files or grepping.
+remindb is a compiled SQLite view of a workspace, served over MCP as eleven `Memory*` tools. It's long-term memory for your session — call it instead of re-reading files or grepping.
 
-This skill covers the **read path** (`MemoryTree`, `MemorySearch`, `MemoryFetch`, `MemoryDelta`, `MemoryHistory`, `MemoryRelated`) and the shared mental model. For *writing* memory (authoring payloads, updating nodes, summarizing cold nodes, recompiling source, creating manual edges), pair this with the **`memoize`** skill — it owns `MemoryWrite`, `MemorySummarize`, `MemoryCompile`, and `MemoryRelate` plus the Markdown-shape rules that determine how well your writes index.
+This skill covers the **read path** (`MemoryTree`, `MemorySearch`, `MemoryFetch`, `MemoryFetchBatch`, `MemoryDelta`, `MemoryHistory`, `MemoryRelated`) and the shared mental model. For *writing* memory (authoring payloads, updating nodes, summarizing cold nodes, recompiling source, creating manual edges), pair this with the **`memoize`** skill — it owns `MemoryWrite`, `MemorySummarize`, `MemoryCompile`, and `MemoryRelate` plus the Markdown-shape rules that determine how well your writes index.
 
 ## Mental model
 
@@ -158,7 +158,7 @@ remindb__MemoryTree(root="<node_id>", depth=3)    # zoom into a subtree
 
 Returns a typed, labeled hierarchy with temperatures and token counts. Scan it to pick where to look next. Temperatures tell you what has been read recently — follow hot branches first. Default depth is 5; raise it only when shallow didn't reveal the anchor you need.
 
-### 2. Look up: MemorySearch, then MemoryFetch
+### 2. Look up: MemorySearch, then MemoryFetch or MemoryFetchBatch
 
 Never grep. `MemorySearch` returns ranked anchors under a token budget; `MemoryFetch` expands a single anchor with its ancestors and children.
 
@@ -168,6 +168,15 @@ context = remindb__MemoryFetch(anchor=hits[0].id, budget=500, depth=32)
 ```
 
 `MemoryFetch`'s `depth` controls how many levels of descendants are included (1–128, default 32). Leave at default unless you know the subtree is huge.
+
+When you need the **content of N hits at once** — typically every result row from `MemorySearch`, `MemoryTree`, or `MemoryDelta` — use `MemoryFetchBatch` instead of fanning out N `MemoryFetch` calls. One round-trip, one shared token budget, no per-call framing tax.
+
+```
+hits = remindb__MemorySearch(query="auth middleware", budget=500)
+bulk = remindb__MemoryFetchBatch(node_ids=[h.id for h in hits], budget=2000)
+```
+
+`MemoryFetchBatch` returns the kept nodes in input order, then an inline `not found: id1, id2, ...` marker for IDs that don't exist and an `over budget: id1, ...` marker for IDs that were found but didn't fit. A single bad ID never poisons the batch. Hard cap: 256 IDs per call; `budget=0` (omitted) means unlimited. It does **not** include ancestors or children — for graph context use `MemoryFetch` per anchor.
 
 ### 3. Resync: MemoryDelta
 
