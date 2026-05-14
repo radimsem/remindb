@@ -5,12 +5,12 @@ const (
 	nodeColumns = `id, parent_id, source_file, node_type, depth,
 	label, content, format, token_count, content_hash,
 	temperature, access_count, last_accessed_at,
-	created_at, updated_at`
+	created_at, updated_at, pinned`
 
 	nodeColumnsAliased = `n.id, n.parent_id, n.source_file, n.node_type, n.depth,
 	n.label, n.content, n.format, n.token_count, n.content_hash,
 	n.temperature, n.access_count, n.last_accessed_at,
-	n.created_at, n.updated_at`
+	n.created_at, n.updated_at, n.pinned`
 
 	diffColumns = `snapshot_id, node_id, op, old_hash, new_hash, old_content, new_content`
 
@@ -298,9 +298,13 @@ const (
 		WHERE id IN (`
 
 	qDecayTemperatures = `UPDATE nodes SET temperature = max(0.0, min(1.0, temperature * ?)), updated_at = unixepoch()
-		WHERE temperature > 0`
+		WHERE temperature > 0 AND pinned = 0`
 
-	qSelectColdNodes = `SELECT ` + nodeColumns + ` FROM nodes WHERE temperature < ? ORDER BY temperature ASC LIMIT ?`
+	qSelectColdNodes = `SELECT ` + nodeColumns + ` FROM nodes
+		WHERE temperature < ? AND pinned = 0
+		ORDER BY temperature ASC LIMIT ?`
+
+	qSetPinned = `UPDATE nodes SET pinned = ?, updated_at = unixepoch() WHERE id = ?`
 
 	// IN clause is closed by the caller after appending placeholders.
 	qResetTemperaturesByFilesPrefix = `UPDATE nodes SET temperature = ?, updated_at = unixepoch()

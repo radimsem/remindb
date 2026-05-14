@@ -1088,3 +1088,160 @@ func TestHandleRelate_ManualEdgeSurvivesResolverRun(t *testing.T) {
 		t.Errorf("manual edge weight changed: got %f, want 2.0", related[0].Weight)
 	}
 }
+
+func TestHandlePin(t *testing.T) {
+	d, st := setup(t)
+	ctx := context.Background()
+
+	mustHeading(t, st, "pinnode01111", "x.md", "Important")
+
+	snapsBefore, err := st.ListSnapshots(ctx, 100)
+	if err != nil {
+		t.Fatalf("ListSnapshots: %v", err)
+	}
+
+	result, _, err := d.HandlePin(ctx, &gomcp.CallToolRequest{}, PinInput{NodeID: "pinnode01111"})
+	if err != nil {
+		t.Fatalf("HandlePin: %v", err)
+	}
+	if !strings.Contains(textContent(t, result), "pinned node pinnode01111") {
+		t.Errorf("unexpected message: %q", textContent(t, result))
+	}
+
+	got, err := st.GetNode(ctx, "pinnode01111")
+	if err != nil {
+		t.Fatalf("GetNode: %v", err)
+	}
+	if !got.Pinned {
+		t.Error("Pinned = false after HandlePin")
+	}
+
+	snapsAfter, err := st.ListSnapshots(ctx, 100)
+	if err != nil {
+		t.Fatalf("ListSnapshots: %v", err)
+	}
+	if len(snapsAfter) != len(snapsBefore) {
+		t.Errorf("snapshot count changed: before=%d after=%d (pin must not emit)", len(snapsBefore), len(snapsAfter))
+	}
+}
+
+func TestHandlePin_EmptyNodeID(t *testing.T) {
+	d, _ := setup(t)
+	ctx := context.Background()
+
+	_, _, err := d.HandlePin(ctx, &gomcp.CallToolRequest{}, PinInput{NodeID: ""})
+	if err == nil {
+		t.Fatal("HandlePin with empty node_id should error")
+	}
+	if !strings.Contains(err.Error(), "node_id is required") {
+		t.Errorf("err = %q, want node_id-required message", err)
+	}
+}
+
+func TestHandlePin_MissingNode(t *testing.T) {
+	d, _ := setup(t)
+	ctx := context.Background()
+
+	_, _, err := d.HandlePin(ctx, &gomcp.CallToolRequest{}, PinInput{NodeID: "ghost1234567"})
+	if err == nil {
+		t.Fatal("HandlePin on missing node should error")
+	}
+	if !strings.Contains(err.Error(), "not found") {
+		t.Errorf("err = %q, want not-found message", err)
+	}
+}
+
+func TestHandlePin_WithTemperature(t *testing.T) {
+	d, st := setup(t)
+	ctx := context.Background()
+
+	mustHeading(t, st, "pinnode03333", "x.md", "Important")
+	must(t, st.UpdateTemperature(ctx, "pinnode03333", 0.2))
+
+	target := 0.85
+	result, _, err := d.HandlePin(ctx, &gomcp.CallToolRequest{}, PinInput{
+		NodeID:      "pinnode03333",
+		Temperature: &target,
+	})
+	if err != nil {
+		t.Fatalf("HandlePin: %v", err)
+	}
+	if !strings.Contains(textContent(t, result), "at temperature 0.85") {
+		t.Errorf("unexpected message: %q", textContent(t, result))
+	}
+
+	got, err := st.GetNode(ctx, "pinnode03333")
+	if err != nil {
+		t.Fatalf("GetNode: %v", err)
+	}
+
+	if !got.Pinned {
+		t.Error("Pinned = false after HandlePin with temperature")
+	}
+	if got.Temperature != 0.85 {
+		t.Errorf("Temperature = %f, want 0.85 (override applied)", got.Temperature)
+	}
+}
+
+func TestHandlePin_TemperatureOutOfRange(t *testing.T) {
+	d, st := setup(t)
+	ctx := context.Background()
+
+	mustHeading(t, st, "pinnode04444", "x.md", "Important")
+
+	bad := 1.5
+	_, _, err := d.HandlePin(ctx, &gomcp.CallToolRequest{}, PinInput{
+		NodeID:      "pinnode04444",
+		Temperature: &bad,
+	})
+	if err == nil {
+		t.Fatal("HandlePin with temperature 1.5 should error")
+	}
+	if !strings.Contains(err.Error(), "temperature must be in [0, 1]") {
+		t.Errorf("err = %q, want range-violation message", err)
+	}
+}
+
+func TestHandleUnpin(t *testing.T) {
+	d, st := setup(t)
+	ctx := context.Background()
+
+	mustHeading(t, st, "pinnode02222", "x.md", "Important")
+	must(t, st.SetPinned(ctx, "pinnode02222", true, nil))
+
+	snapsBefore, err := st.ListSnapshots(ctx, 100)
+	if err != nil {
+		t.Fatalf("ListSnapshots: %v", err)
+	}
+
+	result, _, err := d.HandleUnpin(ctx, &gomcp.CallToolRequest{}, UnpinInput{NodeID: "pinnode02222"})
+	if err != nil {
+		t.Fatalf("HandleUnpin: %v", err)
+	}
+	if !strings.Contains(textContent(t, result), "unpinned node pinnode02222") {
+		t.Errorf("unexpected message: %q", textContent(t, result))
+	}
+
+	got, err := st.GetNode(ctx, "pinnode02222")
+	if err != nil {
+		t.Fatalf("GetNode: %v", err)
+	}
+	if got.Pinned {
+		t.Error("Pinned = true after HandleUnpin")
+	}
+
+	snapsAfter, err := st.ListSnapshots(ctx, 100)
+	if err != nil {
+		t.Fatalf("ListSnapshots: %v", err)
+	}
+	if len(snapsAfter) != len(snapsBefore) {
+		t.Errorf("snapshot count changed: before=%d after=%d (unpin must not emit)", len(snapsBefore), len(snapsAfter))
+	}
+}
+
+func must(t *testing.T, err error) {
+	t.Helper()
+	if err != nil {
+		t.Fatal(err)
+	}
+}

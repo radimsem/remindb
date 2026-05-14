@@ -1,11 +1,11 @@
 ---
 name: memoize
-description: Write memory to a remindb MCP server with Markdown that indexes well into the node tree. Covers shape rules for good indexing, search-first updates, cold-node summarization, source recompile, wiki-link authoring, and manual relation edges. Pair with `remind` for reads.
+description: Write memory to a remindb MCP server with Markdown that indexes well into the node tree. Covers shape rules for good indexing, search-first updates, cold-node summarization, source recompile, wiki-link authoring, manual relation edges, and pinning nodes against temperature decay. Pair with `remind` for reads.
 ---
 
 # Memoize — write to remindb so it indexes well
 
-This skill owns the **write path** of remindb's MCP surface: `MemoryWrite`, `MemorySummarize`, `MemoryCompile`, and `MemoryRelate`. It assumes you already know the read-side mental model (nodes, snapshots, IDs, ranking, notifications, budgets, relations) — that's `remind`'s job. If those terms aren't loaded, read `remind` first.
+This skill owns the **write path** of remindb's MCP surface: `MemoryWrite`, `MemorySummarize`, `MemoryCompile`, `MemoryRelate`, `MemoryPin`, and `MemoryUnpin`. It assumes you already know the read-side mental model (nodes, snapshots, IDs, ranking, notifications, budgets, relations) — that's `remind`'s job. If those terms aren't loaded, read `remind` first.
 
 ## Why payload shape matters
 
@@ -221,6 +221,41 @@ Structural node IDs are content-addressed on `(source_file, parent_id, sibling_i
 
 `parsed` and `manual` are independent origins. If both a `[[Architecture]]` marker in source *and* a `MemoryRelate(..., target_label="Architecture")` resolve to the same target, both rows exist — `UNIQUE(source_node_id, target_node_id, origin)` permits the pair. `MemoryRelated` deduplicates by target node in its output, so the agent sees one row per related node regardless.
 
+## MemoryPin / MemoryUnpin — protect a node from decay
+
+Some content shouldn't cool down: a project invariant, a stable fact, a root label the user has flagged as important. The temperature ticker would eventually drive any node below `ColdThreshold` and push it into the cold-node notification stream, prompting a summarization that compacts wording you wanted to keep verbatim. Pinning gates that policy.
+
+```
+remindb__MemoryPin(node_id="<node_id>")
+remindb__MemoryPin(node_id="<node_id>", temperature=0.9)   # pin AND set to 0.9 in one call
+remindb__MemoryUnpin(node_id="<node_id>")
+```
+
+What pinning does:
+
+- The node is skipped by the temperature decay sweep — its `temperature` value freezes at whatever it was when pinned, or at the optional `temperature` override if you pass one.
+- The node is excluded from the cold-set query, so it never appears in a `level: "warning"` / `logger: "remindb.temperature"` notification.
+- Boosts still apply normally. Reading the node via `MemoryFetch` / `MemorySearch` warms it as usual; pin gates *cooling*, not access.
+- Updates via `MemoryWrite` still work and create snapshots as usual. The `pinned` flag is independent of content.
+
+The optional `temperature` argument (in `[0, 1]`) is for the common case where the node has drifted to some transient value you don't want frozen as-is — pin at `0.9` to mark a high-priority invariant, or pin at `0.5` to anchor a node at neutral warmth. Pass it whenever the *current* temperature doesn't match the importance you want to lock in. `MemoryUnpin` deliberately has no temperature option — releasing a node should return it to the lifecycle, not double as a temperature reset.
+
+### Snapshot-free by design
+
+**`MemoryPin` and `MemoryUnpin` do NOT create a snapshot.** Pin state is metadata, not content — it doesn't appear in `MemoryDelta`, `MemoryHistory`, or the cursor chain. Binding it to the snapshot ledger would conflate "I changed what this node says" with "I changed how the temperature engine treats this node," and the two have different lifecycles. The same carve-out applies to `MemoryRelate` for the same reason.
+
+### When to pin
+
+- A heading that names a stable architectural concept (`# Authentication model`) you want the agent to find on every search regardless of recency.
+- A frontmatter or preamble node carrying invariants (allowed tech stack, ownership map, security boundaries).
+- A summary node the user has explicitly marked as canonical — pin it so the next decay cycle doesn't re-summarize it into oblivion.
+
+### When NOT to pin
+
+- A working note that will naturally decay once the task is done. Let it cool; summarize when notified.
+- An entire compiled file. Pinning every node in `docs/` fights the whole temperature model and the cold-node notification stream loses its signal.
+- A node you can't decide about. The default is unpinned; pinning is an explicit "this matters" signal, not a "just in case."
+
 ## Summarize a cold node — the notification handoff
 
 `remind` describes the notification: `level: "warning"`, `logger: "remindb.temperature"`, `data.message: "Cold nodes detected; consider summarizing via MemorySummarize"`, `data.nodes: [{id, label, file, temperature}, …]`.
@@ -275,3 +310,6 @@ If a `.remindb.ignore` file lives at the source root, `MemoryCompile` (and the b
 - Don't use `target_id` for long-lived `MemoryRelate` edges. Sibling reorders rotate IDs; `target_label` + `target_source` self-heals on the next compile.
 - Don't expect `MemoryRelate` to show up in `MemoryDelta` or move the cursor. Relations are a sideband — call `MemoryRelated` to inspect the current graph.
 - Don't rely on label-only matching when the target heading shares a name with another file's heading. The first-match rule is deterministic but the "first" is whichever file sorts earliest by `(source_file, depth, id)` — pin `source=` if you mean a specific file.
+- Don't pin everything. A universally pinned tree has no cold set; the temperature notifications stop being a signal. Pin sparingly — only nodes the user has flagged as invariants.
+- Don't expect `MemoryPin` / `MemoryUnpin` to surface in `MemoryDelta`, `MemoryHistory`, or move the cursor. Pin state is metadata, not content — same sideband treatment as `MemoryRelate`.
+- Don't use pinning as a workaround for premature summarization. If a node keeps cooling because it isn't being accessed, that's the cold-node notifier doing its job — summarize it. Pin only when the *content itself* should remain verbatim, not when you'd rather not deal with the summary yet.
