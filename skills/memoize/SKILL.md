@@ -1,4 +1,5 @@
 ---
+name: memoize
 description: Write memory to a remindb MCP server with Markdown that indexes well into the node tree. Covers shape rules for good indexing, search-first updates, cold-node summarization, and source recompile. Pair with `remind` for reads.
 ---
 

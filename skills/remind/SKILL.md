@@ -1,4 +1,5 @@
 ---
+name: remind
 description: Read memory from a remindb MCP server — orient, search, fetch, resync. Covers the node/snapshot/temperature model and FTS5 query syntax. Pair with `memoize` for writes.
 ---
 

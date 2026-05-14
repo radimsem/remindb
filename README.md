@@ -109,6 +109,39 @@ Verify:
 remindb --version
 ```
 
+## Updating
+
+Two moving parts: the **binary** (release tags) and the **agent-side skills** (`remind`, `memoize` — the markdown your agent loads to learn how to call the MCP tools). They iterate on different cadences, so they update independently.
+
+### Binary
+
+```bash
+remindb update
+```
+
+Reads the installed version, compares it against the latest GitHub release, and re-runs the install script only when they differ. `dev`-builds (from `go build` / `go install`) always proceed — there's no published version to compare against. Pass `--force` to reinstall regardless:
+
+```bash
+remindb update --force
+```
+
+### Skills
+
+The public skills live under [`skills/remind/`](skills/remind/SKILL.md) and [`skills/memoize/`](skills/memoize/SKILL.md). They're refreshed by [`vercel-labs/skills`](https://github.com/vercel-labs/skills).
+
+First-time install (or after adding a new agent):
+
+```bash
+npx skills@latest add radimsem/remindb/skills -a claude-code
+# -a codex | gemini-cli | opencode | openclaw | ...
+```
+
+Refresh later:
+
+```bash
+npx skills@latest update
+```
+
 ## How it's put together
 
 Two phases, one SQLite file in between. The compiler turns source files into versioned nodes at ingest time. The MCP runtime answers the agent in milliseconds on every call. The `.db` is the entire handoff — copy it, commit it, sync it.
