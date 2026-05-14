@@ -38,7 +38,7 @@ func (s *Store) SearchRanked(ctx context.Context, query string, limit int) ([]*R
 			&n.ID, &parentID, &n.SourceFile, &n.NodeType, &n.Depth,
 			&n.Label, &n.Content, &n.Format, &n.TokenCount, &n.ContentHash,
 			&n.Temperature, &n.AccessCount, &n.LastAccessed,
-			&n.CreatedAt, &n.UpdatedAt, &rank,
+			&n.CreatedAt, &n.UpdatedAt, &n.Pinned, &rank,
 		)
 		if err != nil {
 			return nil, err

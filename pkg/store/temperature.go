@@ -94,3 +94,15 @@ func (s *Store) GetColdNodes(ctx context.Context, threshold float64, limit int) 
 
 	return collectRows(rows)
 }
+
+func (s *Store) SetPinned(ctx context.Context, id string, pinned bool, temp *float64) error {
+	return s.Tx(ctx, func(tx *sql.Tx) error {
+		if temp != nil {
+			if _, err := tx.ExecContext(ctx, qUpdateTemperature, *temp, id); err != nil {
+				return err
+			}
+		}
+		_, err := tx.ExecContext(ctx, qSetPinned, pinned, id)
+		return err
+	})
+}

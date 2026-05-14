@@ -248,4 +248,14 @@ func registerTools(srv *mcp.Server, d *tools.Deps) {
 		Name:        "MemoryRelate",
 		Description: "Create a manual edge from one node to another (does not snapshot)",
 	}, d.HandleRelate)
+
+	mcp.AddTool(srv, &mcp.Tool{
+		Name:        "MemoryPin",
+		Description: "Protect a node from temperature decay and cold-set selection (does not snapshot)",
+	}, d.HandlePin)
+
+	mcp.AddTool(srv, &mcp.Tool{
+		Name:        "MemoryUnpin",
+		Description: "Release a previously pinned node back into the temperature lifecycle (does not snapshot)",
+	}, d.HandleUnpin)
 }

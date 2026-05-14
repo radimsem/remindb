@@ -985,3 +985,113 @@ func TestGetNodesByCompileRoot_LatestSnapshotWins(t *testing.T) {
 		t.Errorf("bar nodes = %+v, want [aaaaaaaa] (latest snapshot wins)", bar)
 	}
 }
+
+func TestSetPinned(t *testing.T) {
+	st := openTestDB(t)
+	ctx := context.Background()
+
+	must(t, st.UpsertNode(ctx, testNode("aaaaaaaa", "")))
+
+	got, err := st.GetNode(ctx, "aaaaaaaa")
+	if err != nil {
+		t.Fatalf("GetNode: %v", err)
+	}
+	if got.Pinned {
+		t.Error("Pinned = true on a fresh node, want false")
+	}
+
+	must(t, st.SetPinned(ctx, "aaaaaaaa", true, nil))
+
+	got, err = st.GetNode(ctx, "aaaaaaaa")
+	if err != nil {
+		t.Fatalf("GetNode: %v", err)
+	}
+	if !got.Pinned {
+		t.Error("Pinned = false after SetPinned(true)")
+	}
+
+	must(t, st.SetPinned(ctx, "aaaaaaaa", false, nil))
+
+	got, err = st.GetNode(ctx, "aaaaaaaa")
+	if err != nil {
+		t.Fatalf("GetNode: %v", err)
+	}
+	if got.Pinned {
+		t.Error("Pinned = true after SetPinned(false)")
+	}
+}
+
+func TestDecayTemperatures_SkipsPinned(t *testing.T) {
+	st := openTestDB(t)
+	ctx := context.Background()
+
+	must(t, st.UpsertNode(ctx, testNode("aaaaaaaa", "")))
+	must(t, st.UpsertNode(ctx, testNode("bbbbbbbb", "")))
+	must(t, st.UpdateTemperature(ctx, "aaaaaaaa", 0.8))
+	must(t, st.UpdateTemperature(ctx, "bbbbbbbb", 0.8))
+	must(t, st.SetPinned(ctx, "aaaaaaaa", true, nil))
+
+	affected, err := st.DecayTemperatures(ctx, 0.5)
+	if err != nil {
+		t.Fatalf("DecayTemperatures: %v", err)
+	}
+	if affected != 1 {
+		t.Errorf("affected = %d, want 1 (pinned row excluded)", affected)
+	}
+
+	a, _ := st.GetNode(ctx, "aaaaaaaa")
+	if a.Temperature != 0.8 {
+		t.Errorf("pinned Temperature = %f, want 0.8 (unchanged)", a.Temperature)
+	}
+
+	b, _ := st.GetNode(ctx, "bbbbbbbb")
+	if b.Temperature != 0.4 {
+		t.Errorf("unpinned Temperature = %f, want 0.4 (0.8 * 0.5)", b.Temperature)
+	}
+}
+
+func TestGetColdNodes_SkipsPinned(t *testing.T) {
+	st := openTestDB(t)
+	ctx := context.Background()
+
+	must(t, st.UpsertNode(ctx, testNode("aaaaaaaa", "")))
+	must(t, st.UpsertNode(ctx, testNode("bbbbbbbb", "")))
+	must(t, st.UpdateTemperature(ctx, "aaaaaaaa", 0.05))
+	must(t, st.UpdateTemperature(ctx, "bbbbbbbb", 0.05))
+	must(t, st.SetPinned(ctx, "aaaaaaaa", true, nil))
+
+	cold, err := st.GetColdNodes(ctx, 0.1, 50)
+	if err != nil {
+		t.Fatalf("GetColdNodes: %v", err)
+	}
+
+	if len(cold) != 1 {
+		t.Fatalf("cold = %d, want 1 (pinned row excluded)", len(cold))
+	}
+	if cold[0].ID != "bbbbbbbb" {
+		t.Errorf("cold[0].ID = %q, want bbbbbbbb (pinned aaaaaaaa excluded)", cold[0].ID)
+	}
+}
+
+func TestSetPinned_WithTemperatureOverride(t *testing.T) {
+	st := openTestDB(t)
+	ctx := context.Background()
+
+	must(t, st.UpsertNode(ctx, testNode("aaaaaaaa", "")))
+	must(t, st.UpdateTemperature(ctx, "aaaaaaaa", 0.2))
+
+	target := 0.9
+	must(t, st.SetPinned(ctx, "aaaaaaaa", true, &target))
+
+	got, err := st.GetNode(ctx, "aaaaaaaa")
+	if err != nil {
+		t.Fatalf("GetNode: %v", err)
+	}
+
+	if !got.Pinned {
+		t.Error("Pinned = false after SetPinned(true, &0.9)")
+	}
+	if got.Temperature != 0.9 {
+		t.Errorf("Temperature = %f, want 0.9 (override applied)", got.Temperature)
+	}
+}

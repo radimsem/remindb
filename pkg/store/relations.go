@@ -194,7 +194,7 @@ func scanRelatedNode(r RowScanner) (*RelatedNode, error) {
 		&n.ID, &parentID, &n.SourceFile, &n.NodeType, &n.Depth,
 		&n.Label, &n.Content, &n.Format, &n.TokenCount, &n.ContentHash,
 		&n.Temperature, &n.AccessCount, &n.LastAccessed,
-		&n.CreatedAt, &n.UpdatedAt,
+		&n.CreatedAt, &n.UpdatedAt, &n.Pinned,
 		&hop, &weight,
 	)
 	if err != nil {

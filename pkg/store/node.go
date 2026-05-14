@@ -22,6 +22,7 @@ type Node struct {
 	LastAccessed sql.NullInt64
 	CreatedAt    int64
 	UpdatedAt    int64
+	Pinned       bool
 	SeedTemp     *float64
 }
 
@@ -44,7 +45,7 @@ func scanNode(r RowScanner) (*Node, error) {
 		&n.ID, &parentID, &n.SourceFile, &n.NodeType, &n.Depth,
 		&n.Label, &n.Content, &n.Format, &n.TokenCount, &n.ContentHash,
 		&n.Temperature, &n.AccessCount, &n.LastAccessed,
-		&n.CreatedAt, &n.UpdatedAt,
+		&n.CreatedAt, &n.UpdatedAt, &n.Pinned,
 	)
 	if err != nil {
 		return nil, err
