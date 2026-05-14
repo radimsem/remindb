@@ -537,6 +537,54 @@ func TestMcp_WikilinkRelationsWorkflow(t *testing.T) {
 	}
 }
 
+func TestMcp_FetchBatchWorkflow(t *testing.T) {
+	env := mcptest.NewEnv(t)
+	dir, _ := filepath.Abs("testdata/openclaw")
+
+	env.CallTool(t, "MemoryCompile", map[string]any{
+		"path":    dir,
+		"message": "fetch-batch-init",
+	})
+
+	searchResult := env.CallTool(t, "MemorySearch", map[string]any{
+		"query":  "refactoring security vulnerabilities",
+		"budget": 2000,
+	})
+	searchText := env.TextContent(t, searchResult)
+
+	ids := extractAllNodeIDs(searchText)
+	if len(ids) == 0 {
+		t.Fatalf("no node IDs extracted from search output: %s", searchText)
+	}
+
+	withGhost := append([]string{}, ids...)
+	withGhost = append(withGhost, "ghostid1")
+
+	batchResult := env.CallTool(t, "MemoryFetchBatch", map[string]any{
+		"node_ids": withGhost,
+		"budget":   4000,
+	})
+	batchText := env.TextContent(t, batchResult)
+
+	if !strings.Contains(batchText, "not found: ghostid1") {
+		t.Errorf("expected `not found: ghostid1` marker, got: %s", batchText)
+	}
+	if strings.Count(batchText, "[heading]")+strings.Count(batchText, "[text]")+strings.Count(batchText, "[code]") == 0 {
+		t.Errorf("expected at least one rendered node block, got: %s", batchText[:min(300, len(batchText))])
+	}
+
+	// Tight budget forces some IDs out — verify the over-budget marker fires.
+	overResult := env.CallTool(t, "MemoryFetchBatch", map[string]any{
+		"node_ids": ids,
+		"budget":   1,
+	})
+
+	overText := env.TextContent(t, overResult)
+	if !strings.Contains(overText, "over budget:") {
+		t.Errorf("expected `over budget:` marker with budget=1, got: %s", overText[:min(300, len(overText))])
+	}
+}
+
 // Verifies that the client can list all available tools.
 func TestMcp_ToolDiscovery(t *testing.T) {
 	env := mcptest.NewEnv(t)
@@ -547,16 +595,17 @@ func TestMcp_ToolDiscovery(t *testing.T) {
 	}
 
 	expected := map[string]bool{
-		"MemoryFetch":     false,
-		"MemorySearch":    false,
-		"MemoryWrite":     false,
-		"MemoryCompile":   false,
-		"MemoryDelta":     false,
-		"MemorySummarize": false,
-		"MemoryHistory":   false,
-		"MemoryTree":      false,
-		"MemoryRelated":   false,
-		"MemoryRelate":    false,
+		"MemoryFetch":      false,
+		"MemoryFetchBatch": false,
+		"MemorySearch":     false,
+		"MemoryWrite":      false,
+		"MemoryCompile":    false,
+		"MemoryDelta":      false,
+		"MemorySummarize":  false,
+		"MemoryHistory":    false,
+		"MemoryTree":       false,
+		"MemoryRelated":    false,
+		"MemoryRelate":     false,
 	}
 
 	for _, tool := range tools.Tools {
@@ -569,6 +618,26 @@ func TestMcp_ToolDiscovery(t *testing.T) {
 		if !found {
 			t.Errorf("tool %q not found in ListTools response", name)
 		}
+	}
+}
+
+// Pulls every "id=XXXXXXXXXXX" occurrence out of a Format/FormatCompact output.
+func extractAllNodeIDs(s string) []string {
+	var out []string
+	rest := s
+	for {
+		_, after, ok := strings.Cut(rest, "id=")
+		if !ok {
+			return out
+		}
+
+		end := strings.IndexAny(after, " )\n")
+		if end <= 0 {
+			return out
+		}
+
+		out = append(out, after[:end])
+		rest = after[end:]
 	}
 }
 
