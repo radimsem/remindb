@@ -45,7 +45,7 @@ These zones have either an external contract or a silent-drift hazard. Don't cha
 
 ### MCP tool surface (`pkg/mcp/tools/`, `pkg/mcp/server.go`)
 
-The eight `Memory*` tools are a contract shipped to clients via two public skills: `skills/remind/SKILL.md` (read tools — `MemoryTree`, `MemorySearch`, `MemoryFetch`, `MemoryDelta`, `MemoryHistory`) and `skills/memoize/SKILL.md` (write tools — `MemoryWrite`, `MemorySummarize`, `MemoryCompile`). Renaming, removing, or changing semantics breaks every client and desyncs the relevant public skill. Use the **`add-mcp-tool` skill** for any new/modified tool, follow `.claude/rules/mcp-tool-conventions.md`, and dispatch the **`mcp-surface-reviewer` agent** before merge.
+The ten `Memory*` tools are a contract shipped to clients via two public skills: `skills/remind/SKILL.md` (read tools — `MemoryTree`, `MemorySearch`, `MemoryFetch`, `MemoryDelta`, `MemoryHistory`, `MemoryRelated`) and `skills/memoize/SKILL.md` (write tools — `MemoryWrite`, `MemorySummarize`, `MemoryCompile`, `MemoryRelate`). Renaming, removing, or changing semantics breaks every client and desyncs the relevant public skill. Use the **`add-mcp-tool` skill** for any new/modified tool, follow `.claude/rules/mcp-tool-conventions.md`, and dispatch the **`mcp-surface-reviewer` agent** before merge.
 
 ### SQLite schema & migrations (`migrations/`, `pkg/store/`)
 
@@ -57,11 +57,11 @@ Migrations are forward-only, applied at startup, and FTS5 triggers must stay in 
 
 ### Snapshot atomicity
 
-Each `MemoryWrite` / `MemorySummarize` / `MemoryCompile` call must produce **exactly one** `emitter.Emit` (one snapshot row). Two snapshots per intent fragments the diff trail clients walk via `MemoryDelta`. Detail in `.claude/rules/mcp-tool-conventions.md` §7.
+Each `MemoryWrite` / `MemorySummarize` / `MemoryCompile` call must produce **exactly one** `emitter.Emit` (one snapshot row). Two snapshots per intent fragments the diff trail clients walk via `MemoryDelta`. `MemoryRelate` is the deliberate exception — relation mutations are a sideband and **must not** call `emitter.Emit`. Detail in `.claude/rules/mcp-tool-conventions.md` §7.
 
 ### Read vs. write tool discipline
 
-Read tools (`Search`, `Fetch`, `Tree`, `Delta`, `History`) **never** take `Store.OpMu` and **always** call `boostResultNodes`. Write tools (`Write`, `Summarize`, `Compile`) **always** take `Store.OpMu` and **never** boost. Mixing breaks ranking or serializes reads. Detail in `.claude/rules/mcp-tool-conventions.md` §5–6.
+Read tools (`Search`, `Fetch`, `Tree`, `Delta`, `History`, `Related`) **never** take `Store.OpMu` and **always** call `boostResultNodes` (or its equivalent — `MemoryRelated` uses `boostRelatedNodes`). Write tools (`Write`, `Summarize`, `Compile`, `Relate`) **always** take `Store.OpMu` and **never** boost. Mixing breaks ranking or serializes reads. Detail in `.claude/rules/mcp-tool-conventions.md` §5–6.
 
 ### Sync primitives
 

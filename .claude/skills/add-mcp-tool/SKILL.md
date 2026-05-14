@@ -70,8 +70,8 @@ The store uses a single `sync.Mutex` exposed as `Store.OpMu` (memory: "no wrappe
 
 | Tool kind | Take `OpMu` |
 |---|---|
-| Read-only (`MemorySearch`, `MemoryFetch`, `MemoryTree`, `MemoryDelta`, `MemoryHistory`) | **No** |
-| Mutating (`MemoryWrite`, `MemorySummarize`, `MemoryCompile`) | **Yes** |
+| Read-only (`MemorySearch`, `MemoryFetch`, `MemoryTree`, `MemoryDelta`, `MemoryHistory`, `MemoryRelated`) | **No** |
+| Mutating (`MemoryWrite`, `MemorySummarize`, `MemoryCompile`, `MemoryRelate`) | **Yes** |
 
 Mutating tools call `d.Store.OpMu.Lock()` immediately after the deferred logger and `defer d.Store.OpMu.Unlock()`. See `pkg/mcp/tools/summarize.go:21-22` and `write.go:24-25` for the canonical pattern.
 
@@ -114,8 +114,8 @@ Two public skills under `skills/` are the contract with future Claude sessions a
 
 | Tool kind | Skill to update |
 |---|---|
-| Read (`MemoryTree`, `MemorySearch`, `MemoryFetch`, `MemoryDelta`, `MemoryHistory`) | `skills/remind/SKILL.md` |
-| Write (`MemoryWrite`, `MemorySummarize`, `MemoryCompile`) | `skills/memoize/SKILL.md` |
+| Read (`MemoryTree`, `MemorySearch`, `MemoryFetch`, `MemoryDelta`, `MemoryHistory`, `MemoryRelated`) | `skills/remind/SKILL.md` |
+| Write (`MemoryWrite`, `MemorySummarize`, `MemoryCompile`, `MemoryRelate`) | `skills/memoize/SKILL.md` |
 | Crosses the boundary (introduces a new mental-model concept used on both sides) | Both |
 
 For each affected skill, when you add a tool:
@@ -152,5 +152,5 @@ Skipping this means future sessions won't know the tool exists. The skills are t
 - `.claude/rules/go-concise.md` — error wrapping, naming, locking discipline, no-wrapper-methods rule
 - `.claude/rules/git-versioning.md` — one commit per logical change; the four code edits ship together as `feat(mcp): add MemoryExample tool`, the docs sync as a follow-up `docs(skill): document MemoryExample` if it grew large, otherwise bundled
 - `.claude/skills/add-store-query/SKILL.md` — if the new tool needs a query the store doesn't have yet, do that skill first
-- `skills/remind/SKILL.md` — docs target for **read-side** tools (`MemoryTree`, `MemorySearch`, `MemoryFetch`, `MemoryDelta`, `MemoryHistory`)
-- `skills/memoize/SKILL.md` — docs target for **write-side** tools (`MemoryWrite`, `MemorySummarize`, `MemoryCompile`)
+- `skills/remind/SKILL.md` — docs target for **read-side** tools (`MemoryTree`, `MemorySearch`, `MemoryFetch`, `MemoryDelta`, `MemoryHistory`, `MemoryRelated`)
+- `skills/memoize/SKILL.md` — docs target for **write-side** tools (`MemoryWrite`, `MemorySummarize`, `MemoryCompile`, `MemoryRelate`)

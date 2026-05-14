@@ -11,16 +11,19 @@ import (
 	gomcp "github.com/modelcontextprotocol/go-sdk/mcp"
 	"github.com/radimsem/remindb/pkg/compiler"
 	"github.com/radimsem/remindb/pkg/query"
+	"github.com/radimsem/remindb/pkg/relations"
 	"github.com/radimsem/remindb/pkg/store"
 	"github.com/radimsem/remindb/pkg/temperature"
 )
 
 func setup(t *testing.T) (*Deps, *store.Store) {
 	t.Helper()
+
 	st, err := store.Open(":memory:")
 	if err != nil {
 		t.Fatalf("Open: %v", err)
 	}
+
 	if err := st.Migrate(context.Background()); err != nil {
 		t.Fatalf("Migrate: %v", err)
 	}
@@ -34,6 +37,7 @@ func setup(t *testing.T) (*Deps, *store.Store) {
 	d := &Deps{
 		Store:            st,
 		Engine:           query.NewEngine(st),
+		Resolver:         relations.New(st),
 		Tracker:          tracker,
 		SummarizeRebound: temperature.DefaultConfig().SummarizeRebound,
 	}
@@ -316,6 +320,7 @@ func TestHandleSummarize(t *testing.T) {
 	if len(diffs) != 1 {
 		t.Fatalf("diffs = %d, want 1", len(diffs))
 	}
+
 	dr := diffs[0]
 	if dr.Op != "mod" {
 		t.Errorf("diff.Op = %q, want 'mod'", dr.Op)
@@ -438,6 +443,7 @@ func TestHandleTree(t *testing.T) {
 		Depth: 2, Label: "Child", Content: "child content",
 		Format: "plain", TokenCount: 10, ContentHash: "h2",
 	}
+
 	if err := st.UpsertNode(ctx, root); err != nil {
 		t.Fatalf("UpsertNode: %v", err)
 	}
@@ -461,6 +467,7 @@ func TestHandleTree_FileFieldRelativeAndOnRootOnly(t *testing.T) {
 
 	aPath := filepath.Join(dir, "a.md")
 	bPath := filepath.Join(dir, "b.md")
+
 	if err := os.WriteFile(aPath, []byte("# A heading\n\nA paragraph.\n"), 0o644); err != nil {
 		t.Fatal(err)
 	}
@@ -557,5 +564,347 @@ func TestHandleSummarize_BlocksOnOpMu(t *testing.T) {
 	case <-done:
 	case <-time.After(500 * time.Millisecond):
 		t.Fatal("HandleSummarize did not complete after OpMu.Unlock")
+	}
+}
+
+func mustHeading(t *testing.T, st *store.Store, id, sourceFile, label string) *store.Node {
+	t.Helper()
+	n := &store.Node{
+		ID:          id,
+		SourceFile:  sourceFile,
+		NodeType:    "heading",
+		Depth:       1,
+		Label:       label,
+		Content:     label,
+		Format:      "plain",
+		TokenCount:  10,
+		ContentHash: "h-" + id,
+	}
+	if err := st.UpsertNode(context.Background(), n); err != nil {
+		t.Fatalf("UpsertNode: %v", err)
+	}
+	return n
+}
+
+func TestHandleRelate_ResolvedHit(t *testing.T) {
+	d, st := setup(t)
+	ctx := context.Background()
+
+	src := mustHeading(t, st, "src11111111", "x.md", "Source")
+	tgt := mustHeading(t, st, "tgt11111111", "x.md", "Architecture")
+
+	result, _, err := d.HandleRelate(ctx, &gomcp.CallToolRequest{}, RelateInput{
+		SourceID:    src.ID,
+		TargetLabel: "Architecture",
+		Weight:      2.5,
+	})
+	if err != nil {
+		t.Fatalf("HandleRelate: %v", err)
+	}
+
+	text := result.Content[0].(*gomcp.TextContent).Text
+	if !strings.Contains(text, "resolved") {
+		t.Errorf("text = %q, want contains 'resolved'", text)
+	}
+
+	related, _ := st.GetRelatedNodes(ctx, src.ID, store.DirectionOut, 1, 0, 10)
+	if len(related) != 1 || related[0].Node.ID != tgt.ID {
+		t.Fatalf("related = %+v, want [%s]", related, tgt.ID)
+	}
+	if related[0].Weight != 2.5 {
+		t.Errorf("weight = %f, want 2.5", related[0].Weight)
+	}
+}
+
+func TestHandleRelate_PendingMiss(t *testing.T) {
+	d, st := setup(t)
+	ctx := context.Background()
+
+	src := mustHeading(t, st, "src11111111", "x.md", "Source")
+
+	result, _, err := d.HandleRelate(ctx, &gomcp.CallToolRequest{}, RelateInput{
+		SourceID:    src.ID,
+		TargetLabel: "DoesNotExist",
+	})
+	if err != nil {
+		t.Fatalf("HandleRelate: %v", err)
+	}
+
+	text := result.Content[0].(*gomcp.TextContent).Text
+	if !strings.Contains(text, "pending") {
+		t.Errorf("text = %q, want contains 'pending'", text)
+	}
+
+	pending, _ := st.GetAllPendingRelations(ctx)
+	if len(pending) != 1 {
+		t.Fatalf("pending = %d, want 1", len(pending))
+	}
+	if pending[0].Origin != store.OriginManual {
+		t.Errorf("origin = %s, want %s", pending[0].Origin, store.OriginManual)
+	}
+}
+
+// MemoryRelate must not emit a snapshot — relations are not part of the snapshot chain.
+func TestHandleRelate_DoesNotEmitSnapshot(t *testing.T) {
+	d, st := setup(t)
+	ctx := context.Background()
+
+	src := mustHeading(t, st, "src11111111", "x.md", "Source")
+	mustHeading(t, st, "tgt11111111", "x.md", "Target")
+
+	before, err := st.ListSnapshots(ctx, 10)
+	if err != nil {
+		t.Fatalf("ListSnapshots: %v", err)
+	}
+
+	if _, _, err := d.HandleRelate(ctx, &gomcp.CallToolRequest{}, RelateInput{
+		SourceID: src.ID, TargetLabel: "Target",
+	}); err != nil {
+		t.Fatalf("HandleRelate: %v", err)
+	}
+
+	after, _ := st.ListSnapshots(ctx, 10)
+	if len(after) != len(before) {
+		t.Errorf("snapshot count changed: before=%d after=%d (MemoryRelate must not snapshot)", len(before), len(after))
+	}
+}
+
+func TestHandleRelate_MissingSourceFails(t *testing.T) {
+	d, _ := setup(t)
+	ctx := context.Background()
+
+	_, _, err := d.HandleRelate(ctx, &gomcp.CallToolRequest{}, RelateInput{
+		SourceID:    "ghost111111",
+		TargetLabel: "anything",
+	})
+	if err == nil {
+		t.Fatal("expected error for missing source_id, got nil")
+	}
+	if !strings.Contains(err.Error(), "source_id not found") {
+		t.Errorf("err = %v, want contains 'source_id not found'", err)
+	}
+}
+
+func TestHandleRelate_NoTargetFails(t *testing.T) {
+	d, st := setup(t)
+	ctx := context.Background()
+
+	src := mustHeading(t, st, "src11111111", "x.md", "Source")
+
+	_, _, err := d.HandleRelate(ctx, &gomcp.CallToolRequest{}, RelateInput{SourceID: src.ID})
+	if err == nil {
+		t.Fatal("expected error when neither target_id nor target_label given")
+	}
+}
+
+func TestHandleRelated_ReturnsTargets(t *testing.T) {
+	d, st := setup(t)
+	ctx := context.Background()
+
+	src := mustHeading(t, st, "src11111111", "x.md", "Source")
+	tgt := mustHeading(t, st, "tgt11111111", "y.md", "Target")
+
+	if err := st.UpsertRelation(ctx, &store.Relation{
+		SourceNodeID: src.ID, TargetNodeID: tgt.ID, Weight: 1.5, Origin: store.OriginParsed,
+	}); err != nil {
+		t.Fatalf("UpsertRelation: %v", err)
+	}
+
+	result, _, err := d.HandleRelated(ctx, &gomcp.CallToolRequest{}, RelatedInput{
+		Anchor: src.ID, Direction: store.DirectionOut,
+	})
+	if err != nil {
+		t.Fatalf("HandleRelated: %v", err)
+	}
+
+	text := result.Content[0].(*gomcp.TextContent).Text
+	if !strings.Contains(text, tgt.ID) {
+		t.Errorf("text = %q, want contains %s", text, tgt.ID)
+	}
+	if !strings.Contains(text, "Target") {
+		t.Errorf("text missing target label: %q", text)
+	}
+}
+
+func TestHandleRelated_Empty(t *testing.T) {
+	d, st := setup(t)
+	ctx := context.Background()
+
+	src := mustHeading(t, st, "src11111111", "x.md", "Source")
+
+	result, _, err := d.HandleRelated(ctx, &gomcp.CallToolRequest{}, RelatedInput{Anchor: src.ID})
+	if err != nil {
+		t.Fatalf("HandleRelated: %v", err)
+	}
+
+	text := result.Content[0].(*gomcp.TextContent).Text
+	if text != "no related nodes" {
+		t.Errorf("text = %q, want 'no related nodes'", text)
+	}
+}
+
+func TestHandleRelated_AnchorRequired(t *testing.T) {
+	d, _ := setup(t)
+	_, _, err := d.HandleRelated(context.Background(), &gomcp.CallToolRequest{}, RelatedInput{})
+	if err == nil {
+		t.Fatal("expected error for missing anchor")
+	}
+}
+
+// MemoryRelated must not take Store.OpMu (read tools don't lock).
+func TestHandleRelated_DoesNotLockOpMu(t *testing.T) {
+	d, st := setup(t)
+	ctx := context.Background()
+
+	src := mustHeading(t, st, "src11111111", "x.md", "Source")
+
+	// Hold OpMu and confirm HandleRelated still returns promptly.
+	st.OpMu.Lock()
+	defer st.OpMu.Unlock()
+
+	done := make(chan struct{})
+	go func() {
+		defer close(done)
+		_, _, _ = d.HandleRelated(ctx, &gomcp.CallToolRequest{}, RelatedInput{Anchor: src.ID})
+	}()
+
+	select {
+	case <-done:
+	case <-time.After(500 * time.Millisecond):
+		t.Fatal("HandleRelated blocked on OpMu (read tools must not lock)")
+	}
+}
+
+func TestHandleRelate_TargetIDMissGoesPending(t *testing.T) {
+	d, st := setup(t)
+	ctx := context.Background()
+
+	src := mustHeading(t, st, "src11111111", "x.md", "Source")
+	mustHeading(t, st, "real1111111", "x.md", "RealHeading")
+
+	result, _, err := d.HandleRelate(ctx, &gomcp.CallToolRequest{}, RelateInput{
+		SourceID:    src.ID,
+		TargetID:    "ghost111111",
+		TargetLabel: "RealHeading", // would match if label-fallback existed
+	})
+	if err != nil {
+		t.Fatalf("HandleRelate: %v", err)
+	}
+
+	text := result.Content[0].(*gomcp.TextContent).Text
+	if !strings.Contains(text, "pending") {
+		t.Errorf("text = %q, want contains 'pending' (no fallback when target_id misses)", text)
+	}
+
+	// No relations row should have been created.
+	related, _ := st.GetRelatedNodes(ctx, src.ID, store.DirectionOut, 1, 0, 10)
+	if len(related) != 0 {
+		t.Errorf("got %d related, want 0 (target_id miss must not silently pick a label match)", len(related))
+	}
+}
+
+func TestHandleRelate_SelfLoopExcludedFromResults(t *testing.T) {
+	d, st := setup(t)
+	ctx := context.Background()
+
+	a := mustHeading(t, st, "selflp11111", "x.md", "Self")
+
+	if _, _, err := d.HandleRelate(ctx, &gomcp.CallToolRequest{}, RelateInput{
+		SourceID: a.ID, TargetLabel: "Self",
+	}); err != nil {
+		t.Fatalf("HandleRelate: %v", err)
+	}
+
+	result, _, _ := d.HandleRelated(ctx, &gomcp.CallToolRequest{}, RelatedInput{Anchor: a.ID})
+	text := result.Content[0].(*gomcp.TextContent).Text
+	if text != "no related nodes" {
+		t.Errorf("text = %q, want 'no related nodes' (self-loop must not surface as related)", text)
+	}
+}
+
+func TestHandleRelated_CycleTerminates(t *testing.T) {
+	d, st := setup(t)
+	ctx := context.Background()
+
+	a := mustHeading(t, st, "aaa11111111", "x.md", "A")
+	b := mustHeading(t, st, "bbb11111111", "x.md", "B")
+
+	if err := st.UpsertRelation(ctx, &store.Relation{
+		SourceNodeID: a.ID, TargetNodeID: b.ID, Weight: 1.0, Origin: store.OriginParsed,
+	}); err != nil {
+		t.Fatal(err)
+	}
+
+	if err := st.UpsertRelation(ctx, &store.Relation{
+		SourceNodeID: b.ID, TargetNodeID: a.ID, Weight: 1.0, Origin: store.OriginParsed,
+	}); err != nil {
+		t.Fatal(err)
+	}
+
+	done := make(chan struct{})
+	go func() {
+		defer close(done)
+		_, _, _ = d.HandleRelated(ctx, &gomcp.CallToolRequest{}, RelatedInput{
+			Anchor: a.ID, Direction: store.DirectionBoth, Depth: 5,
+		})
+	}()
+
+	select {
+	case <-done:
+	case <-time.After(1 * time.Second):
+		t.Fatal("HandleRelated did not terminate on a cycle (depth cap should bound the CTE)")
+	}
+}
+
+// An unknown direction string falls through to the default behavior (DirectionBoth).
+func TestHandleRelated_InvalidDirectionDefaults(t *testing.T) {
+	d, st := setup(t)
+	ctx := context.Background()
+
+	a := mustHeading(t, st, "aaa11111111", "x.md", "A")
+	b := mustHeading(t, st, "bbb11111111", "x.md", "B")
+
+	if err := st.UpsertRelation(ctx, &store.Relation{
+		SourceNodeID: a.ID, TargetNodeID: b.ID, Weight: 1.0, Origin: store.OriginParsed,
+	}); err != nil {
+		t.Fatal(err)
+	}
+
+	result, _, err := d.HandleRelated(ctx, &gomcp.CallToolRequest{}, RelatedInput{
+		Anchor: a.ID, Direction: "upward",
+	})
+	if err != nil {
+		t.Fatalf("HandleRelated: %v", err)
+	}
+
+	text := result.Content[0].(*gomcp.TextContent).Text
+	if !strings.Contains(text, b.ID) {
+		t.Errorf("unknown direction should default to 'both' and surface b; text = %q", text)
+	}
+}
+
+func TestHandleRelate_ManualEdgeSurvivesResolverRun(t *testing.T) {
+	d, st := setup(t)
+	ctx := context.Background()
+
+	src := mustHeading(t, st, "src11111111", "x.md", "Source")
+	mustHeading(t, st, "tgt11111111", "x.md", "Target")
+
+	if _, _, err := d.HandleRelate(ctx, &gomcp.CallToolRequest{}, RelateInput{
+		SourceID: src.ID, TargetLabel: "Target", Weight: 2.0,
+	}); err != nil {
+		t.Fatalf("HandleRelate: %v", err)
+	}
+
+	if err := relations.Run(ctx, st, nil); err != nil {
+		t.Fatalf("relations.Run: %v", err)
+	}
+
+	related, _ := st.GetRelatedNodes(ctx, src.ID, store.DirectionOut, 1, 0, 10)
+	if len(related) != 1 {
+		t.Fatalf("manual edge lost after resolver run: %+v", related)
+	}
+	if related[0].Weight != 2.0 {
+		t.Errorf("manual edge weight changed: got %f, want 2.0", related[0].Weight)
 	}
 }

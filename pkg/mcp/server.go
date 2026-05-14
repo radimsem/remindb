@@ -9,6 +9,7 @@ import (
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 	"github.com/radimsem/remindb/pkg/mcp/tools"
 	"github.com/radimsem/remindb/pkg/query"
+	"github.com/radimsem/remindb/pkg/relations"
 	"github.com/radimsem/remindb/pkg/store"
 	"github.com/radimsem/remindb/pkg/temperature"
 	"github.com/radimsem/remindb/pkg/version"
@@ -96,6 +97,7 @@ func NewServer(st *store.Store, tracker *temperature.Tracker, cfg temperature.Co
 	deps := &tools.Deps{
 		Store:            st,
 		Engine:           query.NewEngine(st),
+		Resolver:         relations.New(st),
 		Tracker:          tracker,
 		Logger:           logger,
 		SourceDir:        o.sourceDir,
@@ -231,4 +233,14 @@ func registerTools(srv *mcp.Server, d *tools.Deps) {
 		Name:        "MemoryTree",
 		Description: "Return the node tree structure with labels",
 	}, d.HandleTree)
+
+	mcp.AddTool(srv, &mcp.Tool{
+		Name:        "MemoryRelated",
+		Description: "Traverse the relations graph from an anchor node",
+	}, d.HandleRelated)
+
+	mcp.AddTool(srv, &mcp.Tool{
+		Name:        "MemoryRelate",
+		Description: "Create a manual edge from one node to another (does not snapshot)",
+	}, d.HandleRelate)
 }

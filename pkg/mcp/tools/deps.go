@@ -10,6 +10,7 @@ import (
 	"github.com/radimsem/remindb/pkg/emitter"
 	"github.com/radimsem/remindb/pkg/parser"
 	"github.com/radimsem/remindb/pkg/query"
+	"github.com/radimsem/remindb/pkg/relations"
 	"github.com/radimsem/remindb/pkg/store"
 	"github.com/radimsem/remindb/pkg/temperature"
 )
@@ -17,6 +18,7 @@ import (
 type Deps struct {
 	Store            *store.Store
 	Engine           *query.Engine
+	Resolver         *relations.Resolver
 	Tracker          *temperature.Tracker
 	Logger           *slog.Logger
 	SourceDir        string
@@ -30,6 +32,7 @@ func (d *Deps) logCall(name string, errp *error, start time.Time, attrs ...any) 
 
 	fields := []any{"tool", name, "elapsed_ms", time.Since(start).Milliseconds()}
 	fields = append(fields, attrs...)
+
 	if *errp != nil {
 		fields = append(fields, "err", *errp)
 		d.Logger.Error("mcp call failed", fields...)

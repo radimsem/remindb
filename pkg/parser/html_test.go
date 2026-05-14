@@ -515,6 +515,146 @@ func TestParseHtml_MarkdownParity(t *testing.T) {
 	}
 }
 
+func TestParseHtml_WikilinkInParagraph(t *testing.T) {
+	nodes, err := parseHtml("t.html", []byte("<p>see [[A]] and [[B; w=2]] here</p>"))
+	if err != nil {
+		t.Fatalf("parseHtml: %v", err)
+	}
+
+	para := nodes[0]
+	if para.NodeType != NodeText {
+		t.Fatalf("NodeType = %s", para.NodeType)
+	}
+	if para.Content != "see [[A]] and [[B]] here" {
+		t.Errorf("Content = %q", para.Content)
+	}
+
+	if len(para.WikilinkRefs) != 2 {
+		t.Fatalf("len(WikilinkRefs) = %d, want 2", len(para.WikilinkRefs))
+	}
+	if para.WikilinkRefs[1].Weight != 2.0 {
+		t.Errorf("ref[1].Weight = %f", para.WikilinkRefs[1].Weight)
+	}
+}
+
+func TestParseHtml_WikilinkInHeading(t *testing.T) {
+	nodes, err := parseHtml("t.html", []byte("<h1>Title [[X]]</h1>"))
+	if err != nil {
+		t.Fatalf("parseHtml: %v", err)
+	}
+
+	h := nodes[0]
+	if h.Content != "Title [[X]]" {
+		t.Errorf("Content = %q", h.Content)
+	}
+	if len(h.WikilinkRefs) != 1 || h.WikilinkRefs[0].Label != "X" {
+		t.Errorf("WikilinkRefs = %+v", h.WikilinkRefs)
+	}
+}
+
+func TestParseHtml_KnowledgeElement_Bare(t *testing.T) {
+	nodes, err := parseHtml("t.html", []byte("<p>See <knowledge>Architecture</knowledge> for details</p>"))
+	if err != nil {
+		t.Fatalf("parseHtml: %v", err)
+	}
+
+	para := nodes[0]
+	if para.Content != "See [[Architecture]] for details" {
+		t.Errorf("Content = %q (should rewrite to normalized marker)", para.Content)
+	}
+	if len(para.WikilinkRefs) != 1 {
+		t.Fatalf("len(WikilinkRefs) = %d", len(para.WikilinkRefs))
+	}
+
+	got := para.WikilinkRefs[0]
+	if got.Label != "Architecture" || got.Weight != 1.0 {
+		t.Errorf("ref = %+v", got)
+	}
+}
+
+func TestParseHtml_KnowledgeElement_WithAttrs(t *testing.T) {
+	src := `<p><knowledge weight="2.5" source="docs/x.md" id="abc12345678">Architecture</knowledge></p>`
+	nodes, err := parseHtml("t.html", []byte(src))
+	if err != nil {
+		t.Fatalf("parseHtml: %v", err)
+	}
+
+	para := nodes[0]
+	if para.Content != "[[Architecture]]" {
+		t.Errorf("Content = %q", para.Content)
+	}
+
+	got := para.WikilinkRefs[0]
+	want := WikilinkRef{Label: "Architecture", SourceQual: "docs/x.md", IDHint: "abc12345678", Weight: 2.5}
+	if got != want {
+		t.Errorf("ref = %+v, want %+v", got, want)
+	}
+}
+
+func TestParseHtml_KnowledgeElement_BareID(t *testing.T) {
+	src := "<p><knowledge>3kGXxidmWBp</knowledge></p>"
+	nodes, err := parseHtml("t.html", []byte(src))
+	if err != nil {
+		t.Fatalf("parseHtml: %v", err)
+	}
+
+	got := nodes[0].WikilinkRefs[0]
+	if got.IDHint != "3kGXxidmWBp" {
+		t.Errorf("IDHint = %q, want 3kGXxidmWBp (auto-detected from inner text)", got.IDHint)
+	}
+}
+
+func TestParseHtml_WikilinkInCodeNotExtracted(t *testing.T) {
+	nodes, err := parseHtml("t.html", []byte("<p>use <code>[[X]]</code> here</p>"))
+	if err != nil {
+		t.Fatalf("parseHtml: %v", err)
+	}
+
+	para := nodes[0]
+	if !strings.Contains(para.Content, "[[X]]") {
+		t.Errorf("Content lost [[X]]: %q", para.Content)
+	}
+	if len(para.WikilinkRefs) != 0 {
+		t.Errorf("WikilinkRefs = %+v, want none", para.WikilinkRefs)
+	}
+}
+
+func TestParseHtml_WikilinkInListItem(t *testing.T) {
+	src := "<ul><li>see [[A]]</li><li><knowledge weight=\"3\">B</knowledge></li></ul>"
+	nodes, err := parseHtml("t.html", []byte(src))
+	if err != nil {
+		t.Fatalf("parseHtml: %v", err)
+	}
+
+	list := nodes[0]
+	if list.NodeType != NodeList {
+		t.Fatalf("NodeType = %s", list.NodeType)
+	}
+
+	if len(list.WikilinkRefs) != 2 {
+		t.Fatalf("len(WikilinkRefs) = %d, want 2", len(list.WikilinkRefs))
+	}
+	if list.WikilinkRefs[1].Weight != 3.0 {
+		t.Errorf("ref[1].Weight = %f, want 3.0", list.WikilinkRefs[1].Weight)
+	}
+}
+
+func TestParseHtml_WikilinkInTableCell(t *testing.T) {
+	src := "<table><tr><th>x</th><th>y</th></tr><tr><td>[[A]]</td><td>plain</td></tr></table>"
+	nodes, err := parseHtml("t.html", []byte(src))
+	if err != nil {
+		t.Fatalf("parseHtml: %v", err)
+	}
+
+	tbl := nodes[0]
+	if tbl.NodeType != NodeTable {
+		t.Fatalf("NodeType = %s", tbl.NodeType)
+	}
+	if len(tbl.WikilinkRefs) != 1 || tbl.WikilinkRefs[0].Label != "A" {
+		t.Errorf("WikilinkRefs = %+v", tbl.WikilinkRefs)
+	}
+}
+
 func shapeString(nodes []*ContextNode) string {
 	var sb strings.Builder
 	writeShape(&sb, nodes, 0)

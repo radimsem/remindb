@@ -2,6 +2,7 @@ package remindb_test
 
 import (
 	"context"
+	"os"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -456,6 +457,86 @@ func TestMcp_OpenCodeAgent(t *testing.T) {
 	}
 }
 
+func TestMcp_WikilinkRelationsWorkflow(t *testing.T) {
+	env := mcptest.NewEnv(t)
+	dir := t.TempDir()
+
+	const (
+		aSrc = "# Source\n\nSee [[Target; w=2.0]] for the design.\nUniqueMarkerSource is the anchor.\n"
+		bSrc = "# Target\n\nThe target heading lives here.\n\n# Sibling\n\nA second heading.\n"
+	)
+	if err := os.WriteFile(filepath.Join(dir, "a.md"), []byte(aSrc), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, "b.md"), []byte(bSrc), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	// 1. Compile both files.
+	compileResult := env.CallTool(t, "MemoryCompile", map[string]any{
+		"path": dir, "message": "wikilink-init",
+	})
+	if !strings.Contains(env.TextContent(t, compileResult), "compiled") {
+		t.Fatalf("unexpected compile result: %s", env.TextContent(t, compileResult))
+	}
+
+	// 2. Find the source paragraph in a.md via search.
+	searchResult := env.CallTool(t, "MemorySearch", map[string]any{
+		"query": "UniqueMarkerSource", "budget": 1000,
+	})
+	searchText := env.TextContent(t, searchResult)
+
+	sourceID := extractFirstNodeID(searchText)
+	if sourceID == "" {
+		t.Fatalf("could not extract source node ID from search: %s", searchText)
+	}
+
+	// 3. MemoryRelated from that paragraph should surface b.md's Target heading with the authored weight.
+	relatedResult := env.CallTool(t, "MemoryRelated", map[string]any{
+		"anchor": sourceID, "direction": "out", "depth": 1,
+	})
+
+	relatedText := env.TextContent(t, relatedResult)
+	if !strings.Contains(relatedText, "Target") {
+		t.Errorf("MemoryRelated should surface Target heading, got: %s", relatedText)
+	}
+	if !strings.Contains(relatedText, "weight=2.00") {
+		t.Errorf("MemoryRelated should report authored weight 2.0, got: %s", relatedText)
+	}
+	if !strings.Contains(relatedText, "hop=1") {
+		t.Errorf("MemoryRelated should report hop=1 for direct edge, got: %s", relatedText)
+	}
+
+	// 4. Manually add an edge from the source paragraph to the second heading.
+	relateResult := env.CallTool(t, "MemoryRelate", map[string]any{
+		"source_id":    sourceID,
+		"target_label": "Sibling",
+		"weight":       3.0,
+	})
+	if !strings.Contains(env.TextContent(t, relateResult), "resolved") {
+		t.Errorf("MemoryRelate should resolve to Sibling: %s", env.TextContent(t, relateResult))
+	}
+
+	// 5. Both edges should now surface via MemoryRelated.
+	bothResult := env.CallTool(t, "MemoryRelated", map[string]any{
+		"anchor": sourceID, "direction": "out", "depth": 1,
+	})
+	bothText := env.TextContent(t, bothResult)
+
+	if !strings.Contains(bothText, "Target") {
+		t.Errorf("parsed edge missing after manual add: %s", bothText)
+	}
+	if !strings.Contains(bothText, "Sibling") {
+		t.Errorf("manual edge missing: %s", bothText)
+	}
+
+	// 6. MemoryRelate must not emit a snapshot.
+	snaps, _ := env.Store.ListSnapshots(context.Background(), 10)
+	if len(snaps) != 1 {
+		t.Errorf("snapshot count = %d, want 1 (MemoryRelate must not snapshot)", len(snaps))
+	}
+}
+
 // Verifies that the client can list all available tools.
 func TestMcp_ToolDiscovery(t *testing.T) {
 	env := mcptest.NewEnv(t)
@@ -474,6 +555,8 @@ func TestMcp_ToolDiscovery(t *testing.T) {
 		"MemorySummarize": false,
 		"MemoryHistory":   false,
 		"MemoryTree":      false,
+		"MemoryRelated":   false,
+		"MemoryRelate":    false,
 	}
 
 	for _, tool := range tools.Tools {

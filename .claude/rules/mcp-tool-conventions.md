@@ -12,7 +12,7 @@ Rules for designing and modifying tools exposed via the MCP server in `remindb`.
 
 ## 1. Tools Are `Memory<Verb>`, Always ★
 
-Every public MCP tool name is `Memory` + a single verb in PascalCase. The current set is `MemoryTree`, `MemorySearch`, `MemoryFetch`, `MemoryWrite`, `MemoryDelta`, `MemoryHistory`, `MemorySummarize`, `MemoryCompile`. Anything new follows the same shape.
+Every public MCP tool name is `Memory` + a single verb in PascalCase. The current set is `MemoryTree`, `MemorySearch`, `MemoryFetch`, `MemoryWrite`, `MemoryDelta`, `MemoryHistory`, `MemorySummarize`, `MemoryCompile`, `MemoryRelated`, `MemoryRelate`. Anything new follows the same shape.
 
 ```go
 // Bad — non-prefixed name; clients can't filter the tool list
@@ -127,8 +127,8 @@ Use the existing formatters in `pkg/query/` (`Format`, `FormatCompact`) for quer
 
 | Tool kind | Take `Store.OpMu` |
 |---|---|
-| Read-only — `MemorySearch`, `MemoryFetch`, `MemoryTree`, `MemoryDelta`, `MemoryHistory` | **No** |
-| Mutating — `MemoryWrite`, `MemorySummarize`, `MemoryCompile` | **Yes**, immediately after the `defer d.logCall(...)` |
+| Read-only — `MemorySearch`, `MemoryFetch`, `MemoryTree`, `MemoryDelta`, `MemoryHistory`, `MemoryRelated` | **No** |
+| Mutating — `MemoryWrite`, `MemorySummarize`, `MemoryCompile`, `MemoryRelate` | **Yes**, immediately after the `defer d.logCall(...)` |
 
 ```go
 // Bad — read tool taking the lock; serializes parallel reads for no reason
@@ -188,9 +188,11 @@ text := query.FormatCompact(result)
 
 ---
 
-## 7. Mutating Tools Create Exactly One Snapshot
+## 7. Snapshot-Emitting Tools Create Exactly One Snapshot
 
 Each call to `MemoryWrite` / `MemorySummarize` / `MemoryCompile` produces **one** snapshot. Snapshots are how clients diff state via `MemoryDelta`; per-token or per-node mini-snapshots fragment the diff trail.
+
+Those three tools form the **snapshot-emitting subset** of write tools, not the universe of write tools. `MemoryRelate` is the deliberate counterexample: it locks `Store.OpMu` like the others (per §5) but **must not** call `emitter.Emit`. Relation mutations are a sideband — `MemoryDelta` / `MemoryHistory` don't surface them. Any future write tool decides explicitly which side of this line it falls on; tools that mutate the snapshot-tracked node graph emit, tools that mutate sideband structures (relations, future tag layers, future cursor metadata) don't.
 
 ```go
 // Bad — emitting twice in one call; two snapshot rows for one user intent
@@ -262,8 +264,8 @@ Two public skills under `skills/` form the client contract for what tools exist 
 
 | Tool kind | Skill to update |
 |---|---|
-| Read tools (`MemoryTree`, `MemorySearch`, `MemoryFetch`, `MemoryDelta`, `MemoryHistory`) | **`skills/remind/SKILL.md`** |
-| Write tools (`MemoryWrite`, `MemorySummarize`, `MemoryCompile`) | **`skills/memoize/SKILL.md`** |
+| Read tools (`MemoryTree`, `MemorySearch`, `MemoryFetch`, `MemoryDelta`, `MemoryHistory`, `MemoryRelated`) | **`skills/remind/SKILL.md`** |
+| Write tools (`MemoryWrite`, `MemorySummarize`, `MemoryCompile`, `MemoryRelate`) | **`skills/memoize/SKILL.md`** |
 | A tool whose change crosses the boundary (e.g., new shared concept, mental-model field, threshold name) | **Both** — `remind` owns the mental model, `memoize` owns the write workflow that depends on it |
 
 For each affected skill:

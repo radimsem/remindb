@@ -17,6 +17,7 @@ import (
 	"github.com/radimsem/remindb/pkg/diff"
 	"github.com/radimsem/remindb/pkg/emitter"
 	"github.com/radimsem/remindb/pkg/parser"
+	"github.com/radimsem/remindb/pkg/relations"
 	"github.com/radimsem/remindb/pkg/store"
 	"github.com/radimsem/remindb/pkg/transformer"
 )
@@ -159,6 +160,10 @@ func Compile(ctx context.Context, st *store.Store, opts ...Option) (*Result, err
 	)
 	if err != nil {
 		return nil, fmt.Errorf("failed to emit: %w", err)
+	}
+
+	if err := relations.Run(ctx, st, flat); err != nil {
+		return nil, fmt.Errorf("failed to resolve relations: %w", err)
 	}
 
 	return countResult(deltas), nil

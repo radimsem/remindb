@@ -737,3 +737,128 @@ func TestCompileDir_ReseedTemperatures_NoNewSnapshot(t *testing.T) {
 	}
 	assertAllTempsEqual(t, nodeTemps(t, ctx, st, "doc.md"), 0.9)
 }
+
+func TestCompile_WikilinkResolvesCrossFile(t *testing.T) {
+	st := testutil.OpenTestDB(t)
+	ctx := context.Background()
+	dir := t.TempDir()
+
+	a := writeFile(t, dir, "a.md", "# Source\n\nSee [[Architecture]] for details.\n")
+	b := writeFile(t, dir, "b.md", "# Architecture\n\nThe details live here.\n")
+
+	if _, err := Compile(ctx, st, WithPaths([]string{a, b}), WithCompileRoot(dir)); err != nil {
+		t.Fatalf("Compile: %v", err)
+	}
+
+	// Compiler strips compileRoot prefix; nodes carry basename as source_file.
+	aNodes, err := st.GetNodesByFile(ctx, "a.md")
+	if err != nil {
+		t.Fatalf("GetNodesByFile(a): %v", err)
+	}
+
+	var sourceID string
+	for _, n := range aNodes {
+		if n.NodeType == "text" && strings.Contains(n.Content, "[[Architecture]]") {
+			sourceID = n.ID
+			break
+		}
+	}
+	if sourceID == "" {
+		t.Fatalf("no source paragraph found in a.md: %+v", aNodes)
+	}
+
+	related, err := st.GetRelatedNodes(ctx, sourceID, store.DirectionOut, 1, 0, 10)
+	if err != nil {
+		t.Fatalf("GetRelatedNodes: %v", err)
+	}
+
+	if len(related) != 1 {
+		t.Fatalf("len(related) = %d, want 1; sourceID=%s aNodes=%+v", len(related), sourceID, aNodes)
+	}
+
+	got := related[0]
+	if got.Hop != 1 {
+		t.Errorf("hop = %d, want 1 (direct edge)", got.Hop)
+	}
+	if got.Weight != 1.0 {
+		t.Errorf("weight = %f, want 1.0 (default, no w= in link)", got.Weight)
+	}
+	if got.Node.Label != "Architecture" {
+		t.Errorf("target label = %q, want Architecture", got.Node.Label)
+	}
+	if got.Node.NodeType != "heading" {
+		t.Errorf("target node_type = %q, want heading", got.Node.NodeType)
+	}
+	if got.Node.SourceFile != "b.md" {
+		t.Errorf("target source_file = %q, want b.md (after compileRoot strip)", got.Node.SourceFile)
+	}
+	if got.Node.Content != "Architecture" {
+		t.Errorf("target content = %q, want Architecture", got.Node.Content)
+	}
+
+	// Pending should be empty since the cross-file reference resolved.
+	pending, _ := st.GetAllPendingRelations(ctx)
+	if len(pending) != 0 {
+		t.Errorf("pending = %+v, want empty", pending)
+	}
+}
+
+func TestCompile_WikilinkPendingResolvesOnLaterCompile(t *testing.T) {
+	st := testutil.OpenTestDB(t)
+	ctx := context.Background()
+	dir := t.TempDir()
+
+	a := writeFile(t, dir, "a.md", "# Source\n\nLink to [[FutureHeading]]\n")
+
+	if _, err := Compile(ctx, st, WithPaths([]string{a}), WithCompileRoot(dir)); err != nil {
+		t.Fatalf("Compile(a): %v", err)
+	}
+	pending, _ := st.GetAllPendingRelations(ctx)
+	if len(pending) != 1 {
+		t.Fatalf("after first compile: pending = %d, want 1", len(pending))
+	}
+
+	// Now add the target file and recompile both.
+	b := writeFile(t, dir, "b.md", "# FutureHeading\n\nNow exists.\n")
+
+	if _, err := Compile(ctx, st, WithPaths([]string{a, b}), WithCompileRoot(dir)); err != nil {
+		t.Fatalf("Compile(a,b): %v", err)
+	}
+
+	pending, _ = st.GetAllPendingRelations(ctx)
+	if len(pending) != 0 {
+		t.Errorf("pending should be empty after b.md compiled, got %+v", pending)
+	}
+
+	// The pending row should have *moved* to the relations table, not just disappeared.
+	aNodes, err := st.GetNodesByFile(ctx, "a.md")
+	if err != nil {
+		t.Fatalf("GetNodesByFile(a): %v", err)
+	}
+	var sourceID string
+	for _, n := range aNodes {
+		if n.NodeType == "text" && strings.Contains(n.Content, "[[FutureHeading]]") {
+			sourceID = n.ID
+			break
+		}
+	}
+	if sourceID == "" {
+		t.Fatalf("no source paragraph found in a.md after second compile: %+v", aNodes)
+	}
+
+	related, err := st.GetRelatedNodes(ctx, sourceID, store.DirectionOut, 1, 0, 10)
+	if err != nil {
+		t.Fatalf("GetRelatedNodes: %v", err)
+	}
+
+	if len(related) != 1 {
+		t.Fatalf("len(related) = %d, want 1 (pending should have moved to relations)", len(related))
+	}
+	if related[0].Node.Label != "FutureHeading" || related[0].Node.NodeType != "heading" {
+		t.Errorf("resolved target = {%q, %s}, want {FutureHeading, heading}",
+			related[0].Node.Label, related[0].Node.NodeType)
+	}
+	if related[0].Node.SourceFile != "b.md" {
+		t.Errorf("source_file = %q, want b.md", related[0].Node.SourceFile)
+	}
+}
