@@ -37,6 +37,53 @@ func FormatCompact(result *Result) string {
 	return b.String()
 }
 
+func FormatBatch(result *Result, requested, missing []string) string {
+	kept := make(map[string]bool, len(result.Nodes))
+	for _, sn := range result.Nodes {
+		kept[sn.Node.ID] = true
+	}
+
+	miss := make(map[string]bool, len(missing))
+	for _, id := range missing {
+		miss[id] = true
+	}
+
+	seen := make(map[string]bool, len(requested))
+	var overBudget []string
+	for _, id := range requested {
+		if seen[id] || kept[id] || miss[id] {
+			continue
+		}
+		seen[id] = true
+		overBudget = append(overBudget, id)
+	}
+
+	if len(result.Nodes) == 0 && len(missing) == 0 && len(overBudget) == 0 {
+		return "no results"
+	}
+
+	var b strings.Builder
+
+	if len(result.Nodes) > 0 {
+		b.WriteString(Format(result))
+	}
+
+	if len(missing) > 0 {
+		if b.Len() > 0 {
+			b.WriteString("\n---\n\n")
+		}
+		fmt.Fprintf(&b, "not found: %s\n", strings.Join(missing, ", "))
+	}
+
+	if len(overBudget) > 0 {
+		if b.Len() > 0 {
+			b.WriteString("\n---\n\n")
+		}
+		fmt.Fprintf(&b, "over budget: %s\n", strings.Join(overBudget, ", "))
+	}
+	return b.String()
+}
+
 func FormatRelated(related []*store.RelatedNode, budget int) string {
 	if len(related) == 0 {
 		return "no related nodes"

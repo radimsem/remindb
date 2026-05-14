@@ -68,6 +68,186 @@ func TestHandleFetch(t *testing.T) {
 	}
 }
 
+func TestHandleFetchBatch_AllFound(t *testing.T) {
+	d, st := setup(t)
+	ctx := context.Background()
+
+	mustUpsertBatchNode(t, st, ctx, "aaaaaaaa", "alpha", 10)
+	mustUpsertBatchNode(t, st, ctx, "bbbbbbbb", "beta", 10)
+	mustUpsertBatchNode(t, st, ctx, "cccccccc", "gamma", 10)
+
+	result, _, err := d.HandleFetchBatch(ctx, &gomcp.CallToolRequest{}, FetchBatchInput{
+		NodeIDs: []string{"bbbbbbbb", "aaaaaaaa", "cccccccc"},
+	})
+	if err != nil {
+		t.Fatalf("HandleFetchBatch: %v", err)
+	}
+
+	text := textContent(t, result)
+	for _, want := range []string{"alpha", "beta", "gamma"} {
+		if !strings.Contains(text, want) {
+			t.Errorf("output missing %q\n%s", want, text)
+		}
+	}
+	if strings.Contains(text, "not found") || strings.Contains(text, "over budget") {
+		t.Errorf("unexpected marker in all-found output:\n%s", text)
+	}
+}
+
+func TestHandleFetchBatch_SomeMissing(t *testing.T) {
+	d, st := setup(t)
+	ctx := context.Background()
+
+	n := &store.Node{
+		ID: "exists01", SourceFile: "test.md", NodeType: "text",
+		Depth: 1, Label: "exists", Content: "hello",
+		Format: "plain", TokenCount: 10, ContentHash: "h_exists",
+	}
+	if err := st.UpsertNode(ctx, n); err != nil {
+		t.Fatalf("UpsertNode: %v", err)
+	}
+
+	result, _, err := d.HandleFetchBatch(ctx, &gomcp.CallToolRequest{}, FetchBatchInput{
+		NodeIDs: []string{"exists01", "ghostid1", "ghostid2"},
+	})
+	if err != nil {
+		t.Fatalf("HandleFetchBatch: %v", err)
+	}
+
+	text := textContent(t, result)
+	if !strings.Contains(text, "hello") {
+		t.Errorf("output missing returned node content:\n%s", text)
+	}
+	if !strings.Contains(text, "not found: ghostid1, ghostid2") {
+		t.Errorf("output missing not-found marker:\n%s", text)
+	}
+}
+
+func TestHandleFetchBatch_BudgetCutoff(t *testing.T) {
+	d, st := setup(t)
+	ctx := context.Background()
+
+	mustUpsertBatchNode(t, st, ctx, "smallnod", "small", 10)
+	mustUpsertBatchNode(t, st, ctx, "bignodee", "big", 100)
+
+	result, _, err := d.HandleFetchBatch(ctx, &gomcp.CallToolRequest{}, FetchBatchInput{
+		NodeIDs: []string{"smallnod", "bignodee"},
+		Budget:  20,
+	})
+	if err != nil {
+		t.Fatalf("HandleFetchBatch: %v", err)
+	}
+
+	text := textContent(t, result)
+	if !strings.Contains(text, "small") {
+		t.Errorf("output missing small node:\n%s", text)
+	}
+	if !strings.Contains(text, "over budget: bignodee") {
+		t.Errorf("output missing over-budget marker:\n%s", text)
+	}
+}
+
+func TestHandleFetchBatch_EmptyInput(t *testing.T) {
+	d, _ := setup(t)
+	ctx := context.Background()
+
+	_, _, err := d.HandleFetchBatch(ctx, &gomcp.CallToolRequest{}, FetchBatchInput{})
+	if err == nil {
+		t.Fatal("expected error for empty node_ids")
+	}
+	if !strings.Contains(err.Error(), "non-empty") {
+		t.Errorf("unexpected error %v", err)
+	}
+}
+
+func TestHandleFetchBatch_OverCap(t *testing.T) {
+	d, _ := setup(t)
+	ctx := context.Background()
+
+	ids := make([]string, maxFetchBatchIDs+1)
+	for i := range ids {
+		ids[i] = "id"
+	}
+	_, _, err := d.HandleFetchBatch(ctx, &gomcp.CallToolRequest{}, FetchBatchInput{NodeIDs: ids})
+	if err == nil {
+		t.Fatal("expected error when exceeding cap")
+	}
+	if !strings.Contains(err.Error(), "exceeds cap") {
+		t.Errorf("unexpected error %v", err)
+	}
+}
+
+func TestHandleFetchBatch_AllOverBudget(t *testing.T) {
+	d, st := setup(t)
+	ctx := context.Background()
+
+	mustUpsertBatchNode(t, st, ctx, "bignode01", "first big", 100)
+	mustUpsertBatchNode(t, st, ctx, "bignode02", "second big", 100)
+
+	result, _, err := d.HandleFetchBatch(ctx, &gomcp.CallToolRequest{}, FetchBatchInput{
+		NodeIDs: []string{"bignode01", "bignode02"},
+		Budget:  10,
+	})
+	if err != nil {
+		t.Fatalf("HandleFetchBatch: %v", err)
+	}
+
+	text := textContent(t, result)
+	if !strings.Contains(text, "over budget: bignode01, bignode02") {
+		t.Errorf("output missing both IDs in over-budget marker:\n%s", text)
+	}
+	if strings.Contains(text, "first big") || strings.Contains(text, "second big") {
+		t.Errorf("output unexpectedly rendered a node body under tight budget:\n%s", text)
+	}
+}
+
+func TestHandleFetchBatch_DuplicatesDoNotEcho(t *testing.T) {
+	d, st := setup(t)
+	ctx := context.Background()
+
+	mustUpsertBatchNode(t, st, ctx, "bignodee", "big", 100)
+
+	result, _, err := d.HandleFetchBatch(ctx, &gomcp.CallToolRequest{}, FetchBatchInput{
+		NodeIDs: []string{"bignodee", "bignodee"},
+		Budget:  10,
+	})
+	if err != nil {
+		t.Fatalf("HandleFetchBatch: %v", err)
+	}
+
+	text := textContent(t, result)
+	if !strings.Contains(text, "over budget: bignodee") {
+		t.Errorf("output missing over-budget marker:\n%s", text)
+	}
+	if strings.Contains(text, "bignodee, bignodee") {
+		t.Errorf("duplicate ID echoed in marker:\n%s", text)
+	}
+}
+
+func mustUpsertBatchNode(t *testing.T, st *store.Store, ctx context.Context, id, content string, tok int) {
+	t.Helper()
+	n := &store.Node{
+		ID: id, SourceFile: "test.md", NodeType: "text",
+		Depth: 1, Label: "label " + id, Content: content,
+		Format: "plain", TokenCount: tok, ContentHash: "h_" + id,
+	}
+	if err := st.UpsertNode(ctx, n); err != nil {
+		t.Fatalf("UpsertNode %s: %v", id, err)
+	}
+}
+
+func textContent(t *testing.T, result *gomcp.CallToolResult) string {
+	t.Helper()
+	if len(result.Content) == 0 {
+		t.Fatal("empty content")
+	}
+	tc, ok := result.Content[0].(*gomcp.TextContent)
+	if !ok {
+		t.Fatalf("expected TextContent, got %T", result.Content[0])
+	}
+	return tc.Text
+}
+
 func TestHandleSearch(t *testing.T) {
 	d, st := setup(t)
 	ctx := context.Background()

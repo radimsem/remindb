@@ -26,6 +26,9 @@ const (
 	// IN clause is closed by the caller after appending placeholders.
 	qSelectNodesByFilesPrefix = `SELECT ` + nodeColumns + ` FROM nodes WHERE source_file IN (`
 
+	// IN clause is closed by the caller after appending placeholders.
+	qSelectNodesByIDsPrefix = `SELECT ` + nodeColumns + ` FROM nodes WHERE id IN (`
+
 	// Nodes whose most recent diffs entry was written under the given compile_root.
 	qSelectNodesByCompileRoot = `
 		WITH latest_per_node AS (
