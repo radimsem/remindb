@@ -98,6 +98,28 @@ func (s *Store) GetNodesByFiles(ctx context.Context, paths []string) ([]*Node, e
 	return collectRows(rows)
 }
 
+func (s *Store) GetNodesByIDs(ctx context.Context, ids []string) ([]*Node, error) {
+	if len(ids) == 0 {
+		return nil, nil
+	}
+	placeholders := make([]string, len(ids))
+	args := make([]any, len(ids))
+
+	for i, id := range ids {
+		placeholders[i] = "?"
+		args[i] = id
+	}
+
+	query := qSelectNodesByIDsPrefix + strings.Join(placeholders, ",") + `)`
+	rows, err := s.db.QueryContext(ctx, query, args...)
+	if err != nil {
+		return nil, err
+	}
+	defer func() { _ = rows.Close() }()
+
+	return collectRows(rows)
+}
+
 func (s *Store) GetNodesByCompileRoot(ctx context.Context, root string) ([]*Node, error) {
 	rows, err := s.db.QueryContext(ctx, qSelectNodesByCompileRoot, root)
 	if err != nil {

@@ -92,6 +92,40 @@ func TestGetNodesByFile(t *testing.T) {
 	}
 }
 
+func TestGetNodesByIDs(t *testing.T) {
+	st := openTestDB(t)
+	ctx := context.Background()
+
+	must(t, st.UpsertNode(ctx, testNode("aaaaaaaa", "")))
+	must(t, st.UpsertNode(ctx, testNode("bbbbbbbb", "")))
+	must(t, st.UpsertNode(ctx, testNode("cccccccc", "")))
+
+	nodes, err := st.GetNodesByIDs(ctx, []string{"aaaaaaaa", "cccccccc", "missing0"})
+	if err != nil {
+		t.Fatalf("GetNodesByIDs: %v", err)
+	}
+	if len(nodes) != 2 {
+		t.Errorf("len = %d, want 2 (missing IDs silently dropped)", len(nodes))
+	}
+
+	got := make(map[string]bool, len(nodes))
+	for _, n := range nodes {
+		got[n.ID] = true
+	}
+
+	if !got["aaaaaaaa"] || !got["cccccccc"] {
+		t.Errorf("returned IDs = %v, want aaaaaaaa and cccccccc", got)
+	}
+
+	empty, err := st.GetNodesByIDs(ctx, nil)
+	if err != nil {
+		t.Fatalf("GetNodesByIDs(nil): %v", err)
+	}
+	if empty != nil {
+		t.Errorf("GetNodesByIDs(nil) = %v, want nil", empty)
+	}
+}
+
 func TestGetChildren(t *testing.T) {
 	st := openTestDB(t)
 	ctx := context.Background()

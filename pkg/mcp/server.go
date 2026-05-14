@@ -200,6 +200,11 @@ func registerTools(srv *mcp.Server, d *tools.Deps) {
 	}, d.HandleFetch)
 
 	mcp.AddTool(srv, &mcp.Tool{
+		Name:        "MemoryFetchBatch",
+		Description: "Retrieve content for a list of node IDs in one call (shared token budget; missing IDs and over-budget IDs surfaced inline)",
+	}, d.HandleFetchBatch)
+
+	mcp.AddTool(srv, &mcp.Tool{
 		Name:        "MemorySearch",
 		Description: "Full-text search for nodes within a token budget",
 	}, d.HandleSearch)

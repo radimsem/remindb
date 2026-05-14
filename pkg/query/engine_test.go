@@ -195,6 +195,115 @@ func TestClampDepth(t *testing.T) {
 	}
 }
 
+func TestFetchBatch_PreservesInputOrder(t *testing.T) {
+	st := testutil.OpenTestDB(t)
+	seedTree(t, st)
+
+	eng := NewEngine(st)
+	ctx := context.Background()
+
+	ids := []string{"child002", "rootroor", "grand001"}
+	result, missing, err := eng.FetchBatch(ctx, ids, 0)
+	if err != nil {
+		t.Fatalf("FetchBatch: %v", err)
+	}
+
+	if len(missing) != 0 {
+		t.Errorf("missing = %v, want empty", missing)
+	}
+	if len(result.Nodes) != len(ids) {
+		t.Fatalf("len = %d, want %d", len(result.Nodes), len(ids))
+	}
+
+	for i, want := range ids {
+		if got := result.Nodes[i].Node.ID; got != want {
+			t.Errorf("position %d: id = %q, want %q", i, got, want)
+		}
+	}
+}
+
+func TestFetchBatch_CollectsMissing(t *testing.T) {
+	st := testutil.OpenTestDB(t)
+	seedTree(t, st)
+
+	eng := NewEngine(st)
+	ctx := context.Background()
+
+	ids := []string{"child001", "doesnt01", "child002", "doesnt02"}
+	result, missing, err := eng.FetchBatch(ctx, ids, 0)
+	if err != nil {
+		t.Fatalf("FetchBatch: %v", err)
+	}
+
+	if len(result.Nodes) != 2 {
+		t.Errorf("returned = %d, want 2", len(result.Nodes))
+	}
+	if len(missing) != 2 || missing[0] != "doesnt01" || missing[1] != "doesnt02" {
+		t.Errorf("missing = %v, want [doesnt01 doesnt02]", missing)
+	}
+}
+
+func TestFetchBatch_BudgetDrops(t *testing.T) {
+	st := testutil.OpenTestDB(t)
+	seedTree(t, st)
+
+	eng := NewEngine(st)
+	ctx := context.Background()
+
+	ids := []string{"rootroor", "child001", "child002", "grand001"}
+	result, missing, err := eng.FetchBatch(ctx, ids, 40)
+	if err != nil {
+		t.Fatalf("FetchBatch: %v", err)
+	}
+
+	if len(missing) != 0 {
+		t.Errorf("missing = %v, want empty", missing)
+	}
+
+	got := make([]string, len(result.Nodes))
+	for i, sn := range result.Nodes {
+		got[i] = sn.Node.ID
+	}
+
+	if len(got) != 2 || got[0] != "rootroor" || got[1] != "child002" {
+		t.Errorf("kept = %v, want [rootroor child002]", got)
+	}
+	if result.TokensUsed != 35 {
+		t.Errorf("TokensUsed = %d, want 35", result.TokensUsed)
+	}
+}
+
+func TestFetchBatch_EmptyInput(t *testing.T) {
+	st := testutil.OpenTestDB(t)
+
+	eng := NewEngine(st)
+	ctx := context.Background()
+
+	result, missing, err := eng.FetchBatch(ctx, nil, 0)
+	if err != nil {
+		t.Fatalf("FetchBatch: %v", err)
+	}
+	if len(result.Nodes) != 0 || len(missing) != 0 {
+		t.Errorf("nodes = %v, missing = %v; want both empty", result.Nodes, missing)
+	}
+}
+
+func TestFetchBatch_DedupsInput(t *testing.T) {
+	st := testutil.OpenTestDB(t)
+	seedTree(t, st)
+
+	eng := NewEngine(st)
+	ctx := context.Background()
+
+	result, _, err := eng.FetchBatch(ctx, []string{"child001", "child001", "child002"}, 0)
+	if err != nil {
+		t.Fatalf("FetchBatch: %v", err)
+	}
+	if len(result.Nodes) != 2 {
+		t.Errorf("len = %d, want 2 (dedup)", len(result.Nodes))
+	}
+}
+
 func TestSearch_ReturnsRankedResults(t *testing.T) {
 	st := testutil.OpenTestDB(t)
 	seedTree(t, st)
