@@ -127,6 +127,20 @@ remindb__MemoryCompile(path="/home/you/.claude/CLAUDE.md", message="seed: claude
 
 Re-run whenever a file changes.
 
+## Skills
+
+The agent-side skills (`remind` for reads, `memoize` for writes) teach OpenCode how to call the `Memory*` tools effectively. Install them through [`vercel-labs/skills`](https://github.com/vercel-labs/skills):
+
+```bash
+npx skills@latest add radimsem/remindb/skills -a opencode
+```
+
+Refresh them later — independent of `remindb update` — with:
+
+```bash
+npx skills@latest update
+```
+
 ## Tools exposed
 
 The plugin surfaces the full `remindb` `Memory*` tool suite under the `remindb__` namespace. See the [main README](https://github.com/radimsem/remindb#mcp-tools) for the canonical tool list and per-tool token-savings benchmarks.
