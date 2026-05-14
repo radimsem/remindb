@@ -3,6 +3,7 @@ package store
 import (
 	"context"
 	"database/sql"
+	"strings"
 	"testing"
 )
 
@@ -342,6 +343,63 @@ func TestGetRelatedNodes_Incoming(t *testing.T) {
 	}
 	if ids["ccc11111111"] {
 		t.Errorf("anchor included in incoming results, want excluded")
+	}
+}
+
+func TestGetRelatedNodes_MultiHopSumsWeights(t *testing.T) {
+	st := openTestDB(t)
+	ctx := context.Background()
+
+	mustNode(t, st, "aaa11111111", "")
+	mustNode(t, st, "bbb11111111", "")
+	mustNode(t, st, "ccc11111111", "")
+
+	must(t, st.UpsertRelation(ctx, &Relation{SourceNodeID: "aaa11111111", TargetNodeID: "bbb11111111", Weight: 1.5, Origin: OriginParsed}))
+	must(t, st.UpsertRelation(ctx, &Relation{SourceNodeID: "bbb11111111", TargetNodeID: "ccc11111111", Weight: 2.0, Origin: OriginParsed}))
+
+	related, _ := st.GetRelatedNodes(ctx, "aaa11111111", DirectionOut, 2, 0, 10)
+	byID := map[string]*RelatedNode{}
+	for _, r := range related {
+		byID[r.Node.ID] = r
+	}
+
+	if byID["bbb11111111"].Weight != 1.5 {
+		t.Errorf("direct bbb weight = %f, want 1.5", byID["bbb11111111"].Weight)
+	}
+	if byID["ccc11111111"].Weight != 3.5 {
+		t.Errorf("2-hop ccc weight = %f, want 3.5 (1.5+2.0 summed along path)", byID["ccc11111111"].Weight)
+	}
+	if byID["ccc11111111"].Hop != 2 {
+		t.Errorf("ccc hop = %d, want 2", byID["ccc11111111"].Hop)
+	}
+}
+
+// EXPLAIN-checks that qFindHeadingByLabel actually uses idx_nodes_label.
+// Guards against silent regression of the expression-index match (the index
+// is on LOWER(TRIM(label)) and the query must filter on the same expression).
+func TestFindHeadingByLabel_UsesPartialIndex(t *testing.T) {
+	st := openTestDB(t)
+	ctx := context.Background()
+
+	rows, err := st.db.QueryContext(ctx, "EXPLAIN QUERY PLAN "+qFindHeadingByLabel, "Architecture")
+	if err != nil {
+		t.Fatalf("EXPLAIN: %v", err)
+	}
+	defer func() { _ = rows.Close() }()
+
+	found := false
+	for rows.Next() {
+		var id, parent, n int
+		var detail string
+		if err := rows.Scan(&id, &parent, &n, &detail); err != nil {
+			t.Fatalf("Scan: %v", err)
+		}
+		if strings.Contains(detail, "idx_nodes_label") {
+			found = true
+		}
+	}
+	if !found {
+		t.Error("qFindHeadingByLabel does not use idx_nodes_label — expression form may have desynced")
 	}
 }
 

@@ -7,7 +7,6 @@ import (
 	"strings"
 )
 
-// WikilinkRef captures one wiki-link reference extracted from source text.
 type WikilinkRef struct {
 	Label      string
 	SourceQual string

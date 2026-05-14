@@ -25,7 +25,7 @@ CREATE TABLE IF NOT EXISTS pending_relations (
 CREATE INDEX IF NOT EXISTS idx_pending_source ON pending_relations(source_node_id);
 CREATE INDEX IF NOT EXISTS idx_pending_label  ON pending_relations(target_label);
 
-CREATE INDEX IF NOT EXISTS idx_nodes_label ON nodes(label) WHERE node_type = 'heading';
+CREATE INDEX IF NOT EXISTS idx_nodes_label ON nodes(LOWER(TRIM(label))) WHERE node_type = 'heading';
 
 CREATE TRIGGER IF NOT EXISTS relations_repend_on_node_delete
 BEFORE DELETE ON nodes

@@ -198,39 +198,39 @@ const (
 	qSelectPendingBySource = `SELECT ` + pendingColumns + ` FROM pending_relations WHERE source_node_id = ?`
 
 	qRelatedOut = `
-		WITH RECURSIVE walk(target, hop, weight) AS (
+		WITH RECURSIVE walk(target, hop, path_weight) AS (
 			SELECT target_node_id, 1, weight FROM relations
 			WHERE source_node_id = ? AND weight >= ?
 			UNION ALL
-			SELECT r.target_node_id, w.hop + 1, r.weight
+			SELECT r.target_node_id, w.hop + 1, w.path_weight + r.weight
 			FROM walk w
 			JOIN relations r ON r.source_node_id = w.target
 			WHERE w.hop < ? AND r.weight >= ?
 		)
-		SELECT ` + nodeColumnsAliased + `, MIN(w.hop), MAX(w.weight)
+		SELECT ` + nodeColumnsAliased + `, MIN(w.hop), MAX(w.path_weight)
 		FROM walk w
 		JOIN nodes n ON n.id = w.target
 		WHERE w.target != ?
 		GROUP BY n.id
-		ORDER BY MAX(w.weight) DESC, n.temperature DESC
+		ORDER BY MAX(w.path_weight) DESC, n.temperature DESC
 		LIMIT ?`
 
 	qRelatedIn = `
-		WITH RECURSIVE walk(src, hop, weight) AS (
+		WITH RECURSIVE walk(src, hop, path_weight) AS (
 			SELECT source_node_id, 1, weight FROM relations
 			WHERE target_node_id = ? AND weight >= ?
 			UNION ALL
-			SELECT r.source_node_id, w.hop + 1, r.weight
+			SELECT r.source_node_id, w.hop + 1, w.path_weight + r.weight
 			FROM walk w
 			JOIN relations r ON r.target_node_id = w.src
 			WHERE w.hop < ? AND r.weight >= ?
 		)
-		SELECT ` + nodeColumnsAliased + `, MIN(w.hop), MAX(w.weight)
+		SELECT ` + nodeColumnsAliased + `, MIN(w.hop), MAX(w.path_weight)
 		FROM walk w
 		JOIN nodes n ON n.id = w.src
 		WHERE w.src != ?
 		GROUP BY n.id
-		ORDER BY MAX(w.weight) DESC, n.temperature DESC
+		ORDER BY MAX(w.path_weight) DESC, n.temperature DESC
 		LIMIT ?`
 
 	qFindHeadingByLabel = `
@@ -249,32 +249,32 @@ const (
 
 	qRelatedBoth = `
 		WITH RECURSIVE
-		out_walk(nid, hop, weight) AS (
+		out_walk(nid, hop, path_weight) AS (
 			SELECT target_node_id, 1, weight FROM relations
 			WHERE source_node_id = ? AND weight >= ?
 			UNION ALL
-			SELECT r.target_node_id, w.hop + 1, r.weight
+			SELECT r.target_node_id, w.hop + 1, w.path_weight + r.weight
 			FROM out_walk w
 			JOIN relations r ON r.source_node_id = w.nid
 			WHERE w.hop < ? AND r.weight >= ?
 		),
-		in_walk(nid, hop, weight) AS (
+		in_walk(nid, hop, path_weight) AS (
 			SELECT source_node_id, 1, weight FROM relations
 			WHERE target_node_id = ? AND weight >= ?
 			UNION ALL
-			SELECT r.source_node_id, w.hop + 1, r.weight
+			SELECT r.source_node_id, w.hop + 1, w.path_weight + r.weight
 			FROM in_walk w
 			JOIN relations r ON r.target_node_id = w.nid
 			WHERE w.hop < ? AND r.weight >= ?
 		)
-		SELECT ` + nodeColumnsAliased + `, MIN(c.hop), MAX(c.weight)
-		FROM (SELECT nid, hop, weight FROM out_walk
+		SELECT ` + nodeColumnsAliased + `, MIN(c.hop), MAX(c.path_weight)
+		FROM (SELECT nid, hop, path_weight FROM out_walk
 			  UNION ALL
-			  SELECT nid, hop, weight FROM in_walk) c
+			  SELECT nid, hop, path_weight FROM in_walk) c
 		JOIN nodes n ON n.id = c.nid
 		WHERE c.nid != ?
 		GROUP BY n.id
-		ORDER BY MAX(c.weight) DESC, n.temperature DESC
+		ORDER BY MAX(c.path_weight) DESC, n.temperature DESC
 		LIMIT ?`
 )
 
