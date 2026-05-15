@@ -1,0 +1,7 @@
+ALTER TABLE diffs ADD COLUMN old_parent_id CHAR(11);
+ALTER TABLE diffs ADD COLUMN old_source_file TEXT;
+ALTER TABLE diffs ADD COLUMN old_node_type VARCHAR(16);
+ALTER TABLE diffs ADD COLUMN old_depth INTEGER;
+ALTER TABLE diffs ADD COLUMN old_label VARCHAR(120);
+ALTER TABLE diffs ADD COLUMN old_format VARCHAR(11);
+ALTER TABLE diffs ADD COLUMN old_token_count INTEGER;
