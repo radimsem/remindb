@@ -113,6 +113,21 @@ const (
 	// IN clause is closed by the caller after appending placeholders.
 	qDeleteNodesByFilesPrefix = `DELETE FROM nodes WHERE source_file IN (`
 
+	qSelectParentID = `SELECT parent_id FROM nodes WHERE id = ?`
+
+	qSelectChildIDs = `SELECT id FROM nodes WHERE parent_id = ? ORDER BY id`
+
+	qSelectDescendantIDs = `
+		WITH RECURSIVE desc_ids(nid) AS (
+			SELECT id FROM nodes WHERE parent_id = ?
+			UNION ALL
+			SELECT n.id FROM nodes n
+			JOIN desc_ids d ON n.parent_id = d.nid
+		)
+		SELECT nid FROM desc_ids ORDER BY nid`
+
+	qReparentChildren = `UPDATE nodes SET parent_id = ?, updated_at = unixepoch() WHERE parent_id = ?`
+
 	qRewriteSourcePaths = `UPDATE nodes SET source_file = ? || substr(source_file, length(?) + 1)
 		WHERE source_file LIKE ? || '%'`
 )

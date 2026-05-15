@@ -160,16 +160,144 @@ func TestGetAncestors(t *testing.T) {
 	}
 }
 
-func TestDeleteNode(t *testing.T) {
+func TestDeleteNode_Strict_Leaf(t *testing.T) {
 	st := openTestDB(t)
 	ctx := context.Background()
 
 	must(t, st.UpsertNode(ctx, testNode("aaaaaaaa", "")))
-	must(t, st.DeleteNode(ctx, "aaaaaaaa"))
 
-	_, err := st.GetNode(ctx, "aaaaaaaa")
-	if err == nil {
-		t.Errorf("expected error after delete")
+	affected, err := st.DeleteNode(ctx, "aaaaaaaa", DeleteStrict)
+	if err != nil {
+		t.Fatalf("DeleteNode: %v", err)
+	}
+	if len(affected) != 1 || affected[0] != "aaaaaaaa" {
+		t.Errorf("affected = %v, want [aaaaaaaa]", affected)
+	}
+
+	if _, err := st.GetNode(ctx, "aaaaaaaa"); err == nil {
+		t.Error("node still present after delete")
+	}
+}
+
+func TestDeleteNode_Strict_RejectsParent(t *testing.T) {
+	st := openTestDB(t)
+	ctx := context.Background()
+
+	must(t, st.UpsertNode(ctx, testNode("rootroor", "")))
+	must(t, st.UpsertNode(ctx, testNode("child001", "rootroor")))
+
+	if _, err := st.DeleteNode(ctx, "rootroor", DeleteStrict); err == nil {
+		t.Fatal("DeleteNode strict on parent: want error, got nil")
+	}
+
+	if _, err := st.GetNode(ctx, "rootroor"); err != nil {
+		t.Errorf("parent unexpectedly removed: %v", err)
+	}
+	if _, err := st.GetNode(ctx, "child001"); err != nil {
+		t.Errorf("child unexpectedly removed: %v", err)
+	}
+}
+
+func TestDeleteNode_Cascade_Subtree(t *testing.T) {
+	st := openTestDB(t)
+	ctx := context.Background()
+
+	must(t, st.UpsertNode(ctx, testNode("rootroor", "")))
+	must(t, st.UpsertNode(ctx, testNode("child001", "rootroor")))
+	must(t, st.UpsertNode(ctx, testNode("child002", "rootroor")))
+	must(t, st.UpsertNode(ctx, testNode("grandc01", "child001")))
+
+	affected, err := st.DeleteNode(ctx, "rootroor", DeleteCascade)
+	if err != nil {
+		t.Fatalf("DeleteNode: %v", err)
+	}
+
+	if len(affected) != 4 {
+		t.Errorf("affected = %v, want 4 IDs (root + 3 descendants)", affected)
+	}
+	if affected[0] != "rootroor" {
+		t.Errorf("affected[0] = %q, want rootroor (target first)", affected[0])
+	}
+
+	for _, id := range []string{"rootroor", "child001", "child002", "grandc01"} {
+		if _, err := st.GetNode(ctx, id); err == nil {
+			t.Errorf("node %s still present after cascade", id)
+		}
+	}
+}
+
+func TestDeleteNode_Reparent_WithGrandparent(t *testing.T) {
+	st := openTestDB(t)
+	ctx := context.Background()
+
+	must(t, st.UpsertNode(ctx, testNode("rootroor", "")))
+	must(t, st.UpsertNode(ctx, testNode("mid00001", "rootroor")))
+	must(t, st.UpsertNode(ctx, testNode("leaf0001", "mid00001")))
+	must(t, st.UpsertNode(ctx, testNode("leaf0002", "mid00001")))
+
+	affected, err := st.DeleteNode(ctx, "mid00001", DeleteReparent)
+	if err != nil {
+		t.Fatalf("DeleteNode: %v", err)
+	}
+
+	if len(affected) != 3 {
+		t.Errorf("affected = %v, want 3 IDs (mid + 2 children)", affected)
+	}
+	if affected[0] != "mid00001" {
+		t.Errorf("affected[0] = %q, want mid00001 (target first)", affected[0])
+	}
+
+	if _, err := st.GetNode(ctx, "mid00001"); err == nil {
+		t.Error("mid still present after reparent")
+	}
+
+	for _, id := range []string{"leaf0001", "leaf0002"} {
+		n, err := st.GetNode(ctx, id)
+		if err != nil {
+			t.Fatalf("child %s: %v", id, err)
+		}
+
+		if n.ParentID != "rootroor" {
+			t.Errorf("child %s parent = %q, want rootroor", id, n.ParentID)
+		}
+	}
+}
+
+func TestDeleteNode_Reparent_AtRoot(t *testing.T) {
+	st := openTestDB(t)
+	ctx := context.Background()
+
+	must(t, st.UpsertNode(ctx, testNode("rootroor", "")))
+	must(t, st.UpsertNode(ctx, testNode("child001", "rootroor")))
+	must(t, st.UpsertNode(ctx, testNode("child002", "rootroor")))
+
+	affected, err := st.DeleteNode(ctx, "rootroor", DeleteReparent)
+	if err != nil {
+		t.Fatalf("DeleteNode: %v", err)
+	}
+
+	if len(affected) != 3 {
+		t.Errorf("affected = %v, want 3 IDs (root + 2 children)", affected)
+	}
+
+	for _, id := range []string{"child001", "child002"} {
+		n, err := st.GetNode(ctx, id)
+		if err != nil {
+			t.Fatalf("child %s: %v", id, err)
+		}
+
+		if n.ParentID != "" {
+			t.Errorf("child %s parent = %q, want empty (promoted to root)", id, n.ParentID)
+		}
+	}
+}
+
+func TestDeleteNode_NotFound(t *testing.T) {
+	st := openTestDB(t)
+	ctx := context.Background()
+
+	if _, err := st.DeleteNode(ctx, "missing0", DeleteStrict); err == nil {
+		t.Fatal("DeleteNode missing: want error, got nil")
 	}
 }
 

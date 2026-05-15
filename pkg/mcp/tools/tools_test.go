@@ -2,6 +2,8 @@ package tools
 
 import (
 	"context"
+	"database/sql"
+	"errors"
 	"os"
 	"path/filepath"
 	"strings"
@@ -1477,6 +1479,202 @@ func TestHandleUnpin(t *testing.T) {
 	}
 	if len(snapsAfter) != len(snapsBefore) {
 		t.Errorf("snapshot count changed: before=%d after=%d (unpin must not emit)", len(snapsBefore), len(snapsAfter))
+	}
+}
+
+func TestHandleForget_Strict_Leaf(t *testing.T) {
+	d, st := setup(t)
+	ctx := context.Background()
+
+	seedForget(t, st, "fgleaf0001", "")
+
+	snapsBefore, err := st.ListSnapshots(ctx, 100)
+	must(t, err)
+
+	result, _, err := d.HandleForget(ctx, &gomcp.CallToolRequest{}, ForgetInput{NodeID: "fgleaf0001"})
+	if err != nil {
+		t.Fatalf("HandleForget: %v", err)
+	}
+	if !strings.Contains(textContent(t, result), "forgot node fgleaf0001") {
+		t.Errorf("unexpected message: %q", textContent(t, result))
+	}
+
+	if _, err := st.GetNode(ctx, "fgleaf0001"); !errors.Is(err, sql.ErrNoRows) {
+		t.Errorf("node still present after forget; err = %v", err)
+	}
+
+	snapsAfter, err := st.ListSnapshots(ctx, 100)
+	must(t, err)
+	if got := len(snapsAfter) - len(snapsBefore); got != 1 {
+		t.Errorf("snapshot count delta = %d, want 1 (forget must emit exactly one)", got)
+	}
+}
+
+func TestHandleForget_Strict_RejectsParent(t *testing.T) {
+	d, st := setup(t)
+	ctx := context.Background()
+
+	seedForget(t, st, "fgroot00001", "")
+	seedForget(t, st, "fgchild0001", "fgroot00001")
+
+	snapsBefore, err := st.ListSnapshots(ctx, 100)
+	must(t, err)
+
+	_, _, err = d.HandleForget(ctx, &gomcp.CallToolRequest{}, ForgetInput{NodeID: "fgroot00001", Mode: "strict"})
+	if err == nil {
+		t.Fatal("HandleForget strict on parent: want error, got nil")
+	}
+	if !strings.Contains(err.Error(), "has 1 children") {
+		t.Errorf("err = %q, want children-count message", err)
+	}
+
+	for _, id := range []string{"fgroot00001", "fgchild0001"} {
+		if _, err := st.GetNode(ctx, id); err != nil {
+			t.Errorf("node %s unexpectedly removed: %v", id, err)
+		}
+	}
+
+	snapsAfter, err := st.ListSnapshots(ctx, 100)
+	must(t, err)
+	if len(snapsAfter) != len(snapsBefore) {
+		t.Errorf("snapshot count changed on rejected forget: before=%d after=%d", len(snapsBefore), len(snapsAfter))
+	}
+}
+
+func TestHandleForget_Cascade_EmitsSingleSnapshot(t *testing.T) {
+	d, st := setup(t)
+	ctx := context.Background()
+
+	seedForget(t, st, "fgroot00002", "")
+	seedForget(t, st, "fgmid000002", "fgroot00002")
+	seedForget(t, st, "fgleaf0002a", "fgmid000002")
+	seedForget(t, st, "fgleaf0002b", "fgmid000002")
+
+	snapsBefore, err := st.ListSnapshots(ctx, 100)
+	must(t, err)
+
+	_, _, err = d.HandleForget(ctx, &gomcp.CallToolRequest{}, ForgetInput{NodeID: "fgmid000002", Mode: "cascade"})
+	if err != nil {
+		t.Fatalf("HandleForget cascade: %v", err)
+	}
+
+	for _, id := range []string{"fgmid000002", "fgleaf0002a", "fgleaf0002b"} {
+		if _, err := st.GetNode(ctx, id); !errors.Is(err, sql.ErrNoRows) {
+			t.Errorf("node %s still present after cascade; err = %v", id, err)
+		}
+	}
+
+	snapsAfter, err := st.ListSnapshots(ctx, 100)
+	must(t, err)
+	if got := len(snapsAfter) - len(snapsBefore); got != 1 {
+		t.Errorf("snapshot count delta = %d, want 1 (cascade must emit exactly one)", got)
+	}
+}
+
+func TestHandleForget_Reparent_EmitsSingleSnapshot(t *testing.T) {
+	d, st := setup(t)
+	ctx := context.Background()
+
+	seedForget(t, st, "fgroot00003", "")
+	seedForget(t, st, "fgmid000003", "fgroot00003")
+	seedForget(t, st, "fgleaf0003a", "fgmid000003")
+	seedForget(t, st, "fgleaf0003b", "fgmid000003")
+
+	snapsBefore, err := st.ListSnapshots(ctx, 100)
+	must(t, err)
+
+	_, _, err = d.HandleForget(ctx, &gomcp.CallToolRequest{}, ForgetInput{NodeID: "fgmid000003", Mode: "reparent"})
+	if err != nil {
+		t.Fatalf("HandleForget reparent: %v", err)
+	}
+
+	for _, id := range []string{"fgleaf0003a", "fgleaf0003b"} {
+		n, err := st.GetNode(ctx, id)
+		if err != nil {
+			t.Fatalf("get %s: %v", id, err)
+		}
+
+		if n.ParentID != "fgroot00003" {
+			t.Errorf("%s parent = %q, want fgroot00003", id, n.ParentID)
+		}
+	}
+
+	snapsAfter, err := st.ListSnapshots(ctx, 100)
+	must(t, err)
+	if got := len(snapsAfter) - len(snapsBefore); got != 1 {
+		t.Errorf("snapshot count delta = %d, want 1 (reparent must emit exactly one)", got)
+	}
+}
+
+func TestHandleForget_MissingNode(t *testing.T) {
+	d, _ := setup(t)
+	ctx := context.Background()
+
+	_, _, err := d.HandleForget(ctx, &gomcp.CallToolRequest{}, ForgetInput{NodeID: "ghost1234567"})
+	if err == nil {
+		t.Fatal("HandleForget on missing node: want error, got nil")
+	}
+	if !strings.Contains(err.Error(), "not found") {
+		t.Errorf("err = %q, want not-found message", err)
+	}
+}
+
+func TestHandleForget_InvalidMode(t *testing.T) {
+	d, st := setup(t)
+	ctx := context.Background()
+
+	seedForget(t, st, "fgleaf0004", "")
+
+	_, _, err := d.HandleForget(ctx, &gomcp.CallToolRequest{}, ForgetInput{NodeID: "fgleaf0004", Mode: "bogus"})
+	if err == nil {
+		t.Fatal("HandleForget with invalid mode: want error, got nil")
+	}
+	if !strings.Contains(err.Error(), "unknown delete mode") {
+		t.Errorf("err = %q, want unknown-mode message", err)
+	}
+}
+
+func TestHandleForget_BlocksOnOpMu(t *testing.T) {
+	d, st := setup(t)
+	ctx := context.Background()
+
+	seedForget(t, st, "fgleaf0005", "")
+
+	st.OpMu.Lock()
+
+	done := make(chan struct{})
+	go func() {
+		_, _, _ = d.HandleForget(ctx, &gomcp.CallToolRequest{}, ForgetInput{NodeID: "fgleaf0005"})
+		close(done)
+	}()
+
+	select {
+	case <-done:
+		t.Fatal("HandleForget completed while OpMu was held")
+	case <-time.After(50 * time.Millisecond):
+	}
+
+	st.OpMu.Unlock()
+
+	select {
+	case <-done:
+	case <-time.After(500 * time.Millisecond):
+		t.Fatal("HandleForget did not complete after OpMu.Unlock")
+	}
+}
+
+func seedForget(t *testing.T, st *store.Store, id, parent string) {
+	t.Helper()
+
+	n := &store.Node{
+		ID: id, ParentID: parent,
+		SourceFile: "test.md", NodeType: "heading", Depth: 1,
+		Label: "label " + id, Content: "content " + id,
+		Format: "plain", TokenCount: 5, ContentHash: "h-" + id,
+	}
+
+	if err := st.UpsertNode(context.Background(), n); err != nil {
+		t.Fatalf("seedForget %s: %v", id, err)
 	}
 }
 

@@ -221,7 +221,9 @@ func TestCascadeRePendOnTargetDelete(t *testing.T) {
 		SourceNodeID: src.ID, TargetNodeID: tgt.ID, Weight: 2.5, Origin: OriginParsed,
 	}))
 
-	must(t, st.DeleteNode(ctx, tgt.ID))
+	if _, err := st.DeleteNode(ctx, tgt.ID, DeleteStrict); err != nil {
+		t.Fatalf("DeleteNode: %v", err)
+	}
 
 	if n := countRelations(t, st, src.ID, ""); n != 0 {
 		t.Errorf("relations row count = %d, want 0 (cascade should fire after BEFORE trigger)", n)
@@ -268,7 +270,9 @@ func TestCascadeNoRePendOnSourceDelete(t *testing.T) {
 		t.Fatalf("relations row count before delete = %d, want 1", n)
 	}
 
-	must(t, st.DeleteNode(ctx, src.ID))
+	if _, err := st.DeleteNode(ctx, src.ID, DeleteStrict); err != nil {
+		t.Fatalf("DeleteNode: %v", err)
+	}
 
 	if n := countRelations(t, st, "", tgt.ID); n != 0 {
 		t.Errorf("relations row count = %d, want 0 (FK cascade should drop the edge)", n)
