@@ -1,11 +1,11 @@
 ---
 name: memoize
-description: Write memory to a remindb MCP server with Markdown that indexes well into the node tree. Covers shape rules for good indexing, search-first updates, cold-node summarization, source recompile, wiki-link authoring, manual relation edges, and pinning nodes against temperature decay. Pair with `remind` for reads.
+description: Write memory to a remindb MCP server with Markdown that indexes well into the node tree. Covers shape rules for good indexing, search-first updates, cold-node summarization, source recompile, wiki-link authoring, manual relation edges, pinning nodes against temperature decay, and explicit node removal with three deletion modes. Pair with `remind` for reads.
 ---
 
 # Memoize — write to remindb so it indexes well
 
-This skill owns the **write path** of remindb's MCP surface: `MemoryWrite`, `MemorySummarize`, `MemoryCompile`, `MemoryRelate`, `MemoryPin`, and `MemoryUnpin`. It assumes you already know the read-side mental model (nodes, snapshots, IDs, ranking, notifications, budgets, relations) — that's `remind`'s job. If those terms aren't loaded, read `remind` first.
+This skill owns the **write path** of remindb's MCP surface: `MemoryWrite`, `MemoryForget`, `MemorySummarize`, `MemoryCompile`, `MemoryRelate`, `MemoryPin`, and `MemoryUnpin`. It assumes you already know the read-side mental model (nodes, snapshots, IDs, ranking, notifications, budgets, relations) — that's `remind`'s job. If those terms aren't loaded, read `remind` first.
 
 ## Why payload shape matters
 
@@ -141,6 +141,56 @@ A new sibling node next to an existing one on the same topic is almost always a 
 ### One logical note per call
 
 Every write creates a snapshot. Don't write per-keystroke or per-token. If you have three independent facts to record, that's three calls — but each call should be one coherent note. Bundling unrelated facts into a single call gives you one node with mixed content; bundling related facts into a single well-structured payload (headings + lists) gives you a clean subtree.
+
+## MemoryForget — explicit node removal
+
+Use `MemoryForget` when a node is wrong, stale, or never belonged — when you want it gone without rebuilding the surrounding subtree via `MemoryCompile` and without polluting the diff history by overwriting with empty content. Each call creates exactly one snapshot, so the deletion is recoverable through `MemoryHistory` and visible to `MemoryDelta`.
+
+Three mutually exclusive modes; pick the one that matches the structural shape you want left behind.
+
+### Mode: strict (default) — refuse to delete a parent
+
+```
+remindb__MemoryForget(node_id="<leaf_id>")
+remindb__MemoryForget(node_id="<leaf_id>", mode="strict")
+```
+
+Deletes the node iff it has no children. If the node has children, the call fails with `node <id> has N children; pass mode=cascade or mode=reparent` and nothing changes. Use this when you mean "remove this leaf" and want a loud failure if the tree shape has drifted since you decided. Strict is the right default — it forces you to think about descendants explicitly.
+
+### Mode: cascade — also remove descendants
+
+```
+remindb__MemoryForget(node_id="<subtree_root>", mode="cascade")
+```
+
+Deletes the target and every descendant. The snapshot records one `rem` entry per removed node, in subtree order — the server walks the subtree explicitly so each descendant is visible to `MemoryDelta`, then issues the deletes through the same `parent_id ON DELETE CASCADE` FK that any single-row delete would. The FTS5 and relations trigger sync runs per row. Use when an entire branch is obsolete — a whole compiled file that no longer exists, a deprecated feature's documentation, an experiment whose nodes were never useful.
+
+### Mode: reparent — promote children to the target's parent
+
+```
+remindb__MemoryForget(node_id="<intermediate_id>", mode="reparent")
+```
+
+Deletes the target and re-parents its direct children to the target's parent. Use when the target node is wrong (bad heading, accidental level, misnamed section) but its children are still valid in the surrounding context. The snapshot records one `rem` entry for the target plus one `mod` entry per direct child whose `parent_id` moved. The mod entries carry `OldHash == NewHash` (content unchanged — only the structural link moved); `remind` describes how to interpret this on the read side.
+
+**Root case.** If the target has no parent (`parent_id IS NULL`), the children become roots themselves. Forbidding this would just force a two-step workaround — promotion to root is part of reparent's contract.
+
+### Order of operations matters (internal)
+
+For reparent, the server updates children's `parent_id` *before* deleting the target. The `ON DELETE CASCADE` FK would otherwise eat the children the moment the target row dies. You don't author this ordering — it's a server invariant — but knowing it explains why reparent's snapshot lists mods *before* the rem in the diff trail.
+
+### Pinning does not block deletion
+
+`MemoryPin` protects a node from temperature decay and cold-set selection, **not** from explicit deletion. `MemoryForget` ignores `pinned`. If you don't want a node deleted by an automated workflow, the safeguard is not pinning — it's not calling `MemoryForget` on it.
+
+### Relations layer self-heals
+
+Deleting a node:
+
+- **Drops the node's outgoing edges** via the relations FK cascade (the row pointing *from* the deleted node disappears).
+- **Demotes incoming edges to pending**, keyed by the deleted node's label and source file. If a node with the same label later reappears (e.g., via `MemoryCompile` or `MemoryWrite`), the next compile re-resolves them automatically.
+
+No action needed on the relations layer; this is server-side trigger behavior.
 
 ## Authoring wiki-links — graph relations in your payload
 
@@ -300,6 +350,9 @@ If a `.remindb.ignore` file lives at the source root, `MemoryCompile` (and the b
 - Don't merge unrelated facts into one paragraph. List items or sub-headings.
 - Don't write a payload with a blank or generic first line — that's your label.
 - Don't append by writing the same payload + extra text to a fresh node — different content hash, new ID, fragmented tree. Update the existing anchor instead.
+- Don't overwrite a node with empty content as a deletion workaround. That fights the temperature model (an empty node sits at default warmth and pollutes search), it leaves a phantom in `MemoryTree`, and the diff trail loses the "this was deleted" signal. Use `MemoryForget` instead — it produces a clean `rem` entry the next `MemoryDelta` walker can act on.
+- Don't reach for `mode=cascade` when `mode=reparent` is what you mean. Cascade discards the whole subtree; reparent keeps the children in the tree under the target's parent. If the target is the *only* thing wrong (bad heading, accidental level), reparent — cascade is the nuclear option.
+- Don't pin a node hoping it will survive `MemoryForget`. Pin only gates temperature decay and the cold-set query; explicit deletion ignores it. If you want a safeguard against deletion, the safeguard is workflow discipline, not the `pinned` flag.
 - Don't skip the search-first step. A near-duplicate sibling is worse than an in-place update.
 - Don't write per-keystroke. Batch into one coherent note per call.
 - Don't try to reparent a node by writing a payload with a different heading hierarchy — `MemoryWrite` with an anchor preserves `parent_id`, the heading shape inside the payload only affects content, not the tree position.

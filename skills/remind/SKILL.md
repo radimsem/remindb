@@ -5,9 +5,9 @@ description: Read memory from a remindb MCP server — orient, search, fetch (si
 
 # Remind — read from remindb so you don't re-grep
 
-remindb is a compiled SQLite view of a workspace, served over MCP as fifteen `Memory*` tools. It's long-term memory for your session — call it instead of re-reading files or grepping.
+remindb is a compiled SQLite view of a workspace, served over MCP as sixteen `Memory*` tools. It's long-term memory for your session — call it instead of re-reading files or grepping.
 
-This skill covers the **read path** (`MemoryTree`, `MemorySearch`, `MemoryFetch`, `MemoryFetchBatch`, `MemoryDelta`, `MemoryDiff`, `MemoryHistory`, `MemoryRelated`, `MemoryStats`) and the shared mental model. For *writing* memory (authoring payloads, updating nodes, summarizing cold nodes, recompiling source, creating manual edges), pair this with the **`memoize`** skill — it owns `MemoryWrite`, `MemorySummarize`, `MemoryCompile`, and `MemoryRelate` plus the Markdown-shape rules that determine how well your writes index.
+This skill covers the **read path** (`MemoryTree`, `MemorySearch`, `MemoryFetch`, `MemoryFetchBatch`, `MemoryDelta`, `MemoryDiff`, `MemoryHistory`, `MemoryRelated`, `MemoryStats`) and the shared mental model. For *writing* memory (authoring payloads, updating nodes, removing nodes, summarizing cold nodes, recompiling source, creating manual edges, pinning), pair this with the **`memoize`** skill — it owns `MemoryWrite`, `MemoryForget`, `MemorySummarize`, `MemoryCompile`, `MemoryRelate`, `MemoryPin`, and `MemoryUnpin` plus the Markdown-shape rules that determine how well your writes index.
 
 ## Mental model
 
@@ -31,6 +31,8 @@ Every `MemoryCompile` or `MemoryWrite` creates a **snapshot** — a row with an 
 ### Diffs
 
 Every snapshot carries per-node diffs: `add`, `mod`, or `rem`, with old and new content preserved. `MemoryDelta` is how you read diffs since a known snapshot (always anchored at HEAD on the upper bound); `MemoryDiff` is how you read diffs between two arbitrary snapshots (point-in-time comparison, git-diff-style hunks); `MemoryHistory` is how you read the diff trail for one specific node.
+
+**Structural-only mods.** A `mod` entry whose `old_hash == new_hash` means the node's *content* didn't change but its position in the tree did. The most common producer is `MemoryForget` with `mode=reparent`, which deletes a node and rewires its children to the deleted node's parent — each rewired child shows up as a content-identical mod alongside the target's `rem`. If you're walking a delta and a mod surprises you with `old_content == new_content`, look for a same-snapshot rem to find the node whose deletion moved this one structurally.
 
 ### Relations — the graph layer
 

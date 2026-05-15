@@ -255,6 +255,11 @@ func registerTools(srv *mcp.Server, d *tools.Deps) {
 	}, d.HandleRelate)
 
 	mcp.AddTool(srv, &mcp.Tool{
+		Name:        "MemoryForget",
+		Description: "Remove a node by ID. Modes: 'strict' (default) refuses parents, 'cascade' also removes descendants, 'reparent' promotes children to the target's parent",
+	}, d.HandleForget)
+
+	mcp.AddTool(srv, &mcp.Tool{
 		Name:        "MemoryPin",
 		Description: "Protect a node from temperature decay and cold-set selection (does not snapshot)",
 	}, d.HandlePin)
