@@ -762,6 +762,113 @@ func TestMcp_DiffWorkflow(t *testing.T) {
 	}
 }
 
+func TestMcp_RollbackWorkflow_DropAfterFalse(t *testing.T) {
+	env := mcptest.NewEnv(t)
+	ctx := context.Background()
+
+	writeA := env.CallTool(t, "MemoryWrite", map[string]any{
+		"payload": "Title alpha\nfirst version\n",
+	})
+	nodeAID := extractNodeID(env.TextContent(t, writeA))
+	if nodeAID == "" {
+		t.Fatalf("could not parse node id from first write")
+	}
+
+	env.CallTool(t, "MemoryWrite", map[string]any{
+		"payload": "Title beta\nsecond version\n",
+	})
+
+	snapsBefore, err := env.Store.ListSnapshots(ctx, 10)
+	if err != nil {
+		t.Fatalf("ListSnapshots: %v", err)
+	}
+	if len(snapsBefore) != 2 {
+		t.Fatalf("expected 2 snapshots before rollback, got %d", len(snapsBefore))
+	}
+
+	snap1 := snapsBefore[1].ID
+	snap2 := snapsBefore[0].ID
+
+	rollbackResult := env.CallTool(t, "MemoryRollback", map[string]any{
+		"snapshot_id": snap1,
+	})
+	if !strings.Contains(env.TextContent(t, rollbackResult), "rolled back to snapshot") {
+		t.Errorf("unexpected rollback result: %s", env.TextContent(t, rollbackResult))
+	}
+
+	snapsAfter, err := env.Store.ListSnapshots(ctx, 10)
+	if err != nil {
+		t.Fatalf("ListSnapshots: %v", err)
+	}
+	if len(snapsAfter) != 3 {
+		t.Fatalf("expected 3 snapshots after non-pruning rollback, got %d", len(snapsAfter))
+	}
+
+	rollbackSnap := snapsAfter[0]
+	if !strings.HasPrefix(rollbackSnap.Message, "rollback to ") {
+		t.Errorf("HEAD message = %q, want rollback prefix", rollbackSnap.Message)
+	}
+	if !rollbackSnap.ParentID.Valid || rollbackSnap.ParentID.Int64 != snap2 {
+		t.Errorf("rollback snap parent = %v, want %d (prev HEAD)", rollbackSnap.ParentID, snap2)
+	}
+
+	// nodeA still alive, nodeB gone.
+	if _, err := env.Store.GetNode(ctx, nodeAID); err != nil {
+		t.Errorf("nodeA missing after rollback: %v", err)
+	}
+
+	// Next write chains on the rollback snap.
+	env.CallTool(t, "MemoryWrite", map[string]any{
+		"payload": "Title delta\npost-rollback note\n",
+	})
+
+	snapsPost, err := env.Store.ListSnapshots(ctx, 1)
+	if err != nil || len(snapsPost) == 0 {
+		t.Fatalf("ListSnapshots after post-rollback write: %v", err)
+	}
+
+	if !snapsPost[0].ParentID.Valid || snapsPost[0].ParentID.Int64 != rollbackSnap.ID {
+		t.Errorf("post-rollback write parent = %v, want %d (rollback snap)", snapsPost[0].ParentID, rollbackSnap.ID)
+	}
+}
+
+func TestMcp_RollbackWorkflow_DropAfterTrue(t *testing.T) {
+	env := mcptest.NewEnv(t)
+	ctx := context.Background()
+
+	env.CallTool(t, "MemoryWrite", map[string]any{"payload": "Title one\nv1\n"})
+	env.CallTool(t, "MemoryWrite", map[string]any{"payload": "Title two\nv2\n"})
+	env.CallTool(t, "MemoryWrite", map[string]any{"payload": "Title three\nv3\n"})
+
+	snapsBefore, err := env.Store.ListSnapshots(ctx, 10)
+	if err != nil {
+		t.Fatalf("ListSnapshots: %v", err)
+	}
+
+	if len(snapsBefore) != 3 {
+		t.Fatalf("expected 3 snapshots before rollback, got %d", len(snapsBefore))
+	}
+	snap1 := snapsBefore[2].ID
+
+	env.CallTool(t, "MemoryRollback", map[string]any{
+		"snapshot_id": snap1,
+		"drop_after":  true,
+	})
+
+	snapsAfter, err := env.Store.ListSnapshots(ctx, 10)
+	if err != nil {
+		t.Fatalf("ListSnapshots: %v", err)
+	}
+	if len(snapsAfter) != 2 {
+		t.Errorf("expected 2 snapshots after pruning rollback (target + rollback), got %d", len(snapsAfter))
+	}
+
+	rollbackSnap := snapsAfter[0]
+	if !rollbackSnap.ParentID.Valid || rollbackSnap.ParentID.Int64 != snap1 {
+		t.Errorf("rollback snap parent = %v, want %d (drop_after=true linearizes to target)", rollbackSnap.ParentID, snap1)
+	}
+}
+
 // Verifies that the client can list all available tools.
 func TestMcp_ToolDiscovery(t *testing.T) {
 	env := mcptest.NewEnv(t)
@@ -786,6 +893,7 @@ func TestMcp_ToolDiscovery(t *testing.T) {
 		"MemoryPin":        false,
 		"MemoryUnpin":      false,
 		"MemoryStats":      false,
+		"MemoryRollback":   false,
 	}
 
 	for _, tool := range tools.Tools {

@@ -12,7 +12,7 @@ Rules for designing and modifying tools exposed via the MCP server in `remindb`.
 
 ## 1. Tools Are `Memory<Verb>`, Always ★
 
-Every public MCP tool name is `Memory` + a single verb in PascalCase. The current set is `MemoryTree`, `MemorySearch`, `MemoryFetch`, `MemoryWrite`, `MemoryDelta`, `MemoryHistory`, `MemorySummarize`, `MemoryCompile`, `MemoryRelated`, `MemoryRelate`. Anything new follows the same shape.
+Every public MCP tool name is `Memory` + a single verb in PascalCase. The current set is `MemoryTree`, `MemorySearch`, `MemoryFetch`, `MemoryWrite`, `MemoryDelta`, `MemoryHistory`, `MemorySummarize`, `MemoryCompile`, `MemoryRelated`, `MemoryRelate`, `MemoryRollback`. Anything new follows the same shape.
 
 ```go
 // Bad — non-prefixed name; clients can't filter the tool list
@@ -128,7 +128,7 @@ Use the existing formatters in `pkg/query/` (`Format`, `FormatCompact`) for quer
 | Tool kind | Take `Store.OpMu` |
 |---|---|
 | Read-only — `MemorySearch`, `MemoryFetch`, `MemoryTree`, `MemoryDelta`, `MemoryHistory`, `MemoryRelated` | **No** |
-| Mutating — `MemoryWrite`, `MemorySummarize`, `MemoryCompile`, `MemoryRelate` | **Yes**, immediately after the `defer d.logCall(...)` |
+| Mutating — `MemoryWrite`, `MemorySummarize`, `MemoryCompile`, `MemoryRelate`, `MemoryRollback` | **Yes**, immediately after the `defer d.logCall(...)` |
 
 ```go
 // Bad — read tool taking the lock; serializes parallel reads for no reason
@@ -190,9 +190,11 @@ text := query.FormatCompact(result)
 
 ## 7. Snapshot-Emitting Tools Create Exactly One Snapshot
 
-Each call to `MemoryWrite` / `MemorySummarize` / `MemoryCompile` produces **one** snapshot. Snapshots are how clients diff state via `MemoryDelta`; per-token or per-node mini-snapshots fragment the diff trail.
+Each call to `MemoryWrite` / `MemorySummarize` / `MemoryCompile` / `MemoryRollback` produces **one** snapshot. Snapshots are how clients diff state via `MemoryDelta`; per-token or per-node mini-snapshots fragment the diff trail.
 
-Those three tools form the **snapshot-emitting subset** of write tools, not the universe of write tools. `MemoryRelate` is the deliberate counterexample: it locks `Store.OpMu` like the others (per §5) but **must not** call `emitter.Emit`. Relation mutations are a sideband — `MemoryDelta` / `MemoryHistory` don't surface them. Any future write tool decides explicitly which side of this line it falls on; tools that mutate the snapshot-tracked node graph emit, tools that mutate sideband structures (relations, future tag layers, future cursor metadata) don't.
+`MemoryWrite` / `MemorySummarize` / `MemoryCompile` reach the snapshot via `emitter.Emit`. `MemoryRollback` is the **inlined-tx exception**: it bypasses `emitter.Emit` so the snapshot create, diff inserts, cursor advance, and optional `PruneSnapshotsAfterTx` happen in a single `Store.Tx`. Atomicity over an emit + prune sequence cannot be achieved through two separate `emitter.Emit`-then-prune transactions without a recoverable-but-real failure window, so the rule for `MemoryRollback` is: do the writes inline, still produce exactly one snapshot row. Treat the §7 invariant as "one snapshot per call", not literally "one `emitter.Emit` per call".
+
+The other write tools form the **snapshot-emitting-via-emitter subset**, but not the universe of write tools. `MemoryRelate` is the second deliberate counterexample: it locks `Store.OpMu` like the others (per §5) but **must not** call `emitter.Emit` *and* **must not** create a snapshot at all. Relation mutations are a sideband — `MemoryDelta` / `MemoryHistory` don't surface them. Any future write tool decides explicitly which side of these lines it falls on; tools that mutate the snapshot-tracked node graph emit, tools that mutate sideband structures (relations, future tag layers, future cursor metadata) don't.
 
 ```go
 // Bad — emitting twice in one call; two snapshot rows for one user intent
@@ -265,7 +267,7 @@ Two public skills under `skills/` form the client contract for what tools exist 
 | Tool kind | Skill to update |
 |---|---|
 | Read tools (`MemoryTree`, `MemorySearch`, `MemoryFetch`, `MemoryDelta`, `MemoryHistory`, `MemoryRelated`) | **`skills/remind/SKILL.md`** |
-| Write tools (`MemoryWrite`, `MemorySummarize`, `MemoryCompile`, `MemoryRelate`) | **`skills/memoize/SKILL.md`** |
+| Write tools (`MemoryWrite`, `MemorySummarize`, `MemoryCompile`, `MemoryRelate`, `MemoryRollback`) | **`skills/memoize/SKILL.md`** |
 | A tool whose change crosses the boundary (e.g., new shared concept, mental-model field, threshold name) | **Both** — `remind` owns the mental model, `memoize` owns the write workflow that depends on it |
 
 For each affected skill:
@@ -286,7 +288,7 @@ Tool exists in code but invisible to its public skill = invisible to future Clau
 - Structured return; multi-content return; empty content array.
 - Read tool taking `Store.OpMu`; write tool not taking it.
 - Read tool skipping `boostResultNodes`; write tool calling it.
-- More than one `emitter.Emit` per tool call.
+- More than one snapshot row per tool call — whether via two `emitter.Emit` invocations or via an inlined-tx tool calling `CreateSnapshotWithParentTx` twice. The §7 invariant is "one snapshot per call", not "one `emitter.Emit` per call".
 - `log.Fatal` / `os.Exit` from a tool body.
 - Logging the full payload, summary text, node content, or any user-supplied body.
 - Wrapping the error with `%s` instead of `%w`.

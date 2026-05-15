@@ -260,6 +260,11 @@ func registerTools(srv *mcp.Server, d *tools.Deps) {
 	}, d.HandleForget)
 
 	mcp.AddTool(srv, &mcp.Tool{
+		Name:        "MemoryRollback",
+		Description: "Restore the node graph to a target snapshot. drop_after=false keeps intervening snapshots reachable as branched history; drop_after=true hard-deletes them. Temperature, pinned state, and relations are not restored",
+	}, d.HandleRollback)
+
+	mcp.AddTool(srv, &mcp.Tool{
 		Name:        "MemoryPin",
 		Description: "Protect a node from temperature decay and cold-set selection (does not snapshot)",
 	}, d.HandlePin)
