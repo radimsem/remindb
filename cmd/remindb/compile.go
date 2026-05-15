@@ -4,7 +4,9 @@ import (
 	"context"
 	"fmt"
 	"os"
+	"slices"
 
+	"github.com/radimsem/remindb/internal/redaction"
 	"github.com/radimsem/remindb/pkg/compiler"
 	"github.com/radimsem/remindb/pkg/store"
 	"github.com/spf13/cobra"
@@ -57,16 +59,23 @@ func runCompile(cmd *cobra.Command, args []string) error {
 		return fmt.Errorf("failed to stat: %w", err)
 	}
 
+	red, err := redaction.New(redaction.DefaultConfig())
+	if err != nil {
+		return fmt.Errorf("failed to build: redactor: %w", err)
+	}
+
+	baseOpts := []compiler.Option{compiler.WithRedactor(red)}
+
 	var result *compiler.Result
 	if fi.IsDir() {
-		var dirOpts []compiler.Option
+		dirOpts := slices.Clone(baseOpts)
 		if compileReseedTemps {
 			dirOpts = append(dirOpts, compiler.WithReseedTemperatures())
 		}
 
 		result, err = compiler.CompileDir(ctx, st, path, msg, dirOpts...)
 	} else {
-		result, err = compiler.CompileFile(ctx, st, path, msg)
+		result, err = compiler.CompileFile(ctx, st, path, msg, baseOpts...)
 	}
 	if err != nil {
 		return fmt.Errorf("failed to compile: %s: %w", path, err)

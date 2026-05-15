@@ -11,6 +11,7 @@ import (
 	"time"
 
 	gomcp "github.com/modelcontextprotocol/go-sdk/mcp"
+	"github.com/radimsem/remindb/internal/redaction"
 	"github.com/radimsem/remindb/pkg/compiler"
 	"github.com/radimsem/remindb/pkg/query"
 	"github.com/radimsem/remindb/pkg/relations"
@@ -36,11 +37,17 @@ func setup(t *testing.T) (*Deps, *store.Store) {
 		t.Fatalf("NewTracker: %v", err)
 	}
 
+	red, err := redaction.New(redaction.DefaultConfig())
+	if err != nil {
+		t.Fatalf("redaction.New: %v", err)
+	}
+
 	d := &Deps{
 		Store:            st,
 		Engine:           query.NewEngine(st),
 		Resolver:         relations.New(st),
 		Tracker:          tracker,
+		Redactor:         red,
 		SummarizeRebound: temperature.DefaultConfig().SummarizeRebound,
 	}
 	return d, st
@@ -359,6 +366,76 @@ func TestHandleWrite_Update(t *testing.T) {
 	}
 	if got.Format != "toon" {
 		t.Errorf("Format = %q, want preserved 'toon'", got.Format)
+	}
+}
+
+func TestHandleWrite_ScrubsSecret(t *testing.T) {
+	d, st := setup(t)
+	ctx := context.Background()
+
+	payload := "leaked key AKIAIOSFODNN7EXAMPLE in notes"
+	result, _, err := d.HandleWrite(ctx, &gomcp.CallToolRequest{}, WriteInput{Payload: payload})
+	if err != nil {
+		t.Fatalf("HandleWrite: %v", err)
+	}
+
+	if len(result.Content) == 0 {
+		t.Fatal("empty content — tool should still succeed on redaction")
+	}
+
+	stats, err := st.GetStats(ctx)
+	if err != nil {
+		t.Fatalf("GetStats: %v", err)
+	}
+	if stats.NodeCount != 1 {
+		t.Fatalf("NodeCount = %d, want 1", stats.NodeCount)
+	}
+
+	res, err := d.Engine.Search(ctx, "leaked", 4000)
+	if err != nil {
+		t.Fatalf("Search: %v", err)
+	}
+
+	if len(res.Nodes) == 0 {
+		t.Fatal("redacted node not searchable")
+	}
+
+	stored := res.Nodes[0].Node.Content
+	if strings.Contains(stored, "AKIA") {
+		t.Errorf("AKIA leaked into store: %q", stored)
+	}
+	if !strings.Contains(stored, "«redacted:aws_access_key»") {
+		t.Errorf("marker missing from stored content: %q", stored)
+	}
+}
+
+func TestHandleSummarize_ScrubsSecret(t *testing.T) {
+	d, st := setup(t)
+	ctx := context.Background()
+
+	n := &store.Node{
+		ID: "anchorXX", SourceFile: "x.md", NodeType: "text",
+		Depth: 1, Label: "orig", Content: "original content",
+		Format: "plain", TokenCount: 5, ContentHash: "h0",
+	}
+	if err := st.UpsertNode(ctx, n); err != nil {
+		t.Fatalf("UpsertNode: %v", err)
+	}
+
+	summary := "TLDR: AKIAIOSFODNN7EXAMPLE got rotated"
+	_, _, err := d.HandleSummarize(ctx, &gomcp.CallToolRequest{}, SummarizeInput{
+		NodeID: "anchorXX", Summary: summary,
+	})
+	if err != nil {
+		t.Fatalf("HandleSummarize: %v", err)
+	}
+
+	got, _ := st.GetNode(ctx, "anchorXX")
+	if strings.Contains(got.Content, "AKIA") {
+		t.Errorf("AKIA leaked into store: %q", got.Content)
+	}
+	if !strings.Contains(got.Content, "«redacted:aws_access_key»") {
+		t.Errorf("marker missing from stored summary: %q", got.Content)
 	}
 }
 

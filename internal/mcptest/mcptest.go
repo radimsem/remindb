@@ -27,7 +27,11 @@ func NewEnv(t *testing.T) *Env {
 		t.Fatalf("NewTracker: %v", err)
 	}
 
-	srv := remindb.NewServer(st, tracker, cfg)
+	srv, err := remindb.NewServer(st, tracker, cfg)
+	if err != nil {
+		t.Fatalf("NewServer: %v", err)
+	}
+
 	serverTransport, clientTransport := mcp.NewInMemoryTransports()
 	ctx := context.Background()
 
@@ -63,10 +67,13 @@ func NewHttpEnv(t *testing.T) *Env {
 		t.Fatalf("failed to listen: %v", err)
 	}
 
-	srv := remindb.NewServer(st, tracker, cfg,
+	srv, err := remindb.NewServer(st, tracker, cfg,
 		remindb.WithTransport(remindb.TransportHttp),
 		remindb.WithListener(ln),
 	)
+	if err != nil {
+		t.Fatalf("NewServer: %v", err)
+	}
 
 	ctx, cancel := context.WithCancel(context.Background())
 	runErr := make(chan error, 1)

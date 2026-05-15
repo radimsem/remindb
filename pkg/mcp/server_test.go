@@ -25,7 +25,11 @@ func newTestServer(t *testing.T, notify, cold float64) *Server {
 		t.Fatalf("NewTracker: %v", err)
 	}
 
-	return NewServer(st, tracker, cfg)
+	srv, err := NewServer(st, tracker, cfg)
+	if err != nil {
+		t.Fatalf("NewServer: %v", err)
+	}
+	return srv
 }
 
 func mkNode(id string, temp float64) *store.Node {

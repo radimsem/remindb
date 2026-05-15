@@ -7,6 +7,7 @@ import (
 	"net"
 
 	"github.com/modelcontextprotocol/go-sdk/mcp"
+	"github.com/radimsem/remindb/internal/redaction"
 	"github.com/radimsem/remindb/pkg/mcp/tools"
 	"github.com/radimsem/remindb/pkg/query"
 	"github.com/radimsem/remindb/pkg/relations"
@@ -61,7 +62,7 @@ func WithListener(l net.Listener) Option {
 	return func(o *options) { o.listener = l }
 }
 
-func NewServer(st *store.Store, tracker *temperature.Tracker, cfg temperature.Config, opts ...Option) *Server {
+func NewServer(st *store.Store, tracker *temperature.Tracker, cfg temperature.Config, opts ...Option) (*Server, error) {
 	var o options
 	for _, opt := range opts {
 		opt(&o)
@@ -82,6 +83,11 @@ func NewServer(st *store.Store, tracker *temperature.Tracker, cfg temperature.Co
 		listen = DefaultListenAddr
 	}
 
+	red, err := redaction.New(redaction.DefaultConfig())
+	if err != nil {
+		return nil, fmt.Errorf("failed to build: redactor: %w", err)
+	}
+
 	s := &Server{
 		mcp: mcp.NewServer(&mcp.Implementation{
 			Name:    "remindb",
@@ -99,13 +105,14 @@ func NewServer(st *store.Store, tracker *temperature.Tracker, cfg temperature.Co
 		Engine:           query.NewEngine(st),
 		Resolver:         relations.New(st),
 		Tracker:          tracker,
+		Redactor:         red,
 		Logger:           logger,
 		SourceDir:        o.sourceDir,
 		SummarizeRebound: cfg.SummarizeRebound,
 	}
 
 	registerTools(s.mcp, deps)
-	return s
+	return s, nil
 }
 
 func (s *Server) Run(ctx context.Context) error {

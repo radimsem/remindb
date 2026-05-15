@@ -68,12 +68,15 @@ func runServe(cmd *cobra.Command, _ []string) error {
 		return err
 	}
 
-	srv := remindb.NewServer(st, tracker, cfg,
+	srv, err := remindb.NewServer(st, tracker, cfg,
 		remindb.WithSourceDir(sourceDir),
 		remindb.WithLogger(logger),
 		remindb.WithTransport(transport),
 		remindb.WithListen(listen),
 	)
+	if err != nil {
+		return fmt.Errorf("failed to build: server: %w", err)
+	}
 
 	logger.Info("serve: starting", startupAttrs(cfg.TickInterval)...)
 
