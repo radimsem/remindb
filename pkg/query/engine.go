@@ -22,6 +22,8 @@ type QueryStore interface {
 	SearchRanked(ctx context.Context, query string, limit int) ([]*store.RankedNode, error)
 
 	GetDiffsSince(ctx context.Context, sinceSnapshotID int64) ([]*store.DiffRecord, error)
+
+	GetDiffsBetween(ctx context.Context, fromSnapshotID, toSnapshotID int64) ([]*store.DiffRecord, error)
 }
 
 type Engine struct {
@@ -131,4 +133,12 @@ func (e *Engine) Search(ctx context.Context, query string, budget int) (*Result,
 
 func (e *Engine) Delta(ctx context.Context, sinceSnapshot int64) ([]*store.DiffRecord, error) {
 	return e.store.GetDiffsSince(ctx, sinceSnapshot)
+}
+
+func (e *Engine) Diff(ctx context.Context, fromSnapshot, toSnapshot int64) ([]*store.DiffRecord, error) {
+	raw, err := e.store.GetDiffsBetween(ctx, fromSnapshot, toSnapshot)
+	if err != nil {
+		return nil, err
+	}
+	return consolidateDiffs(raw), nil
 }

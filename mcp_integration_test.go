@@ -7,6 +7,7 @@ import (
 	"strings"
 	"testing"
 
+	gomcp "github.com/modelcontextprotocol/go-sdk/mcp"
 	"github.com/radimsem/remindb/internal/mcptest"
 )
 
@@ -616,6 +617,147 @@ func TestMcp_StatsWorkflow(t *testing.T) {
 	}
 	if !strings.Contains(statsText, "├─") && !strings.Contains(statsText, "└─") {
 		t.Errorf("MemoryStats missing tree branch glyphs:\n%s", statsText)
+	}
+}
+
+func TestMcp_DiffWorkflow(t *testing.T) {
+	env := mcptest.NewEnv(t)
+	ctx := context.Background()
+
+	// snap1: create nodeA at "v1".
+	writeA1 := env.CallTool(t, "MemoryWrite", map[string]any{
+		"payload": "Title: alpha\nbody line 1\nbody line 2\n",
+	})
+	nodeAID := extractNodeID(env.TextContent(t, writeA1))
+	if nodeAID == "" {
+		t.Fatalf("could not parse nodeA ID from write result")
+	}
+
+	// snap2: modify nodeA to v2 (changes the middle line).
+	env.CallTool(t, "MemoryWrite", map[string]any{
+		"anchor":  nodeAID,
+		"payload": "Title: alpha\nbody line 1 EDITED\nbody line 2\n",
+	})
+
+	// snap3: modify nodeA again to v3 (also changes line 2).
+	env.CallTool(t, "MemoryWrite", map[string]any{
+		"anchor":  nodeAID,
+		"payload": "Title: alpha\nbody line 1 EDITED\nbody line 2 EDITED TOO\n",
+	})
+
+	// snap4: create an unrelated nodeB.
+	writeB := env.CallTool(t, "MemoryWrite", map[string]any{
+		"payload": "Title: beta\nbeta first\nbeta second\n",
+	})
+	nodeBID := extractNodeID(env.TextContent(t, writeB))
+	if nodeBID == "" {
+		t.Fatalf("could not parse nodeB ID from write result")
+	}
+
+	snaps, err := env.Store.ListSnapshots(ctx, 10)
+	if err != nil {
+		t.Fatalf("ListSnapshots: %v", err)
+	}
+	if len(snaps) != 4 {
+		t.Fatalf("expected 4 snapshots, got %d", len(snaps))
+	}
+	// snaps comes back DESC.
+	snap1, snap2, snap3, snap4 := snaps[3].ID, snaps[2].ID, snaps[1].ID, snaps[0].ID
+
+	// 1. Full history: (0, snap4]. Should consolidate to one [add] per node, showing only final state.
+	fullResult := env.CallTool(t, "MemoryDiff", map[string]any{
+		"from_snapshot_id": 0,
+		"to_snapshot_id":   snap4,
+	})
+	fullText := env.TextContent(t, fullResult)
+
+	if got := strings.Count(fullText, "[add] "+nodeAID); got != 1 {
+		t.Errorf("nodeA [add] header count = %d, want 1\n%s", got, fullText)
+	}
+	if got := strings.Count(fullText, "[add] "+nodeBID); got != 1 {
+		t.Errorf("nodeB [add] header count = %d, want 1\n%s", got, fullText)
+	}
+	if !strings.Contains(fullText, "+body line 1 EDITED") {
+		t.Errorf("expected nodeA final state body in full diff:\n%s", fullText)
+	}
+	if !strings.Contains(fullText, "+beta first") {
+		t.Errorf("expected nodeB body in full diff:\n%s", fullText)
+	}
+
+	// 2. Consolidation: (snap1, snap3] captures snap2 + snap3 mods on nodeA — should collapse to one [mod] showing v1 → v3.
+	consolResult := env.CallTool(t, "MemoryDiff", map[string]any{
+		"from_snapshot_id": snap1,
+		"to_snapshot_id":   snap3,
+	})
+	consolText := env.TextContent(t, consolResult)
+
+	if got := strings.Count(consolText, "[mod] "+nodeAID); got != 1 {
+		t.Errorf("expected exactly 1 consolidated [mod] for nodeA, got %d\n%s", got, consolText)
+	}
+	for _, want := range []string{"-body line 1", "-body line 2", "+body line 1 EDITED", "+body line 2 EDITED TOO"} {
+		if !strings.Contains(consolText, want) {
+			t.Errorf("missing %q in consolidated mod\n%s", want, consolText)
+		}
+	}
+
+	// Intermediate state (post-snap2 line 2 unedited form) must NOT survive consolidation as a + line.
+	if strings.Contains(consolText, "+body line 2\n") {
+		t.Errorf("intermediate snap2 state leaked into consolidated output\n%s", consolText)
+	}
+	// NodeB wasn't touched in this range.
+	if strings.Contains(consolText, nodeBID) {
+		t.Errorf("nodeB appeared in a range it was not modified in\n%s", consolText)
+	}
+
+	// 3. Tight range: (snap3, snap4] catches only nodeB's add.
+	tightResult := env.CallTool(t, "MemoryDiff", map[string]any{
+		"from_snapshot_id": snap3,
+		"to_snapshot_id":   snap4,
+	})
+	tightText := env.TextContent(t, tightResult)
+
+	if !strings.Contains(tightText, "[add] "+nodeBID) {
+		t.Errorf("expected [add] for nodeB in tight range\n%s", tightText)
+	}
+	if strings.Contains(tightText, nodeAID) {
+		t.Errorf("nodeA leaked into tight range it wasn't touched in\n%s", tightText)
+	}
+
+	// 4. Equal bounds: empty range → "no changes".
+	equalResult := env.CallTool(t, "MemoryDiff", map[string]any{
+		"from_snapshot_id": snap2,
+		"to_snapshot_id":   snap2,
+	})
+	equalText := env.TextContent(t, equalResult)
+	if equalText != "no changes" {
+		t.Errorf("equal bounds got %q, want %q", equalText, "no changes")
+	}
+
+	// 5. Header-only line should remain as context (` ` prefix) since it didn't change.
+	if !strings.Contains(consolText, " Title: alpha") {
+		t.Errorf("expected unchanged header to appear as context line in consolidated mod\n%s", consolText)
+	}
+
+	// 6. Validation: from > to surfaces as an MCP error.
+	badResult, err := env.Session.CallTool(ctx, &gomcp.CallToolParams{
+		Name: "MemoryDiff",
+		Arguments: map[string]any{
+			"from_snapshot_id": snap4,
+			"to_snapshot_id":   snap1,
+		},
+	})
+	if err != nil {
+		t.Fatalf("validation call failed unexpectedly: %v", err)
+	}
+
+	if !badResult.IsError {
+		t.Errorf("expected IsError=true for from > to, got %#v", badResult)
+	}
+	if badResult.IsError && len(badResult.Content) > 0 {
+		errText := env.TextContent(t, badResult)
+		if !strings.Contains(errText, "must be <=") {
+			t.Errorf("error text missing validation phrase: %q", errText)
+		}
 	}
 }
 

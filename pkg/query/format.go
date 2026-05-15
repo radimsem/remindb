@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"strings"
 
+	"github.com/aymanbagabas/go-udiff"
 	"github.com/radimsem/remindb/pkg/store"
 )
 
@@ -82,6 +83,38 @@ func FormatBatch(result *Result, requested, missing []string) string {
 		fmt.Fprintf(&b, "over budget: %s\n", strings.Join(overBudget, ", "))
 	}
 	return b.String()
+}
+
+func FormatDiffs(diffs []*store.DiffRecord) string {
+	if len(diffs) == 0 {
+		return "no changes"
+	}
+
+	var b strings.Builder
+	for i, d := range diffs {
+		if i > 0 {
+			b.WriteByte('\n')
+		}
+
+		fmt.Fprintf(&b, "[%s] %s\n", d.Op, d.NodeID)
+		b.WriteString(diffBody(d.OldContent, d.NewContent))
+	}
+	return b.String()
+}
+
+func diffBody(before, after string) string {
+	unified := udiff.Unified("", "", before, after)
+	if unified == "" {
+		return ""
+	}
+
+	// Strip the leading "--- \n+++ \n" header lines; the per-record header above already names the node.
+	parts := strings.SplitN(unified, "\n", 3)
+	if len(parts) < 3 {
+		return unified
+	}
+
+	return parts[2]
 }
 
 func FormatRelated(related []*store.RelatedNode, budget int) string {

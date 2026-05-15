@@ -145,6 +145,9 @@ const (
 
 	qSelectDiffsSince = `SELECT ` + diffColumns + ` FROM diffs WHERE snapshot_id > ? ORDER BY snapshot_id, id`
 
+	qSelectDiffsBetween = `SELECT ` + diffColumns + ` FROM diffs
+		WHERE snapshot_id > ? AND snapshot_id <= ? ORDER BY snapshot_id, id`
+
 	qSelectDiffsForNode = `SELECT ` + diffColumns + ` FROM diffs WHERE node_id = ? ORDER BY snapshot_id`
 )
 

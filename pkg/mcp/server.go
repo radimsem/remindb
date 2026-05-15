@@ -225,6 +225,11 @@ func registerTools(srv *mcp.Server, d *tools.Deps) {
 	}, d.HandleDelta)
 
 	mcp.AddTool(srv, &mcp.Tool{
+		Name:        "MemoryDiff",
+		Description: "Return git-diff-style changes between two snapshots (from exclusive, to inclusive)",
+	}, d.HandleDiff)
+
+	mcp.AddTool(srv, &mcp.Tool{
 		Name:        "MemorySummarize",
 		Description: "Replace a node's content with a provided summary",
 	}, d.HandleSummarize)
