@@ -7,10 +7,11 @@ import (
 
 	"golang.org/x/sync/errgroup"
 
+	"github.com/radimsem/remindb/internal/redaction"
 	"github.com/radimsem/remindb/pkg/parser"
 )
 
-func Transform(ctx context.Context, roots []*parser.ContextNode, compileRoot string) error {
+func Transform(ctx context.Context, roots []*parser.ContextNode, compileRoot string, red *redaction.Redactor) error {
 	flat := parser.Flatten(roots)
 	if len(flat) == 0 {
 		return nil
@@ -19,6 +20,11 @@ func Transform(ctx context.Context, roots []*parser.ContextNode, compileRoot str
 	// Normalize whitespace
 	for _, n := range flat {
 		compress(n)
+	}
+
+	// Scrub secrets before hashing — ensures the persisted hash matches scrubbed content.
+	for _, n := range flat {
+		n.Content, _ = red.Scrub(n.Content)
 	}
 
 	compressPrefix(flat, compileRoot)

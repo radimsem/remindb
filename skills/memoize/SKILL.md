@@ -107,6 +107,48 @@ Three text nodes, all sibling leaves at the root. Horizontal rules are dropped, 
 
 One heading node, one list node beneath it. Each line is an FTS5-rankable fact and the list-as-leaf keeps the fetch cheap.
 
+## Server-side redaction — secrets scrubbed before storage
+
+`MemoryWrite`, `MemorySummarize`, and `MemoryCompile` all run inbound content through a redactor before it reaches the store. Any substring matching a known secret pattern is replaced in place with a visible marker of the form `«redacted:<kind>»`. The tool still succeeds — redaction never returns an error — and the snapshot still lands; what changes is that the stored content no longer carries the raw secret.
+
+Built-in kinds covered by the default redactor:
+
+| Category | Kind | Matches |
+|---|---|---|
+| Cloud | `aws_access_key` | `AKIA…` (long-term IAM) and `ASIA…` (temporary STS) access key IDs |
+| Cloud | `gcp_oauth_client_secret` | `GOCSPX-…` GCP OAuth 2.0 client secrets |
+| Cloud | `google_api_key` | `AIza…` Firebase / Maps / Translate / Places keys |
+| Source forge | `github_pat` | Classic `ghp_`, `ghs_`, `gho_`, `ghu_`, `ghr_` personal-access tokens |
+| Source forge | `github_fine_grained_pat` | New `github_pat_…` fine-grained tokens (93 chars) |
+| Source forge | `gitlab_pat` | `glpat-…` GitLab personal-access tokens |
+| AI / ML | `anthropic_api_key` | `sk-ant-api…`, `sk-ant-sid…` Anthropic API keys |
+| AI / ML | `huggingface_token` | `hf_…` HuggingFace access tokens |
+| AI / ML | `openai_api_key` | `sk-…T3BlbkFJ…` (legacy) and `sk-proj-…`, `sk-svcacct-…`, `sk-admin-…` OpenAI keys |
+| Payments | `stripe_secret_key` | `sk_live_…`, `sk_test_…`, `rk_live_…`, `rk_test_…` |
+| Payments | `stripe_webhook_secret` | `whsec_…` webhook signing secrets |
+| Communication | `discord_bot_token` | `[MNO]…\.…\.…` bot tokens (3 dot-separated segments) |
+| Communication | `discord_webhook` | `https://discord.com/api/webhooks/…` webhook URLs |
+| Communication | `slack_token` | `xoxa-`, `xoxb-`, `xoxc-`, `xoxd-`, `xoxe-`, `xoxo-`, `xoxp-`, `xoxr-`, `xoxs-` |
+| Communication | `slack_webhook` | `https://hooks.slack.com/services/T…/B…/…` |
+| Email | `mailgun_api_key` | `key-…` Mailgun API keys |
+| Email | `sendgrid_api_key` | `SG.…` SendGrid API keys |
+| Packages | `npm_token` | `npm_…` registry tokens |
+| Packages | `pypi_token` | `pypi-AgEIcHlwaS5vcmc…` upload tokens |
+| Project mgmt | `linear_api_key` | `lin_api_…` Linear API keys |
+| Structural | `jwt` | `eyJ…\.eyJ…\.…` header.payload.signature triples |
+| Structural | `db_connection_string` | `postgres://`, `mysql://`, `mongodb://`, `redis://`, `amqp://`, `mssql://` URLs with embedded credentials |
+| Structural | `bearer_auth_header` | `Authorization: Bearer …` headers (case-insensitive) |
+| Structural | `basic_auth_url` | `http(s)://user:pass@host` URLs with HTTP basic auth credentials |
+| Structural | `private_key_block` | Full PEM-encoded `-----BEGIN … PRIVATE KEY-----` … `-----END …-----` blocks |
+| Structural | `env_secret_assignment` | `*_TOKEN=`, `*_KEY=`, `*_SECRET=`, `*_PASSWORD=`, `*_API_KEY=` style assignments |
+
+Two consequences worth pinning:
+
+- **Markers are visible.** An agent that accidentally writes `AKIAIOSFODNN7EXAMPLE` and later fetches the node will see `«redacted:aws_access_key»` in the content. Treat that as the signal: "I tried to memoize something the server categorically refuses to store verbatim."
+- **Redaction is idempotent.** `Scrub(Scrub(s)) == Scrub(s)`. The marker glyphs (`«»`) and lowercase kind names don't match any pattern, so re-scrubbing pre-redacted content is a no-op. Safe to call across compile + write paths without double-marking.
+
+There is **no bypass.** If a secret legitimately belongs in the store (a redacted-by-design placeholder, a public example), write the placeholder instead of the secret. Don't try to defeat the marker — the rule is "the store never sees the raw bytes," not "the store sees them if you ask nicely."
+
 ## MemoryWrite
 
 ### Create a new node
@@ -425,3 +467,5 @@ If a `.remindb.ignore` file lives at the source root, `MemoryCompile` (and the b
 - Don't `MemoryRollback` with `drop_after=true` to "tidy up" the snapshot list. The pruning is irreversible; if the goal is cosmetic, leave `drop_after=false` and accept the orphan branches — `MemoryHistory` and `MemoryDelta` already filter by node, so the visible noise per query is small.
 - Don't expect `MemoryRollback` to restore temperature, pinned state, or relations. It restores the snapshot-tracked node graph; sideband state stays current. If you need the rolled-back nodes pinned again, call `MemoryPin` after the rollback.
 - Don't ignore the "could not be fully restored" warning. Each skipped node means the rolled-back graph is missing content that existed at the target. Either accept the gap deliberately or recreate the nodes via `MemoryWrite`.
+- Don't rely on server-side redaction as the *primary* defense against pasting secrets. The redactor covers a fixed pattern set (AWS / GCP / Google keys, classic + fine-grained GitHub PATs, GitLab PATs, OpenAI / Anthropic / HuggingFace keys, Stripe keys + webhook secrets, Slack / Discord tokens + webhooks, SendGrid / Mailgun keys, npm / PyPI tokens, Linear keys, JWTs, DB connection strings with embedded creds, `Authorization: Bearer` headers, PEM blocks, `*_KEY=` / `*_SECRET=` assignments) — it will catch the obvious shapes, but a private API token with a custom format will pass through. If a payload might contain something you wouldn't paste into a public gist, treat the redactor as a backstop, not as authorization to paste it.
+- Don't try to encode a secret to slip past the redactor (base64, URL-encoded, split across whitespace, etc.). Even if it works, the resulting node carries the secret in a less searchable form — strictly worse than not memoizing it at all. If you need to record that a secret exists, write its *location* (the 1Password entry, the vault path) instead of the value.

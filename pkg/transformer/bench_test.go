@@ -51,7 +51,7 @@ func BenchmarkTransform(b *testing.B) {
 					n.ParentID = ""
 				}
 				b.StartTimer()
-				_ = Transform(context.Background(), nodes, "")
+				_ = Transform(context.Background(), nodes, "", nil)
 			}
 		})
 	}

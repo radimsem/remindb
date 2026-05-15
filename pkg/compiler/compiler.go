@@ -13,6 +13,7 @@ import (
 
 	"github.com/radimsem/remindb/internal/fileext"
 	"github.com/radimsem/remindb/internal/ignore"
+	"github.com/radimsem/remindb/internal/redaction"
 	"github.com/radimsem/remindb/internal/tempfile"
 	"github.com/radimsem/remindb/pkg/diff"
 	"github.com/radimsem/remindb/pkg/emitter"
@@ -38,6 +39,7 @@ type options struct {
 	temps       map[string]*float64
 	logger      *slog.Logger
 	ignore      *ignore.Matcher
+	redactor    *redaction.Redactor
 	ignoreSet   bool
 	fullRescan  bool
 	reseedTemps bool
@@ -76,6 +78,10 @@ func WithFullRescan() Option {
 
 func WithReseedTemperatures() Option {
 	return func(o *options) { o.reseedTemps = true }
+}
+
+func WithRedactor(r *redaction.Redactor) Option {
+	return func(o *options) { o.redactor = r }
 }
 
 func Compile(ctx context.Context, st *store.Store, opts ...Option) (*Result, error) {
@@ -137,7 +143,7 @@ func Compile(ctx context.Context, st *store.Store, opts ...Option) (*Result, err
 		roots = append(roots, nodes...)
 	}
 
-	if err := transformer.Transform(ctx, roots, o.compileRoot); err != nil {
+	if err := transformer.Transform(ctx, roots, o.compileRoot, o.redactor); err != nil {
 		return nil, fmt.Errorf("failed to transform: %w", err)
 	}
 
