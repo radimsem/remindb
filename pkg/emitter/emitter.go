@@ -4,6 +4,7 @@ package emitter
 import (
 	"context"
 	"database/sql"
+	"errors"
 	"fmt"
 
 	"github.com/radimsem/remindb/pkg/diff"
@@ -54,6 +55,11 @@ func Emit(ctx context.Context, st *store.Store, opts ...Option) error {
 	nodeMap := buildNodeMap(o.roots)
 
 	return st.Tx(ctx, func(tx *sql.Tx) error {
+		preState, err := capturePreState(ctx, st, tx, o.deltas)
+		if err != nil {
+			return err
+		}
+
 		for i := range o.deltas {
 			d := &o.deltas[i]
 
@@ -91,6 +97,10 @@ func Emit(ctx context.Context, st *store.Store, opts ...Option) error {
 				OldContent: d.OldContent,
 				NewContent: d.NewContent,
 			}
+
+			if pre, ok := preState[d.NodeID]; ok {
+				rec.SetOldMetadata(pre)
+			}
 			if err := st.InsertDiffTx(ctx, tx, rec); err != nil {
 				return fmt.Errorf("failed to insert: diff %s: %w", d.NodeID, err)
 			}
@@ -102,6 +112,27 @@ func Emit(ctx context.Context, st *store.Store, opts ...Option) error {
 
 		return nil
 	})
+}
+
+func capturePreState(ctx context.Context, st *store.Store, tx *sql.Tx, deltas []diff.Delta) (map[string]*store.Node, error) {
+	out := make(map[string]*store.Node, len(deltas))
+
+	for i := range deltas {
+		d := &deltas[i]
+		if d.Op == diff.OpAdd {
+			continue
+		}
+
+		n, err := st.GetNodeTx(ctx, tx, d.NodeID)
+		if err != nil {
+			if errors.Is(err, sql.ErrNoRows) {
+				continue
+			}
+			return nil, fmt.Errorf("failed to load: pre-state %s: %w", d.NodeID, err)
+		}
+		out[d.NodeID] = n
+	}
+	return out, nil
 }
 
 func buildNodeMap(roots []*parser.ContextNode) map[string]*parser.ContextNode {

@@ -3,6 +3,7 @@ package store
 import (
 	"context"
 	"database/sql"
+	"fmt"
 	"path/filepath"
 	"strings"
 	"sync"
@@ -92,6 +93,40 @@ func TestGetNodesByFile(t *testing.T) {
 	}
 }
 
+func TestGetNodesByIDs(t *testing.T) {
+	st := openTestDB(t)
+	ctx := context.Background()
+
+	must(t, st.UpsertNode(ctx, testNode("aaaaaaaa", "")))
+	must(t, st.UpsertNode(ctx, testNode("bbbbbbbb", "")))
+	must(t, st.UpsertNode(ctx, testNode("cccccccc", "")))
+
+	nodes, err := st.GetNodesByIDs(ctx, []string{"aaaaaaaa", "cccccccc", "missing0"})
+	if err != nil {
+		t.Fatalf("GetNodesByIDs: %v", err)
+	}
+	if len(nodes) != 2 {
+		t.Errorf("len = %d, want 2 (missing IDs silently dropped)", len(nodes))
+	}
+
+	got := make(map[string]bool, len(nodes))
+	for _, n := range nodes {
+		got[n.ID] = true
+	}
+
+	if !got["aaaaaaaa"] || !got["cccccccc"] {
+		t.Errorf("returned IDs = %v, want aaaaaaaa and cccccccc", got)
+	}
+
+	empty, err := st.GetNodesByIDs(ctx, nil)
+	if err != nil {
+		t.Fatalf("GetNodesByIDs(nil): %v", err)
+	}
+	if empty != nil {
+		t.Errorf("GetNodesByIDs(nil) = %v, want nil", empty)
+	}
+}
+
 func TestGetChildren(t *testing.T) {
 	st := openTestDB(t)
 	ctx := context.Background()
@@ -126,16 +161,144 @@ func TestGetAncestors(t *testing.T) {
 	}
 }
 
-func TestDeleteNode(t *testing.T) {
+func TestDeleteNode_Strict_Leaf(t *testing.T) {
 	st := openTestDB(t)
 	ctx := context.Background()
 
 	must(t, st.UpsertNode(ctx, testNode("aaaaaaaa", "")))
-	must(t, st.DeleteNode(ctx, "aaaaaaaa"))
 
-	_, err := st.GetNode(ctx, "aaaaaaaa")
-	if err == nil {
-		t.Errorf("expected error after delete")
+	affected, err := st.DeleteNode(ctx, "aaaaaaaa", DeleteStrict)
+	if err != nil {
+		t.Fatalf("DeleteNode: %v", err)
+	}
+	if len(affected) != 1 || affected[0] != "aaaaaaaa" {
+		t.Errorf("affected = %v, want [aaaaaaaa]", affected)
+	}
+
+	if _, err := st.GetNode(ctx, "aaaaaaaa"); err == nil {
+		t.Error("node still present after delete")
+	}
+}
+
+func TestDeleteNode_Strict_RejectsParent(t *testing.T) {
+	st := openTestDB(t)
+	ctx := context.Background()
+
+	must(t, st.UpsertNode(ctx, testNode("rootroor", "")))
+	must(t, st.UpsertNode(ctx, testNode("child001", "rootroor")))
+
+	if _, err := st.DeleteNode(ctx, "rootroor", DeleteStrict); err == nil {
+		t.Fatal("DeleteNode strict on parent: want error, got nil")
+	}
+
+	if _, err := st.GetNode(ctx, "rootroor"); err != nil {
+		t.Errorf("parent unexpectedly removed: %v", err)
+	}
+	if _, err := st.GetNode(ctx, "child001"); err != nil {
+		t.Errorf("child unexpectedly removed: %v", err)
+	}
+}
+
+func TestDeleteNode_Cascade_Subtree(t *testing.T) {
+	st := openTestDB(t)
+	ctx := context.Background()
+
+	must(t, st.UpsertNode(ctx, testNode("rootroor", "")))
+	must(t, st.UpsertNode(ctx, testNode("child001", "rootroor")))
+	must(t, st.UpsertNode(ctx, testNode("child002", "rootroor")))
+	must(t, st.UpsertNode(ctx, testNode("grandc01", "child001")))
+
+	affected, err := st.DeleteNode(ctx, "rootroor", DeleteCascade)
+	if err != nil {
+		t.Fatalf("DeleteNode: %v", err)
+	}
+
+	if len(affected) != 4 {
+		t.Errorf("affected = %v, want 4 IDs (root + 3 descendants)", affected)
+	}
+	if affected[0] != "rootroor" {
+		t.Errorf("affected[0] = %q, want rootroor (target first)", affected[0])
+	}
+
+	for _, id := range []string{"rootroor", "child001", "child002", "grandc01"} {
+		if _, err := st.GetNode(ctx, id); err == nil {
+			t.Errorf("node %s still present after cascade", id)
+		}
+	}
+}
+
+func TestDeleteNode_Reparent_WithGrandparent(t *testing.T) {
+	st := openTestDB(t)
+	ctx := context.Background()
+
+	must(t, st.UpsertNode(ctx, testNode("rootroor", "")))
+	must(t, st.UpsertNode(ctx, testNode("mid00001", "rootroor")))
+	must(t, st.UpsertNode(ctx, testNode("leaf0001", "mid00001")))
+	must(t, st.UpsertNode(ctx, testNode("leaf0002", "mid00001")))
+
+	affected, err := st.DeleteNode(ctx, "mid00001", DeleteReparent)
+	if err != nil {
+		t.Fatalf("DeleteNode: %v", err)
+	}
+
+	if len(affected) != 3 {
+		t.Errorf("affected = %v, want 3 IDs (mid + 2 children)", affected)
+	}
+	if affected[0] != "mid00001" {
+		t.Errorf("affected[0] = %q, want mid00001 (target first)", affected[0])
+	}
+
+	if _, err := st.GetNode(ctx, "mid00001"); err == nil {
+		t.Error("mid still present after reparent")
+	}
+
+	for _, id := range []string{"leaf0001", "leaf0002"} {
+		n, err := st.GetNode(ctx, id)
+		if err != nil {
+			t.Fatalf("child %s: %v", id, err)
+		}
+
+		if n.ParentID != "rootroor" {
+			t.Errorf("child %s parent = %q, want rootroor", id, n.ParentID)
+		}
+	}
+}
+
+func TestDeleteNode_Reparent_AtRoot(t *testing.T) {
+	st := openTestDB(t)
+	ctx := context.Background()
+
+	must(t, st.UpsertNode(ctx, testNode("rootroor", "")))
+	must(t, st.UpsertNode(ctx, testNode("child001", "rootroor")))
+	must(t, st.UpsertNode(ctx, testNode("child002", "rootroor")))
+
+	affected, err := st.DeleteNode(ctx, "rootroor", DeleteReparent)
+	if err != nil {
+		t.Fatalf("DeleteNode: %v", err)
+	}
+
+	if len(affected) != 3 {
+		t.Errorf("affected = %v, want 3 IDs (root + 2 children)", affected)
+	}
+
+	for _, id := range []string{"child001", "child002"} {
+		n, err := st.GetNode(ctx, id)
+		if err != nil {
+			t.Fatalf("child %s: %v", id, err)
+		}
+
+		if n.ParentID != "" {
+			t.Errorf("child %s parent = %q, want empty (promoted to root)", id, n.ParentID)
+		}
+	}
+}
+
+func TestDeleteNode_NotFound(t *testing.T) {
+	st := openTestDB(t)
+	ctx := context.Background()
+
+	if _, err := st.DeleteNode(ctx, "missing0", DeleteStrict); err == nil {
+		t.Fatal("DeleteNode missing: want error, got nil")
 	}
 }
 
@@ -559,6 +722,177 @@ func TestSearchRanked(t *testing.T) {
 	}
 }
 
+func TestPruneSnapshotsAfterTx_KeepsTargetAndExcluded(t *testing.T) {
+	st := openTestDB(t)
+	ctx := context.Background()
+
+	// Snapshots 1..4 chained normally (each parent_id points at the previous).
+	var ids [5]int64
+	for i := range 4 {
+		err := st.Tx(ctx, func(tx *sql.Tx) error {
+			cursor := fmt.Sprintf("csr%013d", i)
+			id, err := st.CreateSnapshotTx(ctx, tx, cursor, "m", "")
+			if err != nil {
+				return err
+			}
+
+			ids[i] = id
+			if err := st.InsertDiffTx(ctx, tx, &DiffRecord{
+				SnapshotID: id, NodeID: fmt.Sprintf("node%07d", i),
+				Op: "add", NewHash: "h", NewContent: "c",
+			}); err != nil {
+				return err
+			}
+
+			return st.AdvanceCursorTx(ctx, tx, id)
+		})
+		must(t, err)
+	}
+
+	err := st.Tx(ctx, func(tx *sql.Tx) error {
+		id, err := st.CreateSnapshotWithParentTx(ctx, tx, "csr000000005", "rollback to 1", "", ids[0])
+		if err != nil {
+			return err
+		}
+
+		ids[4] = id
+		return st.AdvanceCursorTx(ctx, tx, id)
+	})
+	must(t, err)
+
+	// Prune everything between ids[0] and HEAD except ids[4] (the rollback snap).
+	err = st.Tx(ctx, func(tx *sql.Tx) error {
+		n, err := st.PruneSnapshotsAfterTx(ctx, tx, ids[0], ids[4])
+		if err != nil {
+			return err
+		}
+
+		if n != 3 {
+			t.Errorf("pruned = %d, want 3 (snapshots between target and excluded)", n)
+		}
+		return nil
+	})
+	must(t, err)
+
+	remaining, err := st.ListSnapshots(ctx, 10)
+	must(t, err)
+	if len(remaining) != 2 {
+		t.Fatalf("remaining snapshots = %d, want 2 (target + excluded)", len(remaining))
+	}
+
+	gotIDs := []int64{remaining[0].ID, remaining[1].ID}
+	want := map[int64]bool{ids[0]: true, ids[4]: true}
+	for _, g := range gotIDs {
+		if !want[g] {
+			t.Errorf("unexpected surviving snapshot %d; want subset of %v", g, []int64{ids[0], ids[4]})
+		}
+	}
+
+	// Diffs for pruned snapshots must also be gone.
+	for _, prunedID := range []int64{ids[1], ids[2], ids[3]} {
+		diffs, err := st.GetDiffsBySnapshot(ctx, prunedID)
+		must(t, err)
+
+		if len(diffs) != 0 {
+			t.Errorf("diffs survived for pruned snapshot %d: %d rows", prunedID, len(diffs))
+		}
+	}
+}
+
+func TestRestoreToSnapshot_PreMigrationOpRem_ReportsSkipped(t *testing.T) {
+	st := openTestDB(t)
+	ctx := context.Background()
+
+	// Snap 1: empty baseline.
+	err := st.Tx(ctx, func(tx *sql.Tx) error {
+		id, err := st.CreateSnapshotTx(ctx, tx, "h0", "init", "")
+		if err != nil {
+			return err
+		}
+
+		return st.AdvanceCursorTx(ctx, tx, id)
+	})
+	must(t, err)
+
+	err = st.Tx(ctx, func(tx *sql.Tx) error {
+		id, err := st.CreateSnapshotTx(ctx, tx, "h1", "remX", "")
+		if err != nil {
+			return err
+		}
+
+		if err := st.InsertDiffTx(ctx, tx, &DiffRecord{
+			SnapshotID: id, NodeID: "premigrated", Op: "rem",
+			OldHash: "oldhash", OldContent: "old body",
+			// old_* metadata fields all sql.Null* zero-value (Valid=false) → NULL in DB.
+		}); err != nil {
+			return err
+		}
+
+		return st.AdvanceCursorTx(ctx, tx, id)
+	})
+	must(t, err)
+
+	res, err := st.RestoreToSnapshot(ctx, 1)
+	must(t, err)
+
+	if _, ok := res.Nodes["premigrated"]; ok {
+		t.Errorf("node restored despite NULL metadata; would silently lose parent_id/source_file/etc")
+	}
+	if len(res.Skipped) != 1 || res.Skipped[0].NodeID != "premigrated" {
+		t.Errorf("Skipped = %+v, want one entry for premigrated", res.Skipped)
+	}
+	if !strings.Contains(res.Skipped[0].Reason, "pre-migration") {
+		t.Errorf("reason = %q, want 'pre-migration' phrasing", res.Skipped[0].Reason)
+	}
+}
+
+func TestRestoreToSnapshot_RemovesPostTargetAdditions(t *testing.T) {
+	st := openTestDB(t)
+	ctx := context.Background()
+
+	// Snapshot 1: empty.
+	err := st.Tx(ctx, func(tx *sql.Tx) error {
+		id, err := st.CreateSnapshotTx(ctx, tx, "h0", "init", "")
+		if err != nil {
+			return err
+		}
+
+		return st.AdvanceCursorTx(ctx, tx, id)
+	})
+	must(t, err)
+
+	// Snapshot 2: add nodeA.
+	err = st.Tx(ctx, func(tx *sql.Tx) error {
+		if err := st.UpsertNodeTx(ctx, tx, testNode("aaaaaaaa", "")); err != nil {
+			return err
+		}
+
+		id, err := st.CreateSnapshotTx(ctx, tx, "h1", "addA", "")
+		if err != nil {
+			return err
+		}
+
+		if err := st.InsertDiffTx(ctx, tx, &DiffRecord{
+			SnapshotID: id, NodeID: "aaaaaaaa", Op: "add",
+			NewHash: "hashaaaaaaaa", NewContent: "content aaaaaaaa",
+		}); err != nil {
+			return err
+		}
+
+		return st.AdvanceCursorTx(ctx, tx, id)
+	})
+	must(t, err)
+
+	res, err := st.RestoreToSnapshot(ctx, 1)
+	must(t, err)
+	if _, ok := res.Nodes["aaaaaaaa"]; ok {
+		t.Errorf("target state contains nodeA, want it removed (was added after target)")
+	}
+	if len(res.Skipped) != 0 {
+		t.Errorf("unexpected skipped: %v", res.Skipped)
+	}
+}
+
 func TestGetDiffsBySnapshot(t *testing.T) {
 	st := openTestDB(t)
 	ctx := context.Background()
@@ -667,25 +1001,97 @@ func TestGetStats(t *testing.T) {
 	if stats.NodeCount != 0 {
 		t.Errorf("NodeCount = %d, want 0", stats.NodeCount)
 	}
+	if stats.MedianTemp != 0 {
+		t.Errorf("MedianTemp = %f, want 0 on empty DB", stats.MedianTemp)
+	}
 
 	// Add nodes with varying temperature.
 	must(t, st.UpsertNode(ctx, testNode("aaaaaaaa", "")))
 	must(t, st.UpdateTemperature(ctx, "aaaaaaaa", 0.8))
 	must(t, st.UpsertNode(ctx, testNode("bbbbbbbb", "")))
 	must(t, st.UpdateTemperature(ctx, "bbbbbbbb", 0.05))
+	must(t, st.UpsertNode(ctx, testNode("cccccccc", "")))
+	must(t, st.UpdateTemperature(ctx, "cccccccc", 0.4))
+	must(t, st.SetPinned(ctx, "aaaaaaaa", true, nil))
 
 	stats, err = st.GetStats(ctx)
 	if err != nil {
 		t.Fatalf("GetStats: %v", err)
 	}
-	if stats.NodeCount != 2 {
-		t.Errorf("NodeCount = %d, want 2", stats.NodeCount)
+	if stats.NodeCount != 3 {
+		t.Errorf("NodeCount = %d, want 3", stats.NodeCount)
 	}
 	if stats.HotCount != 1 {
 		t.Errorf("HotCount = %d, want 1", stats.HotCount)
 	}
 	if stats.ColdCount != 1 {
 		t.Errorf("ColdCount = %d, want 1", stats.ColdCount)
+	}
+	if stats.PinnedCount != 1 {
+		t.Errorf("PinnedCount = %d, want 1", stats.PinnedCount)
+	}
+	// testNode uses TokenCount=10; 3 nodes → 30.
+	if stats.TokenCountTotal != 30 {
+		t.Errorf("TokenCountTotal = %d, want 30", stats.TokenCountTotal)
+	}
+	// median of (0.05, 0.4, 0.8) = 0.4
+	if stats.MedianTemp < 0.39 || stats.MedianTemp > 0.41 {
+		t.Errorf("MedianTemp = %f, want ~0.4", stats.MedianTemp)
+	}
+	if stats.FTSRowCount != 3 {
+		t.Errorf("FTSRowCount = %d, want 3", stats.FTSRowCount)
+	}
+}
+
+func TestGetNodeCountsByType(t *testing.T) {
+	st := openTestDB(t)
+	ctx := context.Background()
+
+	n1 := testNode("aaaaaaaa", "")
+	n1.NodeType = "heading"
+	must(t, st.UpsertNode(ctx, n1))
+
+	n2 := testNode("bbbbbbbb", "")
+	n2.NodeType = "list"
+	must(t, st.UpsertNode(ctx, n2))
+
+	n3 := testNode("cccccccc", "")
+	n3.NodeType = "list"
+	must(t, st.UpsertNode(ctx, n3))
+
+	counts, err := st.GetNodeCountsByType(ctx)
+	if err != nil {
+		t.Fatalf("GetNodeCountsByType: %v", err)
+	}
+	if counts["heading"] != 1 {
+		t.Errorf("heading = %d, want 1", counts["heading"])
+	}
+	if counts["list"] != 2 {
+		t.Errorf("list = %d, want 2", counts["list"])
+	}
+}
+
+func TestGetRelationCountsByOrigin(t *testing.T) {
+	st := openTestDB(t)
+	ctx := context.Background()
+
+	must(t, st.UpsertNode(ctx, testNode("aaaaaaaa", "")))
+	must(t, st.UpsertNode(ctx, testNode("bbbbbbbb", "")))
+	must(t, st.UpsertNode(ctx, testNode("cccccccc", "")))
+
+	must(t, st.UpsertRelation(ctx, &Relation{SourceNodeID: "aaaaaaaa", TargetNodeID: "bbbbbbbb", Weight: 1.0, Origin: OriginParsed}))
+	must(t, st.UpsertRelation(ctx, &Relation{SourceNodeID: "aaaaaaaa", TargetNodeID: "cccccccc", Weight: 1.0, Origin: OriginManual}))
+	must(t, st.UpsertRelation(ctx, &Relation{SourceNodeID: "bbbbbbbb", TargetNodeID: "cccccccc", Weight: 1.0, Origin: OriginParsed}))
+
+	counts, err := st.GetRelationCountsByOrigin(ctx)
+	if err != nil {
+		t.Fatalf("GetRelationCountsByOrigin: %v", err)
+	}
+	if counts[OriginParsed] != 2 {
+		t.Errorf("parsed = %d, want 2", counts[OriginParsed])
+	}
+	if counts[OriginManual] != 1 {
+		t.Errorf("manual = %d, want 1", counts[OriginManual])
 	}
 }
 
@@ -949,5 +1355,115 @@ func TestGetNodesByCompileRoot_LatestSnapshotWins(t *testing.T) {
 	}
 	if len(bar) != 1 || bar[0].ID != "aaaaaaaa" {
 		t.Errorf("bar nodes = %+v, want [aaaaaaaa] (latest snapshot wins)", bar)
+	}
+}
+
+func TestSetPinned(t *testing.T) {
+	st := openTestDB(t)
+	ctx := context.Background()
+
+	must(t, st.UpsertNode(ctx, testNode("aaaaaaaa", "")))
+
+	got, err := st.GetNode(ctx, "aaaaaaaa")
+	if err != nil {
+		t.Fatalf("GetNode: %v", err)
+	}
+	if got.Pinned {
+		t.Error("Pinned = true on a fresh node, want false")
+	}
+
+	must(t, st.SetPinned(ctx, "aaaaaaaa", true, nil))
+
+	got, err = st.GetNode(ctx, "aaaaaaaa")
+	if err != nil {
+		t.Fatalf("GetNode: %v", err)
+	}
+	if !got.Pinned {
+		t.Error("Pinned = false after SetPinned(true)")
+	}
+
+	must(t, st.SetPinned(ctx, "aaaaaaaa", false, nil))
+
+	got, err = st.GetNode(ctx, "aaaaaaaa")
+	if err != nil {
+		t.Fatalf("GetNode: %v", err)
+	}
+	if got.Pinned {
+		t.Error("Pinned = true after SetPinned(false)")
+	}
+}
+
+func TestDecayTemperatures_SkipsPinned(t *testing.T) {
+	st := openTestDB(t)
+	ctx := context.Background()
+
+	must(t, st.UpsertNode(ctx, testNode("aaaaaaaa", "")))
+	must(t, st.UpsertNode(ctx, testNode("bbbbbbbb", "")))
+	must(t, st.UpdateTemperature(ctx, "aaaaaaaa", 0.8))
+	must(t, st.UpdateTemperature(ctx, "bbbbbbbb", 0.8))
+	must(t, st.SetPinned(ctx, "aaaaaaaa", true, nil))
+
+	affected, err := st.DecayTemperatures(ctx, 0.5)
+	if err != nil {
+		t.Fatalf("DecayTemperatures: %v", err)
+	}
+	if affected != 1 {
+		t.Errorf("affected = %d, want 1 (pinned row excluded)", affected)
+	}
+
+	a, _ := st.GetNode(ctx, "aaaaaaaa")
+	if a.Temperature != 0.8 {
+		t.Errorf("pinned Temperature = %f, want 0.8 (unchanged)", a.Temperature)
+	}
+
+	b, _ := st.GetNode(ctx, "bbbbbbbb")
+	if b.Temperature != 0.4 {
+		t.Errorf("unpinned Temperature = %f, want 0.4 (0.8 * 0.5)", b.Temperature)
+	}
+}
+
+func TestGetColdNodes_SkipsPinned(t *testing.T) {
+	st := openTestDB(t)
+	ctx := context.Background()
+
+	must(t, st.UpsertNode(ctx, testNode("aaaaaaaa", "")))
+	must(t, st.UpsertNode(ctx, testNode("bbbbbbbb", "")))
+	must(t, st.UpdateTemperature(ctx, "aaaaaaaa", 0.05))
+	must(t, st.UpdateTemperature(ctx, "bbbbbbbb", 0.05))
+	must(t, st.SetPinned(ctx, "aaaaaaaa", true, nil))
+
+	cold, err := st.GetColdNodes(ctx, 0.1, 50)
+	if err != nil {
+		t.Fatalf("GetColdNodes: %v", err)
+	}
+
+	if len(cold) != 1 {
+		t.Fatalf("cold = %d, want 1 (pinned row excluded)", len(cold))
+	}
+	if cold[0].ID != "bbbbbbbb" {
+		t.Errorf("cold[0].ID = %q, want bbbbbbbb (pinned aaaaaaaa excluded)", cold[0].ID)
+	}
+}
+
+func TestSetPinned_WithTemperatureOverride(t *testing.T) {
+	st := openTestDB(t)
+	ctx := context.Background()
+
+	must(t, st.UpsertNode(ctx, testNode("aaaaaaaa", "")))
+	must(t, st.UpdateTemperature(ctx, "aaaaaaaa", 0.2))
+
+	target := 0.9
+	must(t, st.SetPinned(ctx, "aaaaaaaa", true, &target))
+
+	got, err := st.GetNode(ctx, "aaaaaaaa")
+	if err != nil {
+		t.Fatalf("GetNode: %v", err)
+	}
+
+	if !got.Pinned {
+		t.Error("Pinned = false after SetPinned(true, &0.9)")
+	}
+	if got.Temperature != 0.9 {
+		t.Errorf("Temperature = %f, want 0.9 (override applied)", got.Temperature)
 	}
 }

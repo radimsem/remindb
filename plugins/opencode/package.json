@@ -1,6 +1,6 @@
 {
     "name": "@radimsem/remindb-opencode",
-    "version": "0.2.1",
+    "version": "0.3.1",
     "description": "OpenCode plugin that mounts the remindb MCP server as a workspace memory backend",
     "type": "module",
     "main": "plugin.ts",

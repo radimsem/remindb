@@ -11,6 +11,8 @@ import (
 type QueryStore interface {
 	GetNode(ctx context.Context, id string) (*store.Node, error)
 
+	GetNodesByIDs(ctx context.Context, ids []string) ([]*store.Node, error)
+
 	GetAncestors(ctx context.Context, id string) ([]*store.Node, error)
 
 	GetDescendants(ctx context.Context, id string, maxDepth int) ([]*store.Node, error)
@@ -20,6 +22,8 @@ type QueryStore interface {
 	SearchRanked(ctx context.Context, query string, limit int) ([]*store.RankedNode, error)
 
 	GetDiffsSince(ctx context.Context, sinceSnapshotID int64) ([]*store.DiffRecord, error)
+
+	GetDiffsBetween(ctx context.Context, fromSnapshotID, toSnapshotID int64) ([]*store.DiffRecord, error)
 }
 
 type Engine struct {
@@ -65,6 +69,52 @@ func (e *Engine) Fetch(ctx context.Context, anchor string, budget, depth int) (*
 	return &filled, nil
 }
 
+func (e *Engine) FetchBatch(ctx context.Context, ids []string, budget int) (*Result, []string, error) {
+	if len(ids) == 0 {
+		return &Result{}, nil, nil
+	}
+
+	nodes, err := e.store.GetNodesByIDs(ctx, ids)
+	if err != nil {
+		return nil, nil, err
+	}
+
+	byID := make(map[string]*store.Node, len(nodes))
+	for _, n := range nodes {
+		byID[n.ID] = n
+	}
+
+	now := time.Now()
+	ordered := make([]ScoredNode, 0, len(ids))
+	var missing []string
+	seen := make(map[string]bool, len(ids))
+
+	for _, id := range ids {
+		if seen[id] {
+			continue
+		}
+		seen[id] = true
+
+		n, ok := byID[id]
+		if !ok {
+			missing = append(missing, id)
+			continue
+		}
+		ordered = append(ordered, ScoredNode{Node: n, Score: scoreNode(n, 1.0, now)})
+	}
+
+	if budget <= 0 {
+		used := 0
+		for _, sn := range ordered {
+			used += sn.Node.TokenCount
+		}
+		return &Result{Nodes: ordered, TokensUsed: used}, missing, nil
+	}
+
+	filled := fillBudget(ordered, budget)
+	return &filled, missing, nil
+}
+
 func (e *Engine) Search(ctx context.Context, query string, budget int) (*Result, error) {
 	ranked, err := e.store.SearchRanked(ctx, query, searchLimit)
 	if err != nil {
@@ -83,4 +133,12 @@ func (e *Engine) Search(ctx context.Context, query string, budget int) (*Result,
 
 func (e *Engine) Delta(ctx context.Context, sinceSnapshot int64) ([]*store.DiffRecord, error) {
 	return e.store.GetDiffsSince(ctx, sinceSnapshot)
+}
+
+func (e *Engine) Diff(ctx context.Context, fromSnapshot, toSnapshot int64) ([]*store.DiffRecord, error) {
+	raw, err := e.store.GetDiffsBetween(ctx, fromSnapshot, toSnapshot)
+	if err != nil {
+		return nil, err
+	}
+	return consolidateDiffs(raw), nil
 }

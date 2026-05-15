@@ -5,14 +5,15 @@ const (
 	nodeColumns = `id, parent_id, source_file, node_type, depth,
 	label, content, format, token_count, content_hash,
 	temperature, access_count, last_accessed_at,
-	created_at, updated_at`
+	created_at, updated_at, pinned`
 
 	nodeColumnsAliased = `n.id, n.parent_id, n.source_file, n.node_type, n.depth,
 	n.label, n.content, n.format, n.token_count, n.content_hash,
 	n.temperature, n.access_count, n.last_accessed_at,
-	n.created_at, n.updated_at`
+	n.created_at, n.updated_at, n.pinned`
 
-	diffColumns = `snapshot_id, node_id, op, old_hash, new_hash, old_content, new_content`
+	diffColumns = `snapshot_id, node_id, op, old_hash, new_hash, old_content, new_content,
+	old_parent_id, old_source_file, old_node_type, old_depth, old_label, old_format, old_token_count`
 
 	snapshotColumns = `id, cursor_hash, parent_id, message, compile_root, created_at`
 )
@@ -25,6 +26,9 @@ const (
 
 	// IN clause is closed by the caller after appending placeholders.
 	qSelectNodesByFilesPrefix = `SELECT ` + nodeColumns + ` FROM nodes WHERE source_file IN (`
+
+	// IN clause is closed by the caller after appending placeholders.
+	qSelectNodesByIDsPrefix = `SELECT ` + nodeColumns + ` FROM nodes WHERE id IN (`
 
 	// Nodes whose most recent diffs entry was written under the given compile_root.
 	qSelectNodesByCompileRoot = `
@@ -110,6 +114,21 @@ const (
 	// IN clause is closed by the caller after appending placeholders.
 	qDeleteNodesByFilesPrefix = `DELETE FROM nodes WHERE source_file IN (`
 
+	qSelectParentID = `SELECT parent_id FROM nodes WHERE id = ?`
+
+	qSelectChildIDs = `SELECT id FROM nodes WHERE parent_id = ? ORDER BY id`
+
+	qSelectDescendantIDs = `
+		WITH RECURSIVE desc_ids(nid) AS (
+			SELECT id FROM nodes WHERE parent_id = ?
+			UNION ALL
+			SELECT n.id FROM nodes n
+			JOIN desc_ids d ON n.parent_id = d.nid
+		)
+		SELECT nid FROM desc_ids ORDER BY nid`
+
+	qReparentChildren = `UPDATE nodes SET parent_id = ?, updated_at = unixepoch() WHERE parent_id = ?`
+
 	qRewriteSourcePaths = `UPDATE nodes SET source_file = ? || substr(source_file, length(?) + 1)
 		WHERE source_file LIKE ? || '%'`
 )
@@ -124,8 +143,9 @@ const (
 		WHERE compile_root != ''
 		ORDER BY id DESC LIMIT 1`
 
-	qInsertDiff = `INSERT INTO diffs (snapshot_id, node_id, op, old_hash, new_hash, old_content, new_content)
-		VALUES (?, ?, ?, ?, ?, ?, ?)`
+	qInsertDiff = `INSERT INTO diffs (snapshot_id, node_id, op, old_hash, new_hash, old_content, new_content,
+		old_parent_id, old_source_file, old_node_type, old_depth, old_label, old_format, old_token_count)
+		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
 
 	qUpsertHeadCursor = `INSERT INTO cursors (id, snapshot_id) VALUES ('HEAD', ?)
 		ON CONFLICT(id) DO UPDATE SET snapshot_id = excluded.snapshot_id, updated_at = unixepoch()`
@@ -142,7 +162,17 @@ const (
 
 	qSelectDiffsSince = `SELECT ` + diffColumns + ` FROM diffs WHERE snapshot_id > ? ORDER BY snapshot_id, id`
 
+	qSelectDiffsBetween = `SELECT ` + diffColumns + ` FROM diffs
+		WHERE snapshot_id > ? AND snapshot_id <= ? ORDER BY snapshot_id, id`
+
 	qSelectDiffsForNode = `SELECT ` + diffColumns + ` FROM diffs WHERE node_id = ? ORDER BY snapshot_id`
+
+	qSelectDiffsAfter = `SELECT ` + diffColumns + ` FROM diffs WHERE snapshot_id > ?
+		ORDER BY snapshot_id DESC, id DESC`
+
+	qDeleteDiffsAfter = `DELETE FROM diffs WHERE snapshot_id > ? AND snapshot_id != ?`
+
+	qDeleteSnapshotsAfter = `DELETE FROM snapshots WHERE id > ? AND id != ?`
 )
 
 // search
@@ -165,12 +195,141 @@ const (
 )
 
 // stats
-const qSelectStats = `
-	SELECT count(*), coalesce(avg(temperature), 0),
-		coalesce(sum(temperature >= ?), 0),
-		coalesce(sum(temperature < ?), 0),
-		(SELECT count(*) FROM snapshots)
-	FROM nodes`
+const (
+	qSelectStats = `
+		SELECT
+			count(*),
+			coalesce(avg(temperature), 0),
+			coalesce((
+				SELECT temperature FROM nodes
+				ORDER BY temperature
+				LIMIT 1 OFFSET (SELECT count(*) / 2 FROM nodes)
+			), 0),
+			coalesce(sum(temperature >= ?), 0),
+			coalesce(sum(temperature < ?), 0),
+			coalesce(sum(pinned), 0),
+			coalesce(sum(token_count), 0),
+			(SELECT count(*) FROM snapshots),
+			(SELECT count(*) FROM nodes_fts),
+			(SELECT count(*) FROM pending_relations)
+		FROM nodes`
+
+	qSelectNodeCountsByType = `
+		SELECT node_type, count(*) FROM nodes
+		GROUP BY node_type
+		ORDER BY node_type`
+
+	qSelectRelationCountsByOrigin = `
+		SELECT origin, count(*) FROM relations
+		GROUP BY origin
+		ORDER BY origin`
+)
+
+// relations & pending_relations
+const (
+	pendingColumns = `id, source_node_id, target_label, target_source, target_id_hint,
+	weight, origin, created_at`
+
+	qUpsertRelation = `
+		INSERT INTO relations (source_node_id, target_node_id, weight, origin)
+		VALUES (?, ?, ?, ?)
+		ON CONFLICT(source_node_id, target_node_id, origin)
+		DO UPDATE SET weight = excluded.weight`
+
+	qInsertPendingRelation = `
+		INSERT INTO pending_relations (source_node_id, target_label, target_source, target_id_hint, weight, origin)
+		VALUES (?, ?, ?, ?, ?, ?)`
+
+	qDeletePendingByID = `DELETE FROM pending_relations WHERE id = ?`
+
+	qDeleteParsedPendingForSource = `
+		DELETE FROM pending_relations
+		WHERE source_node_id = ? AND origin = 'parsed'`
+
+	qSelectAllPendingRelations = `SELECT ` + pendingColumns + ` FROM pending_relations ORDER BY id`
+
+	qSelectPendingBySource = `SELECT ` + pendingColumns + ` FROM pending_relations WHERE source_node_id = ?`
+
+	qRelatedOut = `
+		WITH RECURSIVE walk(target, hop, path_weight) AS (
+			SELECT target_node_id, 1, weight FROM relations
+			WHERE source_node_id = ? AND weight >= ?
+			UNION ALL
+			SELECT r.target_node_id, w.hop + 1, w.path_weight + r.weight
+			FROM walk w
+			JOIN relations r ON r.source_node_id = w.target
+			WHERE w.hop < ? AND r.weight >= ?
+		)
+		SELECT ` + nodeColumnsAliased + `, MIN(w.hop), MAX(w.path_weight)
+		FROM walk w
+		JOIN nodes n ON n.id = w.target
+		WHERE w.target != ?
+		GROUP BY n.id
+		ORDER BY MAX(w.path_weight) DESC, n.temperature DESC
+		LIMIT ?`
+
+	qRelatedIn = `
+		WITH RECURSIVE walk(src, hop, path_weight) AS (
+			SELECT source_node_id, 1, weight FROM relations
+			WHERE target_node_id = ? AND weight >= ?
+			UNION ALL
+			SELECT r.source_node_id, w.hop + 1, w.path_weight + r.weight
+			FROM walk w
+			JOIN relations r ON r.target_node_id = w.src
+			WHERE w.hop < ? AND r.weight >= ?
+		)
+		SELECT ` + nodeColumnsAliased + `, MIN(w.hop), MAX(w.path_weight)
+		FROM walk w
+		JOIN nodes n ON n.id = w.src
+		WHERE w.src != ?
+		GROUP BY n.id
+		ORDER BY MAX(w.path_weight) DESC, n.temperature DESC
+		LIMIT ?`
+
+	qFindHeadingByLabel = `
+		SELECT id FROM nodes
+		WHERE node_type = 'heading' AND LOWER(TRIM(label)) = LOWER(TRIM(?))
+		ORDER BY source_file ASC, depth ASC, id ASC
+		LIMIT 1`
+
+	qFindHeadingByLabelInFile = `
+		SELECT id FROM nodes
+		WHERE node_type = 'heading'
+		  AND (source_file = ? OR source_file LIKE '%/' || ?)
+		  AND LOWER(TRIM(label)) = LOWER(TRIM(?))
+		ORDER BY depth ASC, id ASC
+		LIMIT 1`
+
+	qRelatedBoth = `
+		WITH RECURSIVE
+		out_walk(nid, hop, path_weight) AS (
+			SELECT target_node_id, 1, weight FROM relations
+			WHERE source_node_id = ? AND weight >= ?
+			UNION ALL
+			SELECT r.target_node_id, w.hop + 1, w.path_weight + r.weight
+			FROM out_walk w
+			JOIN relations r ON r.source_node_id = w.nid
+			WHERE w.hop < ? AND r.weight >= ?
+		),
+		in_walk(nid, hop, path_weight) AS (
+			SELECT source_node_id, 1, weight FROM relations
+			WHERE target_node_id = ? AND weight >= ?
+			UNION ALL
+			SELECT r.source_node_id, w.hop + 1, w.path_weight + r.weight
+			FROM in_walk w
+			JOIN relations r ON r.target_node_id = w.nid
+			WHERE w.hop < ? AND r.weight >= ?
+		)
+		SELECT ` + nodeColumnsAliased + `, MIN(c.hop), MAX(c.path_weight)
+		FROM (SELECT nid, hop, path_weight FROM out_walk
+			  UNION ALL
+			  SELECT nid, hop, path_weight FROM in_walk) c
+		JOIN nodes n ON n.id = c.nid
+		WHERE c.nid != ?
+		GROUP BY n.id
+		ORDER BY MAX(c.path_weight) DESC, n.temperature DESC
+		LIMIT ?`
+)
 
 // temperature
 const (
@@ -189,9 +348,13 @@ const (
 		WHERE id IN (`
 
 	qDecayTemperatures = `UPDATE nodes SET temperature = max(0.0, min(1.0, temperature * ?)), updated_at = unixepoch()
-		WHERE temperature > 0`
+		WHERE temperature > 0 AND pinned = 0`
 
-	qSelectColdNodes = `SELECT ` + nodeColumns + ` FROM nodes WHERE temperature < ? ORDER BY temperature ASC LIMIT ?`
+	qSelectColdNodes = `SELECT ` + nodeColumns + ` FROM nodes
+		WHERE temperature < ? AND pinned = 0
+		ORDER BY temperature ASC LIMIT ?`
+
+	qSetPinned = `UPDATE nodes SET pinned = ?, updated_at = unixepoch() WHERE id = ?`
 
 	// IN clause is closed by the caller after appending placeholders.
 	qResetTemperaturesByFilesPrefix = `UPDATE nodes SET temperature = ?, updated_at = unixepoch()

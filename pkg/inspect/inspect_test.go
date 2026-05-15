@@ -1,0 +1,157 @@
+package inspect_test
+
+import (
+	"context"
+	"strings"
+	"testing"
+
+	"github.com/radimsem/remindb/pkg/inspect"
+	"github.com/radimsem/remindb/pkg/store"
+)
+
+func openTestStore(t *testing.T) *store.Store {
+	t.Helper()
+
+	st, err := store.Open(":memory:")
+	if err != nil {
+		t.Fatalf("Open: %v", err)
+	}
+
+	if err := st.Migrate(context.Background()); err != nil {
+		t.Fatalf("Migrate: %v", err)
+	}
+
+	t.Cleanup(func() { _ = st.Close() })
+	return st
+}
+
+func testNode(id, parent, nodeType string) *store.Node {
+	return &store.Node{
+		ID: id, ParentID: parent,
+		SourceFile: "test.md", NodeType: nodeType, Depth: 1,
+		Label: "label " + id, Content: "content " + id,
+		Format: "plain", TokenCount: 10, ContentHash: "hash" + id,
+	}
+}
+
+func TestCollect_Empty(t *testing.T) {
+	st := openTestStore(t)
+	ctx := context.Background()
+
+	s, err := inspect.Collect(ctx, st)
+	if err != nil {
+		t.Fatalf("Collect: %v", err)
+	}
+
+	if s.NodeCount != 0 {
+		t.Errorf("NodeCount = %d, want 0", s.NodeCount)
+	}
+	if s.Latest != nil {
+		t.Errorf("Latest = %+v, want nil", s.Latest)
+	}
+}
+
+func TestCollect_PopulatesAllFields(t *testing.T) {
+	st := openTestStore(t)
+	ctx := context.Background()
+
+	n1 := testNode("aaaaaaaa", "", "heading")
+	n2 := testNode("bbbbbbbb", "", "list")
+	n3 := testNode("cccccccc", "", "list")
+	for _, n := range []*store.Node{n1, n2, n3} {
+		if err := st.UpsertNode(ctx, n); err != nil {
+			t.Fatalf("UpsertNode: %v", err)
+		}
+	}
+
+	if err := st.UpdateTemperature(ctx, "aaaaaaaa", 0.8); err != nil {
+		t.Fatalf("UpdateTemperature: %v", err)
+	}
+	if err := st.SetPinned(ctx, "aaaaaaaa", true, nil); err != nil {
+		t.Fatalf("SetPinned: %v", err)
+	}
+
+	if err := st.UpsertRelation(ctx, &store.Relation{
+		SourceNodeID: "aaaaaaaa", TargetNodeID: "bbbbbbbb",
+		Weight: 1.0, Origin: store.OriginParsed,
+	}); err != nil {
+		t.Fatalf("UpsertRelation: %v", err)
+	}
+	if err := st.UpsertRelation(ctx, &store.Relation{
+		SourceNodeID: "aaaaaaaa", TargetNodeID: "cccccccc",
+		Weight: 1.0, Origin: store.OriginManual,
+	}); err != nil {
+		t.Fatalf("UpsertRelation: %v", err)
+	}
+
+	s, err := inspect.Collect(ctx, st)
+	if err != nil {
+		t.Fatalf("Collect: %v", err)
+	}
+
+	if s.NodeCount != 3 {
+		t.Errorf("NodeCount = %d, want 3", s.NodeCount)
+	}
+	if s.NodeCountsByType["heading"] != 1 || s.NodeCountsByType["list"] != 2 {
+		t.Errorf("NodeCountsByType = %v, want heading:1 list:2", s.NodeCountsByType)
+	}
+	if s.PinnedCount != 1 {
+		t.Errorf("PinnedCount = %d, want 1", s.PinnedCount)
+	}
+	if s.RelationCount != 2 {
+		t.Errorf("RelationCount = %d, want 2", s.RelationCount)
+	}
+	if s.RelationsByOrigin[store.OriginParsed] != 1 || s.RelationsByOrigin[store.OriginManual] != 1 {
+		t.Errorf("RelationsByOrigin = %v, want parsed:1 manual:1", s.RelationsByOrigin)
+	}
+	if s.TokenCountTotal != 30 {
+		t.Errorf("TokenCountTotal = %d, want 30", s.TokenCountTotal)
+	}
+	if s.FTSRowCount != 3 {
+		t.Errorf("FTSRowCount = %d, want 3", s.FTSRowCount)
+	}
+}
+
+func TestFormat_TreeBranches(t *testing.T) {
+	s := &inspect.Stats{
+		DBPath:        ":memory:",
+		NodeCount:     12,
+		SnapshotCount: 0,
+		HotCount:      4,
+		ColdCount:     2,
+		PinnedCount:   1,
+		NodeCountsByType: map[string]int{
+			"heading": 7,
+			"list":    5,
+		},
+		RelationCount: 3,
+		RelationsByOrigin: map[string]int{
+			store.OriginParsed: 2,
+			store.OriginManual: 1,
+		},
+		TokenCountTotal: 100,
+		FTSRowCount:     12,
+	}
+
+	out := inspect.Format(s)
+
+	for _, want := range []string{
+		"Database: :memory:",
+		"Nodes:",
+		"12 (100 tokens)",
+		"heading:",
+		"list:",
+		"Relations:",
+		store.OriginManual + ":",
+		store.OriginParsed + ":",
+		"pinned:",
+	} {
+		if !strings.Contains(out, want) {
+			t.Errorf("Format missing %q in:\n%s", want, out)
+		}
+	}
+
+	if !strings.Contains(out, "├─") || !strings.Contains(out, "└─") {
+		t.Errorf("Format missing tree glyphs in:\n%s", out)
+	}
+}

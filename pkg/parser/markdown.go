@@ -43,6 +43,7 @@ func parseMarkdown(path string, data []byte) ([]*ContextNode, error) {
 		if err != nil {
 			return nil, err
 		}
+
 		if pn != nil {
 			out = append(out, pn)
 		}
@@ -57,12 +58,13 @@ func parseMarkdown(path string, data []byte) ([]*ContextNode, error) {
 	for _, child := range doc.GetChildren() {
 		switch block := child.(type) {
 		case *ast.Heading:
-			content := extractText(block)
+			content, refs := extractText(block)
 			n := &ContextNode{
-				SourceFile: path,
-				NodeType:   NodeHeading,
-				Content:    content,
-				Format:     FormatPlain,
+				SourceFile:   path,
+				NodeType:     NodeHeading,
+				Content:      content,
+				Format:       FormatPlain,
+				WikilinkRefs: refs,
 			}
 
 			stack = popSections(stack, block.Level)
@@ -87,6 +89,7 @@ func nodeFromBlock(path string, n ast.Node) *ContextNode {
 		if lang := strings.TrimSpace(string(b.Info)); lang != "" {
 			content = lang + "\n" + content
 		}
+
 		content = strings.TrimRight(content, "\n")
 		if content == "" {
 			return nil
@@ -94,18 +97,18 @@ func nodeFromBlock(path string, n ast.Node) *ContextNode {
 		return &ContextNode{SourceFile: path, NodeType: NodeCode, Content: content, Format: FormatPlain}
 
 	case *ast.List:
-		content := extractListText(b)
+		content, refs := extractListText(b)
 		if content == "" {
 			return nil
 		}
-		return &ContextNode{SourceFile: path, NodeType: NodeList, Content: content, Format: FormatPlain}
+		return &ContextNode{SourceFile: path, NodeType: NodeList, Content: content, Format: FormatPlain, WikilinkRefs: refs}
 
 	case *ast.Table:
-		content := extractTableText(b)
+		content, refs := extractTableText(b)
 		if content == "" {
 			return nil
 		}
-		return &ContextNode{SourceFile: path, NodeType: NodeTable, Content: content, Format: FormatPlain}
+		return &ContextNode{SourceFile: path, NodeType: NodeTable, Content: content, Format: FormatPlain, WikilinkRefs: refs}
 
 	case *ast.HTMLBlock:
 		content := strings.TrimSpace(string(b.Literal))
@@ -118,22 +121,25 @@ func nodeFromBlock(path string, n ast.Node) *ContextNode {
 		return nil
 
 	default:
-		content := extractText(b)
+		content, refs := extractText(b)
 		if content == "" {
 			return nil
 		}
-		return &ContextNode{SourceFile: path, NodeType: NodeText, Content: content, Format: FormatPlain}
+		return &ContextNode{SourceFile: path, NodeType: NodeText, Content: content, Format: FormatPlain, WikilinkRefs: refs}
 	}
 }
 
-// Concatenate visible text inside n, round-tripping links/images as `[text](dest)` / `![alt](dest)`.
-func extractText(n ast.Node) string {
+func extractText(n ast.Node) (string, []WikilinkRef) {
 	var sb strings.Builder
+	var refs []WikilinkRef
+
 	ast.WalkFunc(n, func(node ast.Node, entering bool) ast.WalkStatus {
 		switch t := node.(type) {
 		case *ast.Text:
 			if entering {
-				sb.Write(t.Literal)
+				rewritten, r := ExtractWikilinks(string(t.Literal))
+				sb.WriteString(rewritten)
+				refs = append(refs, r...)
 			}
 		case *ast.Code:
 			if entering {
@@ -162,7 +168,7 @@ func extractText(n ast.Node) string {
 		}
 		return ast.GoToNext
 	})
-	return strings.TrimSpace(sb.String())
+	return strings.TrimSpace(sb.String()), refs
 }
 
 func writeLinkTail(sb *strings.Builder, dest, title []byte) {
@@ -178,22 +184,27 @@ func writeLinkTail(sb *strings.Builder, dest, title []byte) {
 }
 
 // Render each top-level list item as one "- text" line, flattening nested items.
-func extractListText(list *ast.List) string {
+func extractListText(list *ast.List) (string, []WikilinkRef) {
 	var lines []string
+	var refs []WikilinkRef
+
 	for _, item := range list.GetChildren() {
-		text := extractText(item)
+		text, r := extractText(item)
 		if text == "" {
 			continue
 		}
-		line := "- " + text
-		lines = append(lines, line)
+
+		lines = append(lines, "- "+text)
+		refs = append(refs, r...)
 	}
-	return strings.Join(lines, "\n")
+	return strings.Join(lines, "\n"), refs
 }
 
 // Render a table as tab-separated rows, header first.
-func extractTableText(tbl *ast.Table) string {
+func extractTableText(tbl *ast.Table) (string, []WikilinkRef) {
 	var rows []string
+	var refs []WikilinkRef
+
 	ast.WalkFunc(tbl, func(node ast.Node, entering bool) ast.WalkStatus {
 		if !entering {
 			return ast.GoToNext
@@ -202,12 +213,16 @@ func extractTableText(tbl *ast.Table) string {
 		if !ok {
 			return ast.GoToNext
 		}
+
 		cells := make([]string, 0, len(row.GetChildren()))
 		for _, cell := range row.GetChildren() {
-			cells = append(cells, extractText(cell))
+			text, r := extractText(cell)
+			cells = append(cells, text)
+			refs = append(refs, r...)
 		}
+
 		rows = append(rows, strings.Join(cells, "\t"))
 		return ast.SkipChildren
 	})
-	return strings.Join(rows, "\n")
+	return strings.Join(rows, "\n"), refs
 }

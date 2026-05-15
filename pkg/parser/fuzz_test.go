@@ -58,6 +58,45 @@ func FuzzParseBytes(f *testing.F) {
 	})
 }
 
+func FuzzExtractWikilinks(f *testing.F) {
+	f.Add("[[Architecture]]")
+	f.Add("[[X; w=1.5]]")
+	f.Add("[[X; w=not-a-number]]")
+	f.Add("[[X; w=1; source=docs/x.md; id=3kGXxidmWBp]]")
+	f.Add("[[]]")
+	f.Add("[[ ]]")
+	f.Add("[[X; ]]")
+	f.Add("[[X; =empty]]")
+	f.Add("[[a]] and [[b]]")
+	f.Add("[[a [[ nested ]]")
+	f.Add("[[[X]]]")
+	f.Add("no links here")
+	f.Add("[[3kGXxidmWBp]]")
+	f.Add("[[What; why; how]]")
+	f.Add("")
+	f.Add("[[")
+	f.Add("]]")
+	f.Add("[[\x00\xff\xfe]]")
+	f.Add("[[" + string(make([]byte, 4096)) + "]]")
+
+	f.Fuzz(func(t *testing.T, in string) {
+		// Must never panic, must always return well-formed output.
+		out, refs := ExtractWikilinks(in)
+
+		for i, r := range refs {
+			if r.Label == "" {
+				t.Errorf("ref[%d] has empty Label: in=%q out=%q refs=%+v", i, in, out, refs)
+			}
+		}
+
+		// Idempotence: extracting from the rewritten output must not change it.
+		out2, _ := ExtractWikilinks(out)
+		if out != out2 {
+			t.Errorf("not idempotent: in=%q first=%q second=%q", in, out, out2)
+		}
+	})
+}
+
 func FuzzSplitPreamble(f *testing.F) {
 	f.Add([]byte("---\nkey: val\n---\n# body"))
 	f.Add([]byte("+++\ntitle = \"t\"\n+++\nbody"))

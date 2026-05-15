@@ -1,12 +1,13 @@
 ---
-description: Read memory from a remindb MCP server — orient, search, fetch, resync. Covers the node/snapshot/temperature model and FTS5 query syntax. Pair with `memoize` for writes.
+name: remind
+description: Read memory from a remindb MCP server — orient, search, fetch (single or batched), resync, traverse the relations graph, inspect DB health. Covers the node/snapshot/temperature/relations model and FTS5 query syntax. Pair with `memoize` for writes.
 ---
 
 # Remind — read from remindb so you don't re-grep
 
-remindb is a compiled SQLite view of a workspace, served over MCP as eight `Memory*` tools. It's long-term memory for your session — call it instead of re-reading files or grepping.
+remindb is a compiled SQLite view of a workspace, served over MCP as sixteen `Memory*` tools. It's long-term memory for your session — call it instead of re-reading files or grepping.
 
-This skill covers the **read path** and the shared mental model. For *writing* memory (authoring payloads, updating nodes, summarizing cold nodes, recompiling source), pair this with the **`memoize`** skill — it owns `MemoryWrite`, `MemorySummarize`, and `MemoryCompile` plus the Markdown-shape rules that determine how well your writes index.
+This skill covers the **read path** (`MemoryTree`, `MemorySearch`, `MemoryFetch`, `MemoryFetchBatch`, `MemoryDelta`, `MemoryDiff`, `MemoryHistory`, `MemoryRelated`, `MemoryStats`) and the shared mental model. For *writing* memory (authoring payloads, updating nodes, removing nodes, summarizing cold nodes, recompiling source, creating manual edges, pinning), pair this with the **`memoize`** skill — it owns `MemoryWrite`, `MemoryForget`, `MemorySummarize`, `MemoryCompile`, `MemoryRelate`, `MemoryPin`, and `MemoryUnpin` plus the Markdown-shape rules that determine how well your writes index.
 
 ## Mental model
 
@@ -29,7 +30,26 @@ Every `MemoryCompile` or `MemoryWrite` creates a **snapshot** — a row with an 
 
 ### Diffs
 
-Every snapshot carries per-node diffs: `add`, `mod`, or `rem`, with old and new content preserved. `MemoryDelta` is how you read diffs since a known snapshot; `MemoryHistory` is how you read the diff trail for one specific node.
+Every snapshot carries per-node diffs: `add`, `mod`, or `rem`, with old and new content preserved. `MemoryDelta` is how you read diffs since a known snapshot (always anchored at HEAD on the upper bound); `MemoryDiff` is how you read diffs between two arbitrary snapshots (point-in-time comparison, git-diff-style hunks); `MemoryHistory` is how you read the diff trail for one specific node.
+
+**Structural-only mods.** A `mod` entry whose `old_hash == new_hash` means the node's *content* didn't change but its position in the tree did. The most common producer is `MemoryForget` with `mode=reparent`, which deletes a node and rewires its children to the deleted node's parent — each rewired child shows up as a content-identical mod alongside the target's `rem`. If you're walking a delta and a mod surprises you with `old_content == new_content`, look for a same-snapshot rem to find the node whose deletion moved this one structurally.
+
+### Relations — the graph layer
+
+Beyond the parent/child tree, nodes can be connected by **directed weighted edges**: the relations graph. Two row kinds:
+
+- **Resolved edges** — `source → target` between two real node IDs. Created either by the parser (when source content contains a `[[Label]]` wiki-link) or by `MemoryRelate` (a `memoize`-side write tool).
+- **Pending edges** — the target couldn't be resolved at compile time (forward reference, label typo, target not yet compiled). Stored with the unresolved hint and retried on every subsequent compile.
+
+Edge fields:
+
+- `weight` (`REAL`, default `1.0`) — authored via `[[Label; w=2.5]]`. **Higher weight = more important connection.** Used to rank `MemoryRelated` output and as a `weight_min` filter. Not yet folded into `MemorySearch` ranking.
+- `origin` — `parsed` (from `[[Label]]` markers) or `manual` (from `MemoryRelate`). Both can coexist for the same pair — `UNIQUE(source, target, origin)`.
+- Direction is one-way (Obsidian-style). Backlinks are queryable as `direction=in`.
+
+**Relations don't appear in `MemoryDelta` / `MemoryHistory`.** The graph is a sideband — only node content changes show up in the diff trail, and `MemoryRelate` deliberately does not snapshot. To see the current state of the graph, call `MemoryRelated`.
+
+When a target node is deleted, all incoming edges move from resolved back to pending (with the deleted node's label preserved). If a same-label heading reappears later, the next compile re-resolves it — edges self-heal.
 
 ### Ranking
 
@@ -127,7 +147,7 @@ query: "rate AND limiter AND redis"
   → passed through, requires all three
 ```
 
-## The three read patterns
+## The four read patterns
 
 ### 1. Orient: tree first, always
 
@@ -140,7 +160,7 @@ remindb__MemoryTree(root="<node_id>", depth=3)    # zoom into a subtree
 
 Returns a typed, labeled hierarchy with temperatures and token counts. Scan it to pick where to look next. Temperatures tell you what has been read recently — follow hot branches first. Default depth is 5; raise it only when shallow didn't reveal the anchor you need.
 
-### 2. Look up: MemorySearch, then MemoryFetch
+### 2. Look up: MemorySearch, then MemoryFetch or MemoryFetchBatch
 
 Never grep. `MemorySearch` returns ranked anchors under a token budget; `MemoryFetch` expands a single anchor with its ancestors and children.
 
@@ -151,9 +171,20 @@ context = remindb__MemoryFetch(anchor=hits[0].id, budget=500, depth=32)
 
 `MemoryFetch`'s `depth` controls how many levels of descendants are included (1–128, default 32). Leave at default unless you know the subtree is huge.
 
-### 3. Resync: MemoryDelta
+When you need the **content of N hits at once** — typically every result row from `MemorySearch`, `MemoryTree`, or `MemoryDelta` — use `MemoryFetchBatch` instead of fanning out N `MemoryFetch` calls. One round-trip, one shared token budget, no per-call framing tax.
 
-When resuming a session or after external writes, use the last snapshot `id` you saw to get only what changed:
+```
+hits = remindb__MemorySearch(query="auth middleware", budget=500)
+bulk = remindb__MemoryFetchBatch(node_ids=[h.id for h in hits], budget=2000)
+```
+
+`MemoryFetchBatch` returns the kept nodes in input order, then an inline `not found: id1, id2, ...` marker for IDs that don't exist and an `over budget: id1, ...` marker for IDs that were found but didn't fit. A single bad ID never poisons the batch. Hard cap: 256 IDs per call; `budget=0` (omitted) means unlimited. It does **not** include ancestors or children — for graph context use `MemoryFetch` per anchor.
+
+### 3. Resync and compare: MemoryDelta / MemoryDiff
+
+Two range-of-snapshots tools, picked by which end of the range is fixed.
+
+**`MemoryDelta`** answers "what changed since X?" — always anchored at HEAD on the upper bound. Use it when resuming a session or after external writes; pass the last snapshot `id` you saw:
 
 ```
 remindb__MemoryDelta(since_snapshot=42)    # snapshot ID (int64), not cursor_hash
@@ -161,6 +192,53 @@ remindb__MemoryDelta(since_snapshot=0)     # all changes ever (rarely what you w
 ```
 
 Returns a list of `[op] node_id (snapshot N)` lines. Fetch the specific nodes you care about if you need content. `since_snapshot=0` returns every diff in history — expensive. Keep the last snapshot id from a prior tree/search/write result.
+
+**`MemoryDiff`** answers "what changed between X and Y?" — both ends fixed. Think `git diff X Y`: it compares the **state of the world at X** against the **state of the world at Y**, not the per-snapshot event log between them. Use it for forensic comparisons (rollback target vs result, yesterday's compile vs today's). Lower bound is exclusive, upper bound is inclusive:
+
+```
+remindb__MemoryDiff(from_snapshot_id=40, to_snapshot_id=42)   # state(40) → state(42)
+```
+
+Returns one git-diff-style block per **changed node** — intermediate jitter (a `mod → mod → mod` chain on the same node, or an `add → mod`) collapses into a single record showing only the net change. Each block is `[op] node_id` followed by unified-diff hunks (`@@ -L,N +L,M @@` with `-`/`+`/context lines). For `add` every body line is `+`; for `rem` every line is `-`; for `mod` you get the Myers line-level diff. Nodes that ended in the same state they started in (added-then-removed, oscillated back) are dropped silently — matches `git diff X Y` behavior. Reject path: `from > to` returns a validation error; `from == to` returns `no changes`.
+
+### 4. Traverse: MemoryRelated
+
+When fetched content shows a `[[Label]]` marker, that's an authored cross-reference — the source called this content "related to" something else. Call `MemoryRelated` to surface the linked context:
+
+```
+remindb__MemoryRelated(anchor="<node_id>", direction="out", depth=1)
+remindb__MemoryRelated(anchor="<node_id>", direction="both", depth=2, weight_min=1.5)
+```
+
+- `direction` — `out` (forward edges from anchor), `in` (backlinks), or `both` (default).
+- `depth` — hops 1–5 (default 1). Higher depth surfaces transitive connections.
+- `weight_min` — drop edges below this importance (default 0). Set to `1.0` to ignore weak/tentative links.
+- `budget` — token cap on the response (default 1000).
+
+Results rank by **summed path weight** (each hop's edge weight adds up; the heaviest path to each target wins), then by node temperature. A direct edge with `w=2.5` beats a 2-hop chain of `1+1`; a 2-hop chain of `1.5+2.0` (path weight 3.5) wins over both. Each row shows `hop=N` for the shortest path and `weight=N.N` for that path's accumulated weight. Surfaced target nodes get a temperature boost (same as `MemorySearch` results).
+
+## Health check: MemoryStats
+
+When you need to sanity-check the database — fresh session, suspicious search results, before a `MemoryCompile` — call `MemoryStats` for a one-call summary:
+
+```
+remindb__MemoryStats()
+```
+
+Returns a plain-text block: DB path + on-disk size, total node count with per-`node_type` breakdown as tree branches, total token count, snapshot count + latest snapshot id/age/cursor, temperature spread (avg, median, hot, cold, pinned), relation count with per-`origin` breakdown (`parsed`, `manual`, plus `pending` when non-zero), and the FTS5 row count. The per-category counts hang off the total root for the same unit:
+
+```
+Nodes:             42 (1280 tokens)
+    ├─ heading:    17
+    ├─ list:       12
+    └─ text:       13
+Relations:         8
+    ├─ manual:     2
+    ├─ parsed:     5
+    └─ pending:    1
+```
+
+`MemoryStats` is read-only — no `OpMu`, no temperature boost, no payload attrs in the call log. Use it freely; the cost is one cheap query roundtrip.
 
 ## Inspect history before rewriting
 
@@ -174,11 +252,12 @@ Returns snapshot-ordered `add`/`mod`/`rem` entries with truncated old and new co
 
 ## Handing off to `memoize`
 
-This skill stops where mutation begins. Three triggers send you to `memoize`:
+This skill stops where mutation begins. Four triggers send you to `memoize`:
 
 - **The user asks you to remember, save, or note something.** → `memoize` for `MemoryWrite` and the Markdown-shape rules that determine how well the new content indexes.
 - **A `level: "warning"` / `logger: "remindb.temperature"` notification arrives.** → `memoize` for the `MemoryFetch` → `MemorySummarize` compaction workflow.
 - **Source files on disk drifted from the database** (external edit, disabled watcher, fresh `git pull`). → `memoize` for `MemoryCompile`.
+- **The user wants to connect two existing notes that don't already share a `[[Label]]` wiki-link.** → `memoize` for `MemoryRelate` (manual edge; no snapshot).
 
 ## Anti-patterns — do not
 
@@ -187,7 +266,10 @@ This skill stops where mutation begins. Three triggers send you to `memoize`:
 - Don't call `MemoryTree` before every search — it's expensive. One call per orientation.
 - Don't omit the budget. The server will use a default, but you lose control over cost.
 - Don't re-read the whole tree on resume. Use `MemoryDelta` with the last snapshot id.
+- Don't reach for `MemoryDelta` when you actually want a between-snapshots forensic comparison; that's `MemoryDiff` (both ends fixed, git-diff hunks). `MemoryDelta`'s upper bound is always HEAD.
 - Don't edit anchor IDs — they're content-addressed. Let remindb assign them.
 - Don't confuse **snapshot id** (int64, passed to `MemoryDelta`) with **cursor_hash** (xxhash64 string, a fingerprint for equality comparison only).
 - Don't ignore a `level: "warning"` / `logger: "remindb.temperature"` notification. It's the server's only summarization cue and won't fire again for the same node until it warms and re-cools. Hand off to `memoize` and call `MemorySummarize` on each `id`.
 - Don't confuse `ColdThreshold` with `NotifyThreshold`. Both default to `0.1`, but they're independent knobs — `ColdThreshold` drives the cold-node *query*, `NotifyThreshold` drives the *push*. A deployment can tune them separately.
+- Don't ignore `[[Label]]` markers in fetched content. They're an explicit cross-reference the source author left for you — call `MemoryRelated` to surface the linked context before responding.
+- Don't expect `MemoryDelta` or `MemoryHistory` to show relation changes. Edges are a sideband; the diff trail tracks node content only. Call `MemoryRelated` to inspect the current graph.

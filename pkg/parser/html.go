@@ -3,6 +3,7 @@ package parser
 import (
 	"bytes"
 	"fmt"
+	"strconv"
 	"strings"
 	"unicode"
 
@@ -81,12 +82,12 @@ func (p HtmlParser) walkChildren(n *html.Node, path string, stack []frame, out [
 // Emit a heading node and push a new section frame at its level.
 func (p HtmlParser) attachHeading(n *html.Node, path string, stack []frame, out []*ContextNode) ([]frame, []*ContextNode) {
 	level := int(n.Data[1] - '0')
-	content := p.inlineText(n)
+	content, refs := p.inlineText(n)
 	if content == "" {
 		return stack, out
 	}
 
-	cn := &ContextNode{SourceFile: path, NodeType: NodeHeading, Content: content, Format: FormatPlain}
+	cn := &ContextNode{SourceFile: path, NodeType: NodeHeading, Content: content, Format: FormatPlain, WikilinkRefs: refs}
 	stack = popSections(stack, level)
 
 	out = attachNode(stack, out, cn)
@@ -96,22 +97,22 @@ func (p HtmlParser) attachHeading(n *html.Node, path string, stack []frame, out 
 }
 
 func (p HtmlParser) attachList(n *html.Node, path string, stack []frame, out []*ContextNode) []*ContextNode {
-	content := p.listItems(n)
+	content, refs := p.listItems(n)
 	if content == "" {
 		return out
 	}
 
-	cn := &ContextNode{SourceFile: path, NodeType: NodeList, Content: content, Format: FormatPlain}
+	cn := &ContextNode{SourceFile: path, NodeType: NodeList, Content: content, Format: FormatPlain, WikilinkRefs: refs}
 	return attachNode(stack, out, cn)
 }
 
 func (p HtmlParser) attachTable(n *html.Node, path string, stack []frame, out []*ContextNode) []*ContextNode {
-	content := p.tableRows(n)
+	content, refs := p.tableRows(n)
 	if content == "" {
 		return out
 	}
 
-	cn := &ContextNode{SourceFile: path, NodeType: NodeTable, Content: content, Format: FormatPlain}
+	cn := &ContextNode{SourceFile: path, NodeType: NodeTable, Content: content, Format: FormatPlain, WikilinkRefs: refs}
 	return attachNode(stack, out, cn)
 }
 
@@ -142,12 +143,12 @@ func (p HtmlParser) attachMath(n *html.Node, path string, stack []frame, out []*
 }
 
 func (p HtmlParser) attachText(n *html.Node, path string, stack []frame, out []*ContextNode) []*ContextNode {
-	content := p.inlineText(n)
+	content, refs := p.inlineText(n)
 	if content == "" {
 		return out
 	}
 
-	cn := &ContextNode{SourceFile: path, NodeType: NodeText, Content: content, Format: FormatPlain}
+	cn := &ContextNode{SourceFile: path, NodeType: NodeText, Content: content, Format: FormatPlain, WikilinkRefs: refs}
 	return attachNode(stack, out, cn)
 }
 
@@ -203,18 +204,20 @@ func (p HtmlParser) inlineMarkupContent(n *html.Node) string {
 	}
 }
 
-// Concatenate visible text in n, rendering <a>/<img> as [text](dest) / ![alt](dest).
-func (p HtmlParser) inlineText(n *html.Node) string {
+func (p HtmlParser) inlineText(n *html.Node) (string, []WikilinkRef) {
 	var sb strings.Builder
-	p.writeInline(&sb, n)
+	var refs []WikilinkRef
+	p.writeInline(&sb, &refs, n)
 
-	return normalizeWhitespace(sb.String())
+	return normalizeWhitespace(sb.String()), refs
 }
 
-func (p HtmlParser) writeInline(sb *strings.Builder, n *html.Node) {
+func (p HtmlParser) writeInline(sb *strings.Builder, refs *[]WikilinkRef, n *html.Node) {
 	switch n.Type {
 	case html.TextNode:
-		sb.WriteString(n.Data)
+		rewritten, r := ExtractWikilinks(n.Data)
+		sb.WriteString(rewritten)
+		*refs = append(*refs, r...)
 		return
 
 	case html.ElementNode:
@@ -225,28 +228,69 @@ func (p HtmlParser) writeInline(sb *strings.Builder, n *html.Node) {
 			sb.WriteByte(brSentinel)
 			return
 		case atom.A:
-			p.writeLink(sb, n)
+			p.writeLink(sb, refs, n)
 			return
 		case atom.Img:
 			p.writeImage(sb, n)
+			return
+		case atom.Code:
+			p.writeLiteral(sb, n)
+			return
+		}
+
+		if n.Data == "knowledge" {
+			p.writeKnowledge(sb, refs, n)
 			return
 		}
 	}
 
 	for c := n.FirstChild; c != nil; c = c.NextSibling {
-		p.writeInline(sb, c)
+		p.writeInline(sb, refs, c)
 	}
 }
 
-func (p HtmlParser) writeLink(sb *strings.Builder, n *html.Node) {
+func (p HtmlParser) writeLink(sb *strings.Builder, refs *[]WikilinkRef, n *html.Node) {
 	sb.WriteByte('[')
 	for c := n.FirstChild; c != nil; c = c.NextSibling {
-		p.writeInline(sb, c)
+		p.writeInline(sb, refs, c)
 	}
 
 	sb.WriteString("](")
 	sb.WriteString(getAttr(n, "href"))
 	sb.WriteByte(')')
+}
+
+// Emit a normalized [[Label]] marker for a <knowledge> element.
+func (p HtmlParser) writeKnowledge(sb *strings.Builder, refs *[]WikilinkRef, n *html.Node) {
+	var lb strings.Builder
+	p.writeLiteral(&lb, n)
+
+	label := strings.TrimSpace(lb.String())
+	if label == "" {
+		return
+	}
+
+	ref := WikilinkRef{Label: label, Weight: 1.0}
+	if isBareID(label) {
+		ref.IDHint = label
+	}
+
+	if v := getAttr(n, "weight"); v != "" {
+		if f, err := strconv.ParseFloat(v, 64); err == nil {
+			ref.Weight = f
+		}
+	}
+	if v := getAttr(n, "source"); v != "" {
+		ref.SourceQual = v
+	}
+	if v := getAttr(n, "id"); v != "" {
+		ref.IDHint = v
+	}
+
+	sb.WriteString("[[")
+	sb.WriteString(label)
+	sb.WriteString("]]")
+	*refs = append(*refs, ref)
 }
 
 func (p HtmlParser) writeImage(sb *strings.Builder, n *html.Node) {
@@ -258,11 +302,12 @@ func (p HtmlParser) writeImage(sb *strings.Builder, n *html.Node) {
 }
 
 // Render each <li>/<dt>/<dd> as one "- text" line; nested lists indent by one tab per level.
-func (p HtmlParser) listItems(n *html.Node) string {
-	return strings.Join(p.collectListItems(n, nil, ""), "\n")
+func (p HtmlParser) listItems(n *html.Node) (string, []WikilinkRef) {
+	lines, refs := p.collectListItems(n, nil, nil, "")
+	return strings.Join(lines, "\n"), refs
 }
 
-func (p HtmlParser) collectListItems(n *html.Node, lines []string, indent string) []string {
+func (p HtmlParser) collectListItems(n *html.Node, lines []string, refs []WikilinkRef, indent string) ([]string, []WikilinkRef) {
 	for c := n.FirstChild; c != nil; c = c.NextSibling {
 		if c.Type != html.ElementNode {
 			continue
@@ -270,23 +315,25 @@ func (p HtmlParser) collectListItems(n *html.Node, lines []string, indent string
 
 		switch c.DataAtom {
 		case atom.Li, atom.Dt, atom.Dd:
-			text, nested := p.splitItemContent(c)
+			text, nested, r := p.splitItemContent(c)
 			if text != "" {
 				lines = append(lines, indent+"- "+text)
+				refs = append(refs, r...)
 			}
 			for _, list := range nested {
-				lines = p.collectListItems(list, lines, indent+"\t")
+				lines, refs = p.collectListItems(list, lines, refs, indent+"\t")
 			}
 		case atom.Ul, atom.Ol, atom.Dl:
-			lines = p.collectListItems(c, lines, indent)
+			lines, refs = p.collectListItems(c, lines, refs, indent)
 		}
 	}
-	return lines
+	return lines, refs
 }
 
 // Split an item's text from nested-list children so nesting renders at a deeper indent.
-func (p HtmlParser) splitItemContent(li *html.Node) (string, []*html.Node) {
+func (p HtmlParser) splitItemContent(li *html.Node) (string, []*html.Node, []WikilinkRef) {
 	var sb strings.Builder
+	var refs []WikilinkRef
 	var nested []*html.Node
 
 	for c := li.FirstChild; c != nil; c = c.NextSibling {
@@ -297,30 +344,33 @@ func (p HtmlParser) splitItemContent(li *html.Node) (string, []*html.Node) {
 				continue
 			}
 		}
-		p.writeInline(&sb, c)
+		p.writeInline(&sb, &refs, c)
 	}
 
-	return normalizeWhitespace(sb.String()), nested
+	return normalizeWhitespace(sb.String()), nested, refs
 }
 
 // Render a table as tab-separated rows, header first.
-func (p HtmlParser) tableRows(n *html.Node) string {
-	return strings.Join(p.collectRows(n, nil), "\n")
+func (p HtmlParser) tableRows(n *html.Node) (string, []WikilinkRef) {
+	rows, refs := p.collectRows(n, nil, nil)
+	return strings.Join(rows, "\n"), refs
 }
 
-func (p HtmlParser) collectRows(n *html.Node, rows []string) []string {
+func (p HtmlParser) collectRows(n *html.Node, rows []string, refs []WikilinkRef) ([]string, []WikilinkRef) {
 	if n.Type == html.ElementNode && n.DataAtom == atom.Tr {
-		return append(rows, p.rowCells(n))
+		row, r := p.rowCells(n)
+		return append(rows, row), append(refs, r...)
 	}
 
 	for c := n.FirstChild; c != nil; c = c.NextSibling {
-		rows = p.collectRows(c, rows)
+		rows, refs = p.collectRows(c, rows, refs)
 	}
-	return rows
+	return rows, refs
 }
 
-func (p HtmlParser) rowCells(tr *html.Node) string {
+func (p HtmlParser) rowCells(tr *html.Node) (string, []WikilinkRef) {
 	var cells []string
+	var refs []WikilinkRef
 
 	for c := tr.FirstChild; c != nil; c = c.NextSibling {
 		if c.Type != html.ElementNode {
@@ -328,10 +378,12 @@ func (p HtmlParser) rowCells(tr *html.Node) string {
 		}
 
 		if c.DataAtom == atom.Td || c.DataAtom == atom.Th {
-			cells = append(cells, p.inlineText(c))
+			text, r := p.inlineText(c)
+			cells = append(cells, text)
+			refs = append(refs, r...)
 		}
 	}
-	return strings.Join(cells, "\t")
+	return strings.Join(cells, "\t"), refs
 }
 
 // Concatenate raw text content without rendering inline markup or collapsing whitespace.

@@ -2,11 +2,14 @@ package remindb_test
 
 import (
 	"context"
+	"os"
 	"path/filepath"
 	"strings"
 	"testing"
 
+	gomcp "github.com/modelcontextprotocol/go-sdk/mcp"
 	"github.com/radimsem/remindb/internal/mcptest"
+	"github.com/radimsem/remindb/pkg/store"
 )
 
 // Simulates an OpenClaw agent session.
@@ -456,6 +459,416 @@ func TestMcp_OpenCodeAgent(t *testing.T) {
 	}
 }
 
+func TestMcp_WikilinkRelationsWorkflow(t *testing.T) {
+	env := mcptest.NewEnv(t)
+	dir := t.TempDir()
+
+	const (
+		aSrc = "# Source\n\nSee [[Target; w=2.0]] for the design.\nUniqueMarkerSource is the anchor.\n"
+		bSrc = "# Target\n\nThe target heading lives here.\n\n# Sibling\n\nA second heading.\n"
+	)
+	if err := os.WriteFile(filepath.Join(dir, "a.md"), []byte(aSrc), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, "b.md"), []byte(bSrc), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	// 1. Compile both files.
+	compileResult := env.CallTool(t, "MemoryCompile", map[string]any{
+		"path": dir, "message": "wikilink-init",
+	})
+	if !strings.Contains(env.TextContent(t, compileResult), "compiled") {
+		t.Fatalf("unexpected compile result: %s", env.TextContent(t, compileResult))
+	}
+
+	// 2. Find the source paragraph in a.md via search.
+	searchResult := env.CallTool(t, "MemorySearch", map[string]any{
+		"query": "UniqueMarkerSource", "budget": 1000,
+	})
+	searchText := env.TextContent(t, searchResult)
+
+	sourceID := extractFirstNodeID(searchText)
+	if sourceID == "" {
+		t.Fatalf("could not extract source node ID from search: %s", searchText)
+	}
+
+	// 3. MemoryRelated from that paragraph should surface b.md's Target heading with the authored weight.
+	relatedResult := env.CallTool(t, "MemoryRelated", map[string]any{
+		"anchor": sourceID, "direction": "out", "depth": 1,
+	})
+
+	relatedText := env.TextContent(t, relatedResult)
+	if !strings.Contains(relatedText, "Target") {
+		t.Errorf("MemoryRelated should surface Target heading, got: %s", relatedText)
+	}
+	if !strings.Contains(relatedText, "weight=2.00") {
+		t.Errorf("MemoryRelated should report authored weight 2.0, got: %s", relatedText)
+	}
+	if !strings.Contains(relatedText, "hop=1") {
+		t.Errorf("MemoryRelated should report hop=1 for direct edge, got: %s", relatedText)
+	}
+
+	// 4. Manually add an edge from the source paragraph to the second heading.
+	relateResult := env.CallTool(t, "MemoryRelate", map[string]any{
+		"source_id":    sourceID,
+		"target_label": "Sibling",
+		"weight":       3.0,
+	})
+	if !strings.Contains(env.TextContent(t, relateResult), "resolved") {
+		t.Errorf("MemoryRelate should resolve to Sibling: %s", env.TextContent(t, relateResult))
+	}
+
+	// 5. Both edges should now surface via MemoryRelated.
+	bothResult := env.CallTool(t, "MemoryRelated", map[string]any{
+		"anchor": sourceID, "direction": "out", "depth": 1,
+	})
+	bothText := env.TextContent(t, bothResult)
+
+	if !strings.Contains(bothText, "Target") {
+		t.Errorf("parsed edge missing after manual add: %s", bothText)
+	}
+	if !strings.Contains(bothText, "Sibling") {
+		t.Errorf("manual edge missing: %s", bothText)
+	}
+
+	// 6. MemoryRelate must not emit a snapshot.
+	snaps, _ := env.Store.ListSnapshots(context.Background(), 10)
+	if len(snaps) != 1 {
+		t.Errorf("snapshot count = %d, want 1 (MemoryRelate must not snapshot)", len(snaps))
+	}
+}
+
+func TestMcp_FetchBatchWorkflow(t *testing.T) {
+	env := mcptest.NewEnv(t)
+	dir, _ := filepath.Abs("testdata/openclaw")
+
+	env.CallTool(t, "MemoryCompile", map[string]any{
+		"path":    dir,
+		"message": "fetch-batch-init",
+	})
+
+	searchResult := env.CallTool(t, "MemorySearch", map[string]any{
+		"query":  "refactoring security vulnerabilities",
+		"budget": 2000,
+	})
+	searchText := env.TextContent(t, searchResult)
+
+	ids := extractAllNodeIDs(searchText)
+	if len(ids) == 0 {
+		t.Fatalf("no node IDs extracted from search output: %s", searchText)
+	}
+
+	withGhost := append([]string{}, ids...)
+	withGhost = append(withGhost, "ghostid1")
+
+	batchResult := env.CallTool(t, "MemoryFetchBatch", map[string]any{
+		"node_ids": withGhost,
+		"budget":   4000,
+	})
+	batchText := env.TextContent(t, batchResult)
+
+	if !strings.Contains(batchText, "not found: ghostid1") {
+		t.Errorf("expected `not found: ghostid1` marker, got: %s", batchText)
+	}
+	if strings.Count(batchText, "[heading]")+strings.Count(batchText, "[text]")+strings.Count(batchText, "[code]") == 0 {
+		t.Errorf("expected at least one rendered node block, got: %s", batchText[:min(300, len(batchText))])
+	}
+
+	// Tight budget forces some IDs out — verify the over-budget marker fires.
+	overResult := env.CallTool(t, "MemoryFetchBatch", map[string]any{
+		"node_ids": ids,
+		"budget":   1,
+	})
+
+	overText := env.TextContent(t, overResult)
+	if !strings.Contains(overText, "over budget:") {
+		t.Errorf("expected `over budget:` marker with budget=1, got: %s", overText[:min(300, len(overText))])
+	}
+}
+
+func TestMcp_StatsWorkflow(t *testing.T) {
+	env := mcptest.NewEnv(t)
+	dir, _ := filepath.Abs("testdata/openclaw")
+
+	env.CallTool(t, "MemoryCompile", map[string]any{
+		"path":    dir,
+		"message": "stats-init",
+	})
+
+	statsResult := env.CallTool(t, "MemoryStats", map[string]any{})
+	statsText := env.TextContent(t, statsResult)
+
+	for _, want := range []string{
+		"Database:",
+		"Nodes:",
+		"Snapshots:",
+		"Temperature:",
+		"Relations:",
+		"FTS rows:",
+		"pinned:",
+	} {
+		if !strings.Contains(statsText, want) {
+			t.Errorf("MemoryStats missing %q in:\n%s", want, statsText)
+		}
+	}
+
+	if strings.Contains(statsText, "Nodes:              0") {
+		t.Errorf("MemoryStats reports zero nodes after compile:\n%s", statsText)
+	}
+	if !strings.Contains(statsText, "├─") && !strings.Contains(statsText, "└─") {
+		t.Errorf("MemoryStats missing tree branch glyphs:\n%s", statsText)
+	}
+}
+
+func TestMcp_DiffWorkflow(t *testing.T) {
+	env := mcptest.NewEnv(t)
+	ctx := context.Background()
+
+	// snap1: create nodeA at "v1".
+	writeA1 := env.CallTool(t, "MemoryWrite", map[string]any{
+		"payload": "Title: alpha\nbody line 1\nbody line 2\n",
+	})
+	nodeAID := extractNodeID(env.TextContent(t, writeA1))
+	if nodeAID == "" {
+		t.Fatalf("could not parse nodeA ID from write result")
+	}
+
+	// snap2: modify nodeA to v2 (changes the middle line).
+	env.CallTool(t, "MemoryWrite", map[string]any{
+		"anchor":  nodeAID,
+		"payload": "Title: alpha\nbody line 1 EDITED\nbody line 2\n",
+	})
+
+	// snap3: modify nodeA again to v3 (also changes line 2).
+	env.CallTool(t, "MemoryWrite", map[string]any{
+		"anchor":  nodeAID,
+		"payload": "Title: alpha\nbody line 1 EDITED\nbody line 2 EDITED TOO\n",
+	})
+
+	// snap4: create an unrelated nodeB.
+	writeB := env.CallTool(t, "MemoryWrite", map[string]any{
+		"payload": "Title: beta\nbeta first\nbeta second\n",
+	})
+	nodeBID := extractNodeID(env.TextContent(t, writeB))
+	if nodeBID == "" {
+		t.Fatalf("could not parse nodeB ID from write result")
+	}
+
+	snaps, err := env.Store.ListSnapshots(ctx, 10)
+	if err != nil {
+		t.Fatalf("ListSnapshots: %v", err)
+	}
+	if len(snaps) != 4 {
+		t.Fatalf("expected 4 snapshots, got %d", len(snaps))
+	}
+	// snaps comes back DESC.
+	snap1, snap2, snap3, snap4 := snaps[3].ID, snaps[2].ID, snaps[1].ID, snaps[0].ID
+
+	// 1. Full history: (0, snap4]. Should consolidate to one [add] per node, showing only final state.
+	fullResult := env.CallTool(t, "MemoryDiff", map[string]any{
+		"from_snapshot_id": 0,
+		"to_snapshot_id":   snap4,
+	})
+	fullText := env.TextContent(t, fullResult)
+
+	if got := strings.Count(fullText, "[add] "+nodeAID); got != 1 {
+		t.Errorf("nodeA [add] header count = %d, want 1\n%s", got, fullText)
+	}
+	if got := strings.Count(fullText, "[add] "+nodeBID); got != 1 {
+		t.Errorf("nodeB [add] header count = %d, want 1\n%s", got, fullText)
+	}
+	if !strings.Contains(fullText, "+body line 1 EDITED") {
+		t.Errorf("expected nodeA final state body in full diff:\n%s", fullText)
+	}
+	if !strings.Contains(fullText, "+beta first") {
+		t.Errorf("expected nodeB body in full diff:\n%s", fullText)
+	}
+
+	// 2. Consolidation: (snap1, snap3] captures snap2 + snap3 mods on nodeA — should collapse to one [mod] showing v1 → v3.
+	consolResult := env.CallTool(t, "MemoryDiff", map[string]any{
+		"from_snapshot_id": snap1,
+		"to_snapshot_id":   snap3,
+	})
+	consolText := env.TextContent(t, consolResult)
+
+	if got := strings.Count(consolText, "[mod] "+nodeAID); got != 1 {
+		t.Errorf("expected exactly 1 consolidated [mod] for nodeA, got %d\n%s", got, consolText)
+	}
+	for _, want := range []string{"-body line 1", "-body line 2", "+body line 1 EDITED", "+body line 2 EDITED TOO"} {
+		if !strings.Contains(consolText, want) {
+			t.Errorf("missing %q in consolidated mod\n%s", want, consolText)
+		}
+	}
+
+	// Intermediate state (post-snap2 line 2 unedited form) must NOT survive consolidation as a + line.
+	if strings.Contains(consolText, "+body line 2\n") {
+		t.Errorf("intermediate snap2 state leaked into consolidated output\n%s", consolText)
+	}
+	// NodeB wasn't touched in this range.
+	if strings.Contains(consolText, nodeBID) {
+		t.Errorf("nodeB appeared in a range it was not modified in\n%s", consolText)
+	}
+
+	// 3. Tight range: (snap3, snap4] catches only nodeB's add.
+	tightResult := env.CallTool(t, "MemoryDiff", map[string]any{
+		"from_snapshot_id": snap3,
+		"to_snapshot_id":   snap4,
+	})
+	tightText := env.TextContent(t, tightResult)
+
+	if !strings.Contains(tightText, "[add] "+nodeBID) {
+		t.Errorf("expected [add] for nodeB in tight range\n%s", tightText)
+	}
+	if strings.Contains(tightText, nodeAID) {
+		t.Errorf("nodeA leaked into tight range it wasn't touched in\n%s", tightText)
+	}
+
+	// 4. Equal bounds: empty range → "no changes".
+	equalResult := env.CallTool(t, "MemoryDiff", map[string]any{
+		"from_snapshot_id": snap2,
+		"to_snapshot_id":   snap2,
+	})
+	equalText := env.TextContent(t, equalResult)
+	if equalText != "no changes" {
+		t.Errorf("equal bounds got %q, want %q", equalText, "no changes")
+	}
+
+	// 5. Header-only line should remain as context (` ` prefix) since it didn't change.
+	if !strings.Contains(consolText, " Title: alpha") {
+		t.Errorf("expected unchanged header to appear as context line in consolidated mod\n%s", consolText)
+	}
+
+	// 6. Validation: from > to surfaces as an MCP error.
+	badResult, err := env.Session.CallTool(ctx, &gomcp.CallToolParams{
+		Name: "MemoryDiff",
+		Arguments: map[string]any{
+			"from_snapshot_id": snap4,
+			"to_snapshot_id":   snap1,
+		},
+	})
+	if err != nil {
+		t.Fatalf("validation call failed unexpectedly: %v", err)
+	}
+
+	if !badResult.IsError {
+		t.Errorf("expected IsError=true for from > to, got %#v", badResult)
+	}
+	if badResult.IsError && len(badResult.Content) > 0 {
+		errText := env.TextContent(t, badResult)
+		if !strings.Contains(errText, "must be <=") {
+			t.Errorf("error text missing validation phrase: %q", errText)
+		}
+	}
+}
+
+func TestMcp_RollbackWorkflow_DropAfterFalse(t *testing.T) {
+	env := mcptest.NewEnv(t)
+	ctx := context.Background()
+
+	writeA := env.CallTool(t, "MemoryWrite", map[string]any{
+		"payload": "Title alpha\nfirst version\n",
+	})
+	nodeAID := extractNodeID(env.TextContent(t, writeA))
+	if nodeAID == "" {
+		t.Fatalf("could not parse node id from first write")
+	}
+
+	env.CallTool(t, "MemoryWrite", map[string]any{
+		"payload": "Title beta\nsecond version\n",
+	})
+
+	snapsBefore, err := env.Store.ListSnapshots(ctx, 10)
+	if err != nil {
+		t.Fatalf("ListSnapshots: %v", err)
+	}
+	if len(snapsBefore) != 2 {
+		t.Fatalf("expected 2 snapshots before rollback, got %d", len(snapsBefore))
+	}
+
+	snap1 := snapsBefore[1].ID
+	snap2 := snapsBefore[0].ID
+
+	rollbackResult := env.CallTool(t, "MemoryRollback", map[string]any{
+		"snapshot_id": snap1,
+	})
+	if !strings.Contains(env.TextContent(t, rollbackResult), "rolled back to snapshot") {
+		t.Errorf("unexpected rollback result: %s", env.TextContent(t, rollbackResult))
+	}
+
+	snapsAfter, err := env.Store.ListSnapshots(ctx, 10)
+	if err != nil {
+		t.Fatalf("ListSnapshots: %v", err)
+	}
+	if len(snapsAfter) != 3 {
+		t.Fatalf("expected 3 snapshots after non-pruning rollback, got %d", len(snapsAfter))
+	}
+
+	rollbackSnap := snapsAfter[0]
+	if !strings.HasPrefix(rollbackSnap.Message, "rollback to ") {
+		t.Errorf("HEAD message = %q, want rollback prefix", rollbackSnap.Message)
+	}
+	if !rollbackSnap.ParentID.Valid || rollbackSnap.ParentID.Int64 != snap2 {
+		t.Errorf("rollback snap parent = %v, want %d (prev HEAD)", rollbackSnap.ParentID, snap2)
+	}
+
+	// nodeA still alive, nodeB gone.
+	if _, err := env.Store.GetNode(ctx, nodeAID); err != nil {
+		t.Errorf("nodeA missing after rollback: %v", err)
+	}
+
+	// Next write chains on the rollback snap.
+	env.CallTool(t, "MemoryWrite", map[string]any{
+		"payload": "Title delta\npost-rollback note\n",
+	})
+
+	snapsPost, err := env.Store.ListSnapshots(ctx, 1)
+	if err != nil || len(snapsPost) == 0 {
+		t.Fatalf("ListSnapshots after post-rollback write: %v", err)
+	}
+
+	if !snapsPost[0].ParentID.Valid || snapsPost[0].ParentID.Int64 != rollbackSnap.ID {
+		t.Errorf("post-rollback write parent = %v, want %d (rollback snap)", snapsPost[0].ParentID, rollbackSnap.ID)
+	}
+}
+
+func TestMcp_RollbackWorkflow_DropAfterTrue(t *testing.T) {
+	env := mcptest.NewEnv(t)
+	ctx := context.Background()
+
+	env.CallTool(t, "MemoryWrite", map[string]any{"payload": "Title one\nv1\n"})
+	env.CallTool(t, "MemoryWrite", map[string]any{"payload": "Title two\nv2\n"})
+	env.CallTool(t, "MemoryWrite", map[string]any{"payload": "Title three\nv3\n"})
+
+	snapsBefore, err := env.Store.ListSnapshots(ctx, 10)
+	if err != nil {
+		t.Fatalf("ListSnapshots: %v", err)
+	}
+
+	if len(snapsBefore) != 3 {
+		t.Fatalf("expected 3 snapshots before rollback, got %d", len(snapsBefore))
+	}
+	snap1 := snapsBefore[2].ID
+
+	env.CallTool(t, "MemoryRollback", map[string]any{
+		"snapshot_id": snap1,
+		"drop_after":  true,
+	})
+
+	snapsAfter, err := env.Store.ListSnapshots(ctx, 10)
+	if err != nil {
+		t.Fatalf("ListSnapshots: %v", err)
+	}
+	if len(snapsAfter) != 2 {
+		t.Errorf("expected 2 snapshots after pruning rollback (target + rollback), got %d", len(snapsAfter))
+	}
+
+	rollbackSnap := snapsAfter[0]
+	if !rollbackSnap.ParentID.Valid || rollbackSnap.ParentID.Int64 != snap1 {
+		t.Errorf("rollback snap parent = %v, want %d (drop_after=true linearizes to target)", rollbackSnap.ParentID, snap1)
+	}
+}
+
 // Verifies that the client can list all available tools.
 func TestMcp_ToolDiscovery(t *testing.T) {
 	env := mcptest.NewEnv(t)
@@ -466,14 +879,21 @@ func TestMcp_ToolDiscovery(t *testing.T) {
 	}
 
 	expected := map[string]bool{
-		"MemoryFetch":     false,
-		"MemorySearch":    false,
-		"MemoryWrite":     false,
-		"MemoryCompile":   false,
-		"MemoryDelta":     false,
-		"MemorySummarize": false,
-		"MemoryHistory":   false,
-		"MemoryTree":      false,
+		"MemoryFetch":      false,
+		"MemoryFetchBatch": false,
+		"MemorySearch":     false,
+		"MemoryWrite":      false,
+		"MemoryCompile":    false,
+		"MemoryDelta":      false,
+		"MemorySummarize":  false,
+		"MemoryHistory":    false,
+		"MemoryTree":       false,
+		"MemoryRelated":    false,
+		"MemoryRelate":     false,
+		"MemoryPin":        false,
+		"MemoryUnpin":      false,
+		"MemoryStats":      false,
+		"MemoryRollback":   false,
 	}
 
 	for _, tool := range tools.Tools {
@@ -486,6 +906,26 @@ func TestMcp_ToolDiscovery(t *testing.T) {
 		if !found {
 			t.Errorf("tool %q not found in ListTools response", name)
 		}
+	}
+}
+
+// Pulls every "id=XXXXXXXXXXX" occurrence out of a Format/FormatCompact output.
+func extractAllNodeIDs(s string) []string {
+	var out []string
+	rest := s
+	for {
+		_, after, ok := strings.Cut(rest, "id=")
+		if !ok {
+			return out
+		}
+
+		end := strings.IndexAny(after, " )\n")
+		if end <= 0 {
+			return out
+		}
+
+		out = append(out, after[:end])
+		rest = after[end:]
 	}
 }
 
@@ -532,4 +972,207 @@ func extractFirstParenID(tree string) string {
 		}
 	}
 	return ""
+}
+
+func TestMcp_MemoryForget(t *testing.T) {
+	t.Run("Strict_Leaf", func(t *testing.T) {
+		env := mcptest.NewEnv(t)
+		seedForgetNode(t, env, "rootroor", "")
+		seedForgetNode(t, env, "leaf0001", "rootroor")
+
+		result := env.CallTool(t, "MemoryForget", map[string]any{
+			"node_id": "leaf0001",
+		})
+		text := env.TextContent(t, result)
+		if !strings.Contains(text, "forgot node leaf0001") {
+			t.Fatalf("unexpected result: %s", text)
+		}
+		if !strings.Contains(text, "mode=strict") {
+			t.Errorf("result should mention mode=strict: %s", text)
+		}
+
+		treeText := env.TextContent(t, env.CallTool(t, "MemoryTree", map[string]any{}))
+		if strings.Contains(treeText, "id=leaf0001") {
+			t.Errorf("tree still contains leaf0001: %s", treeText)
+		}
+		if !strings.Contains(treeText, "id=rootroor") {
+			t.Errorf("tree should still contain rootroor: %s", treeText)
+		}
+
+		deltaText := env.TextContent(t, env.CallTool(t, "MemoryDelta", map[string]any{
+			"since_snapshot": 0,
+		}))
+		if !strings.Contains(deltaText, "[rem] leaf0001") {
+			t.Errorf("delta should show [rem] leaf0001: %s", deltaText)
+		}
+	})
+
+	t.Run("Strict_RejectsParent", func(t *testing.T) {
+		env := mcptest.NewEnv(t)
+		seedForgetNode(t, env, "rootroor", "")
+		seedForgetNode(t, env, "child001", "rootroor")
+
+		result, err := env.Session.CallTool(context.Background(), &gomcp.CallToolParams{
+			Name:      "MemoryForget",
+			Arguments: map[string]any{"node_id": "rootroor", "mode": "strict"},
+		})
+		if err != nil {
+			t.Fatalf("CallTool transport: %v", err)
+		}
+		if !result.IsError {
+			t.Fatalf("expected IsError=true, got success: %v", result)
+		}
+
+		msg := env.TextContent(t, result)
+		if !strings.Contains(msg, "has 1 children") {
+			t.Errorf("error should mention children count: %s", msg)
+		}
+
+		treeText := env.TextContent(t, env.CallTool(t, "MemoryTree", map[string]any{}))
+		for _, id := range []string{"rootroor", "child001"} {
+			if !strings.Contains(treeText, "id="+id) {
+				t.Errorf("tree should still contain %s after rejected forget: %s", id, treeText)
+			}
+		}
+	})
+
+	t.Run("Cascade_Subtree", func(t *testing.T) {
+		env := mcptest.NewEnv(t)
+		seedForgetNode(t, env, "rootroor", "")
+		seedForgetNode(t, env, "mid00001", "rootroor")
+		seedForgetNode(t, env, "leaf0001", "mid00001")
+		seedForgetNode(t, env, "leaf0002", "mid00001")
+
+		result := env.CallTool(t, "MemoryForget", map[string]any{
+			"node_id": "mid00001",
+			"mode":    "cascade",
+		})
+		text := env.TextContent(t, result)
+		if !strings.Contains(text, "3 affected") {
+			t.Errorf("expected 3 affected (mid + 2 leaves): %s", text)
+		}
+
+		treeText := env.TextContent(t, env.CallTool(t, "MemoryTree", map[string]any{}))
+		for _, id := range []string{"mid00001", "leaf0001", "leaf0002"} {
+			if strings.Contains(treeText, "id="+id) {
+				t.Errorf("tree still contains %s after cascade: %s", id, treeText)
+			}
+		}
+		if !strings.Contains(treeText, "id=rootroor") {
+			t.Errorf("tree should still contain rootroor: %s", treeText)
+		}
+
+		deltaText := env.TextContent(t, env.CallTool(t, "MemoryDelta", map[string]any{
+			"since_snapshot": 0,
+		}))
+		if got := strings.Count(deltaText, "[rem]"); got != 3 {
+			t.Errorf("rem count = %d, want 3: %s", got, deltaText)
+		}
+
+		// FTS5 sync: cascaded labels must not surface in search.
+		searchText := env.TextContent(t, env.CallTool(t, "MemorySearch", map[string]any{
+			"query":  "leaf0001",
+			"budget": 500,
+		}))
+		if !strings.Contains(searchText, "no results") {
+			t.Errorf("search for cascaded label should return no results: %s", searchText)
+		}
+	})
+
+	t.Run("Reparent_WithGrandparent", func(t *testing.T) {
+		env := mcptest.NewEnv(t)
+		ctx := context.Background()
+		seedForgetNode(t, env, "rootroor", "")
+		seedForgetNode(t, env, "mid00001", "rootroor")
+		seedForgetNode(t, env, "leaf0001", "mid00001")
+		seedForgetNode(t, env, "leaf0002", "mid00001")
+
+		env.CallTool(t, "MemoryForget", map[string]any{
+			"node_id": "mid00001",
+			"mode":    "reparent",
+		})
+
+		if _, err := env.Store.GetNode(ctx, "mid00001"); err == nil {
+			t.Error("mid00001 still present after reparent")
+		}
+
+		for _, id := range []string{"leaf0001", "leaf0002"} {
+			n, err := env.Store.GetNode(ctx, id)
+			if err != nil {
+				t.Fatalf("get %s: %v", id, err)
+			}
+
+			if n.ParentID != "rootroor" {
+				t.Errorf("%s parent = %q, want rootroor", id, n.ParentID)
+			}
+		}
+
+		deltaText := env.TextContent(t, env.CallTool(t, "MemoryDelta", map[string]any{
+			"since_snapshot": 0,
+		}))
+		if got := strings.Count(deltaText, "[rem]"); got != 1 {
+			t.Errorf("rem count = %d, want 1: %s", got, deltaText)
+		}
+		if got := strings.Count(deltaText, "[mod]"); got != 2 {
+			t.Errorf("mod count = %d, want 2 (structural reparent): %s", got, deltaText)
+		}
+	})
+
+	t.Run("Reparent_AtRoot", func(t *testing.T) {
+		env := mcptest.NewEnv(t)
+		ctx := context.Background()
+		seedForgetNode(t, env, "rootroor", "")
+		seedForgetNode(t, env, "child001", "rootroor")
+		seedForgetNode(t, env, "child002", "rootroor")
+
+		env.CallTool(t, "MemoryForget", map[string]any{
+			"node_id": "rootroor",
+			"mode":    "reparent",
+		})
+
+		for _, id := range []string{"child001", "child002"} {
+			n, err := env.Store.GetNode(ctx, id)
+			if err != nil {
+				t.Fatalf("get %s: %v", id, err)
+			}
+
+			if n.ParentID != "" {
+				t.Errorf("%s parent = %q, want empty (promoted to root)", id, n.ParentID)
+			}
+		}
+	})
+
+	t.Run("InvalidMode", func(t *testing.T) {
+		env := mcptest.NewEnv(t)
+		seedForgetNode(t, env, "leaf0001", "")
+
+		result, err := env.Session.CallTool(context.Background(), &gomcp.CallToolParams{
+			Name:      "MemoryForget",
+			Arguments: map[string]any{"node_id": "leaf0001", "mode": "bogus"},
+		})
+		if err != nil {
+			t.Fatalf("CallTool transport: %v", err)
+		}
+
+		if !result.IsError {
+			t.Fatalf("expected IsError=true for unknown mode")
+		}
+		if msg := env.TextContent(t, result); !strings.Contains(msg, "unknown delete mode") {
+			t.Errorf("error should mention unknown mode: %s", msg)
+		}
+	})
+}
+
+func seedForgetNode(t *testing.T, env *mcptest.Env, id, parent string) {
+	t.Helper()
+
+	err := env.Store.UpsertNode(context.Background(), &store.Node{
+		ID: id, ParentID: parent,
+		SourceFile: "test.md", NodeType: "heading", Depth: 1,
+		Label: "label " + id, Content: "content " + id,
+		Format: "plain", TokenCount: 5, ContentHash: "hash" + id,
+	})
+	if err != nil {
+		t.Fatalf("seedForgetNode %s: %v", id, err)
+	}
 }

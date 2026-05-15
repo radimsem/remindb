@@ -651,6 +651,76 @@ func TestRecompileWorkflow_StableNodeIDsAcrossRescan(t *testing.T) {
 	}
 }
 
+func TestFetchBatchWorkflow(t *testing.T) {
+	st := testutil.OpenTestDB(t)
+	ctx := context.Background()
+
+	if _, err := compiler.CompileDir(ctx, st, "testdata/openclaw", "fetchbatch-init"); err != nil {
+		t.Fatalf("CompileDir: %v", err)
+	}
+
+	eng := query.NewEngine(st)
+	searchResult, err := eng.Search(ctx, "refactoring security vulnerabilities", 2000)
+	if err != nil {
+		t.Fatalf("Search: %v", err)
+	}
+	if len(searchResult.Nodes) == 0 {
+		t.Fatal("expected search hits to drive the batch")
+	}
+
+	ids := make([]string, len(searchResult.Nodes))
+	for i, sn := range searchResult.Nodes {
+		ids[i] = sn.Node.ID
+	}
+
+	// Unlimited budget — every hit comes back, no missing, in input order.
+	batch, missing, err := eng.FetchBatch(ctx, ids, 0)
+	if err != nil {
+		t.Fatalf("FetchBatch: %v", err)
+	}
+
+	if len(missing) != 0 {
+		t.Errorf("missing = %v, want empty", missing)
+	}
+	if len(batch.Nodes) != len(ids) {
+		t.Fatalf("returned = %d, want %d", len(batch.Nodes), len(ids))
+	}
+
+	for i, want := range ids {
+		if got := batch.Nodes[i].Node.ID; got != want {
+			t.Errorf("position %d: id = %q, want %q", i, got, want)
+		}
+	}
+
+	// Ghost ID must surface in `missing` without poisoning the rest of the batch.
+	withGhost := append([]string{}, ids...)
+	withGhost = append(withGhost, "ghostid1")
+
+	batch2, missing2, err := eng.FetchBatch(ctx, withGhost, 0)
+	if err != nil {
+		t.Fatalf("FetchBatch with ghost: %v", err)
+	}
+	if len(missing2) != 1 || missing2[0] != "ghostid1" {
+		t.Errorf("missing = %v, want [ghostid1]", missing2)
+	}
+	if len(batch2.Nodes) != len(ids) {
+		t.Errorf("returned = %d, want %d (ghost should not poison batch)", len(batch2.Nodes), len(ids))
+	}
+
+	// Tight budget forces drops — verify TokensUsed stays within the cap.
+	tight, _, err := eng.FetchBatch(ctx, ids, 1)
+	if err != nil {
+		t.Fatalf("FetchBatch tight: %v", err)
+	}
+
+	if tight.TokensUsed > 1 {
+		t.Errorf("TokensUsed = %d, exceeds budget 1", tight.TokensUsed)
+	}
+	if len(tight.Nodes) == len(ids) {
+		t.Errorf("tight budget kept every node (%d) — expected drops", len(tight.Nodes))
+	}
+}
+
 // Verifies that querying nodes boosts their temperature.
 func TestTemperatureBoostOnAccess(t *testing.T) {
 	st := testutil.OpenTestDB(t)

@@ -9,6 +9,7 @@ import (
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 	"github.com/radimsem/remindb/pkg/mcp/tools"
 	"github.com/radimsem/remindb/pkg/query"
+	"github.com/radimsem/remindb/pkg/relations"
 	"github.com/radimsem/remindb/pkg/store"
 	"github.com/radimsem/remindb/pkg/temperature"
 	"github.com/radimsem/remindb/pkg/version"
@@ -96,6 +97,7 @@ func NewServer(st *store.Store, tracker *temperature.Tracker, cfg temperature.Co
 	deps := &tools.Deps{
 		Store:            st,
 		Engine:           query.NewEngine(st),
+		Resolver:         relations.New(st),
 		Tracker:          tracker,
 		Logger:           logger,
 		SourceDir:        o.sourceDir,
@@ -198,6 +200,11 @@ func registerTools(srv *mcp.Server, d *tools.Deps) {
 	}, d.HandleFetch)
 
 	mcp.AddTool(srv, &mcp.Tool{
+		Name:        "MemoryFetchBatch",
+		Description: "Retrieve content for a list of node IDs in one call (shared token budget; missing IDs and over-budget IDs surfaced inline)",
+	}, d.HandleFetchBatch)
+
+	mcp.AddTool(srv, &mcp.Tool{
 		Name:        "MemorySearch",
 		Description: "Full-text search for nodes within a token budget",
 	}, d.HandleSearch)
@@ -218,6 +225,11 @@ func registerTools(srv *mcp.Server, d *tools.Deps) {
 	}, d.HandleDelta)
 
 	mcp.AddTool(srv, &mcp.Tool{
+		Name:        "MemoryDiff",
+		Description: "Return git-diff-style changes between two snapshots (from exclusive, to inclusive)",
+	}, d.HandleDiff)
+
+	mcp.AddTool(srv, &mcp.Tool{
 		Name:        "MemorySummarize",
 		Description: "Replace a node's content with a provided summary",
 	}, d.HandleSummarize)
@@ -231,4 +243,39 @@ func registerTools(srv *mcp.Server, d *tools.Deps) {
 		Name:        "MemoryTree",
 		Description: "Return the node tree structure with labels",
 	}, d.HandleTree)
+
+	mcp.AddTool(srv, &mcp.Tool{
+		Name:        "MemoryRelated",
+		Description: "Traverse the relations graph from an anchor node",
+	}, d.HandleRelated)
+
+	mcp.AddTool(srv, &mcp.Tool{
+		Name:        "MemoryRelate",
+		Description: "Create a manual edge from one node to another (does not snapshot)",
+	}, d.HandleRelate)
+
+	mcp.AddTool(srv, &mcp.Tool{
+		Name:        "MemoryForget",
+		Description: "Remove a node by ID. Modes: 'strict' (default) refuses parents, 'cascade' also removes descendants, 'reparent' promotes children to the target's parent",
+	}, d.HandleForget)
+
+	mcp.AddTool(srv, &mcp.Tool{
+		Name:        "MemoryRollback",
+		Description: "Restore the node graph to a target snapshot. drop_after=false keeps intervening snapshots reachable as branched history; drop_after=true hard-deletes them. Temperature, pinned state, and relations are not restored",
+	}, d.HandleRollback)
+
+	mcp.AddTool(srv, &mcp.Tool{
+		Name:        "MemoryPin",
+		Description: "Protect a node from temperature decay and cold-set selection (does not snapshot)",
+	}, d.HandlePin)
+
+	mcp.AddTool(srv, &mcp.Tool{
+		Name:        "MemoryUnpin",
+		Description: "Release a previously pinned node back into the temperature lifecycle (does not snapshot)",
+	}, d.HandleUnpin)
+
+	mcp.AddTool(srv, &mcp.Tool{
+		Name:        "MemoryStats",
+		Description: "Report database health and shape: node counts (with per-type breakdown), token totals, snapshot summary, temperature spread, relation counts (with per-origin breakdown), pinned/cold/hot tallies",
+	}, d.HandleStats)
 }

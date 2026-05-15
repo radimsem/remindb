@@ -65,6 +65,8 @@ A fresh compile starts every node at `temp=0.50`. The spread above is what an ag
 
 **FTS5 search, not grep.** Search runs on SQLite's FTS5 virtual table, built at write time with a porter tokenizer over labels, content, and types. `MemorySearch` returns ranked anchors in milliseconds — no file rescans, no regex timeouts — and trims to whatever token budget you pass. Ask for 500 tokens of matches, get exactly 500.
 
+**Knowledge graph from lateral relations.** Author `[[Architecture; w=2.5]]` in any Markdown or HTML payload (or `<knowledge weight="2.5">Architecture</knowledge>` in HTML) and the compiler resolves a directed weighted edge between the source node and the target heading. `MemoryRelated` traverses outgoing, incoming, or both directions up to 5 hops, ranking by summed path weight. Manual edges via `MemoryRelate`. Forward references are kept pending and self-heal on the next compile when the target appears.
+
 **Portable by design.** The whole memory is one `.db` file. Copy it to another machine, hand it to another agent, commit it into a repo, sync it across devices. No server, no daemon, no external state. Any MCP-capable agent — Claude Code, Codex, Gemini CLI, OpenCode, OpenClaw — can point `serve` at the same file and share the same knowledge.
 
 ## Install
@@ -109,6 +111,39 @@ Verify:
 remindb --version
 ```
 
+## Updating
+
+Two moving parts: the **binary** (release tags) and the **agent-side skills** (`remind`, `memoize` — the markdown your agent loads to learn how to call the MCP tools). They iterate on different cadences, so they update independently.
+
+### Binary
+
+```bash
+remindb update
+```
+
+Reads the installed version, compares it against the latest GitHub release, and re-runs the install script only when they differ. `dev`-builds (from `go build` / `go install`) always proceed — there's no published version to compare against. Pass `--force` to reinstall regardless:
+
+```bash
+remindb update --force
+```
+
+### Skills
+
+The public skills live under [`skills/remind/`](skills/remind/SKILL.md) and [`skills/memoize/`](skills/memoize/SKILL.md). They're refreshed by [`vercel-labs/skills`](https://github.com/vercel-labs/skills).
+
+First-time install (or after adding a new agent):
+
+```bash
+npx skills@latest add radimsem/remindb/skills -a claude-code
+# -a codex | gemini-cli | opencode | openclaw | ...
+```
+
+Refresh later:
+
+```bash
+npx skills@latest update
+```
+
 ## How it's put together
 
 Two phases, one SQLite file in between. The compiler turns source files into versioned nodes at ingest time. The MCP runtime answers the agent in milliseconds on every call. The `.db` is the entire handoff — copy it, commit it, sync it.
@@ -119,7 +154,7 @@ Two phases, one SQLite file in between. The compiler turns source files into ver
 | **Transformer** | Generates 11-char base62 IDs (xxhash64), estimates cl100k-base tokens, compresses whitespace, decides plain vs. TOON per node. |
 | **Diff Engine** | Compares the fresh AST against the last snapshot, produces `add`/`mod`/`rem` deltas, hashes the full state into a new `cursor_hash`. |
 | **Emitter** | Writes nodes, diffs, and the new snapshot in one transaction; maintains the FTS5 index via triggers. |
-| **Store** | SQLite with WAL mode. Tables: `nodes`, `snapshots`, `diffs`, `cursors`, plus the `nodes_fts` virtual table. |
+| **Store** | SQLite with WAL mode. Tables: `nodes`, `snapshots`, `diffs`, `cursors`, `relations`, `pending_relations`, plus the `nodes_fts` virtual table. |
 | **Query Engine** | Token-budgeted context assembly. Walks ancestors and descendants via `parent_id`, ranks by relevance weighted by temperature, formats output. |
 | **Temperature** | Boosts on read, decays on a tick. Cold nodes get flagged for summarization. |
 | **MCP Server** | `modelcontextprotocol/go-sdk` over stdio or streamable HTTP. Registers the `Memory*` tool suite, dispatches to the query engine, and notifies clients when nodes go cold. |
@@ -280,6 +315,9 @@ A `Memory*` tool suite, registered once, surfaced to any MCP-capable agent (Clau
 | **`MemoryHistory`** | Browses the version history of a node — who/when/how it changed, rollback-capable via stored old content. |
 | **`MemorySummarize`** | Replaces a node's content with a shorter summary the agent provides. Used when the temperature tracker flags a cold node. |
 | **`MemoryCompile`** | Compiles source files or a directory into the database from inside a session. Same engine as the `compile` CLI. |
+| **`MemoryRelated`** | Traverses the relations graph from an anchor — outgoing/incoming/both, up to 5 hops, ranked by summed path weight. Surfaces what an authored `[[Label]]` wiki-link connects to. |
+| **`MemoryRelate`** | Creates a manual edge between two existing nodes. Resolves the target the same way parsed wiki-links do (id → source+label → label only). Does not create a snapshot — relations are a sideband. |
+| **`MemoryStats`** | Reports DB health and shape: total nodes (with per-`node_type` breakdown), tokens, snapshot/latest-cursor summary, temperature spread (avg/median/hot/cold/pinned), relations (with per-`origin` breakdown plus pending), and FTS row count. Read-only, single round-trip. Same data the `remindb inspect` CLI renders. |
 
 ### Agent integrations
 

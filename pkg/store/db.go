@@ -17,6 +17,7 @@ import (
 
 type Store struct {
 	db   *sql.DB
+	Path string
 	txMu sync.Mutex
 	OpMu sync.Mutex
 }
@@ -62,7 +63,7 @@ func Open(path string) (*Store, error) {
 		}
 	}
 
-	return &Store{db: db}, nil
+	return &Store{db: db, Path: path}, nil
 }
 
 func (s *Store) Close() error {

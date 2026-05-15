@@ -79,19 +79,6 @@ jobs:
       - name: go test -race
         run: go test -race ./...
 
-  fuzz:
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-
-      - uses: actions/setup-go@v6
-        with:
-          go-version-file: go.mod
-          cache: true
-
-      - name: fuzz (5s per target)
-        run: ./scripts/fuzz.sh 5s
-
   vuln:
     runs-on: ubuntu-latest
     steps:

@@ -26,17 +26,18 @@ const (
 const MaxInlineFields = 5
 
 type ContextNode struct {
-	Children    []*ContextNode
-	ID          string
-	ParentID    string
-	SourceFile  string
-	Label       string
-	Content     string
-	ContentHash string
-	Format      string
-	Temperature *float64
-	Depth       int
-	TokenCount  int
+	Children     []*ContextNode
+	WikilinkRefs []WikilinkRef
+	ID           string
+	ParentID     string
+	SourceFile   string
+	Label        string
+	Content      string
+	ContentHash  string
+	Format       string
+	Temperature  *float64
+	Depth        int
+	TokenCount   int
 	NodeType
 }
 
