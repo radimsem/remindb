@@ -1,0 +1,35 @@
+name: fuzz
+
+on:
+  schedule:
+    - cron: '0 3 * * *'
+  workflow_dispatch:
+    inputs:
+      fuzztime:
+        description: 'Time per fuzz target (e.g. 30s, 2m, 10m)'
+        type: string
+        default: '2m'
+
+concurrency:
+  group: fuzz-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+jobs:
+  fuzz:
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-go@v6
+        with:
+          go-version-file: go.mod
+          cache: true
+
+      - name: fuzz
+        env:
+          FUZZTIME: ${{ inputs.fuzztime || '2m' }}
+        run: ./scripts/fuzz.sh "$FUZZTIME"
