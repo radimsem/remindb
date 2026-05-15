@@ -9,6 +9,7 @@ import (
 
 	gomcp "github.com/modelcontextprotocol/go-sdk/mcp"
 	"github.com/radimsem/remindb/internal/mcptest"
+	"github.com/radimsem/remindb/pkg/store"
 )
 
 // Simulates an OpenClaw agent session.
@@ -863,4 +864,207 @@ func extractFirstParenID(tree string) string {
 		}
 	}
 	return ""
+}
+
+func TestMcp_MemoryForget(t *testing.T) {
+	t.Run("Strict_Leaf", func(t *testing.T) {
+		env := mcptest.NewEnv(t)
+		seedForgetNode(t, env, "rootroor", "")
+		seedForgetNode(t, env, "leaf0001", "rootroor")
+
+		result := env.CallTool(t, "MemoryForget", map[string]any{
+			"node_id": "leaf0001",
+		})
+		text := env.TextContent(t, result)
+		if !strings.Contains(text, "forgot node leaf0001") {
+			t.Fatalf("unexpected result: %s", text)
+		}
+		if !strings.Contains(text, "mode=strict") {
+			t.Errorf("result should mention mode=strict: %s", text)
+		}
+
+		treeText := env.TextContent(t, env.CallTool(t, "MemoryTree", map[string]any{}))
+		if strings.Contains(treeText, "id=leaf0001") {
+			t.Errorf("tree still contains leaf0001: %s", treeText)
+		}
+		if !strings.Contains(treeText, "id=rootroor") {
+			t.Errorf("tree should still contain rootroor: %s", treeText)
+		}
+
+		deltaText := env.TextContent(t, env.CallTool(t, "MemoryDelta", map[string]any{
+			"since_snapshot": 0,
+		}))
+		if !strings.Contains(deltaText, "[rem] leaf0001") {
+			t.Errorf("delta should show [rem] leaf0001: %s", deltaText)
+		}
+	})
+
+	t.Run("Strict_RejectsParent", func(t *testing.T) {
+		env := mcptest.NewEnv(t)
+		seedForgetNode(t, env, "rootroor", "")
+		seedForgetNode(t, env, "child001", "rootroor")
+
+		result, err := env.Session.CallTool(context.Background(), &gomcp.CallToolParams{
+			Name:      "MemoryForget",
+			Arguments: map[string]any{"node_id": "rootroor", "mode": "strict"},
+		})
+		if err != nil {
+			t.Fatalf("CallTool transport: %v", err)
+		}
+		if !result.IsError {
+			t.Fatalf("expected IsError=true, got success: %v", result)
+		}
+
+		msg := env.TextContent(t, result)
+		if !strings.Contains(msg, "has 1 children") {
+			t.Errorf("error should mention children count: %s", msg)
+		}
+
+		treeText := env.TextContent(t, env.CallTool(t, "MemoryTree", map[string]any{}))
+		for _, id := range []string{"rootroor", "child001"} {
+			if !strings.Contains(treeText, "id="+id) {
+				t.Errorf("tree should still contain %s after rejected forget: %s", id, treeText)
+			}
+		}
+	})
+
+	t.Run("Cascade_Subtree", func(t *testing.T) {
+		env := mcptest.NewEnv(t)
+		seedForgetNode(t, env, "rootroor", "")
+		seedForgetNode(t, env, "mid00001", "rootroor")
+		seedForgetNode(t, env, "leaf0001", "mid00001")
+		seedForgetNode(t, env, "leaf0002", "mid00001")
+
+		result := env.CallTool(t, "MemoryForget", map[string]any{
+			"node_id": "mid00001",
+			"mode":    "cascade",
+		})
+		text := env.TextContent(t, result)
+		if !strings.Contains(text, "3 affected") {
+			t.Errorf("expected 3 affected (mid + 2 leaves): %s", text)
+		}
+
+		treeText := env.TextContent(t, env.CallTool(t, "MemoryTree", map[string]any{}))
+		for _, id := range []string{"mid00001", "leaf0001", "leaf0002"} {
+			if strings.Contains(treeText, "id="+id) {
+				t.Errorf("tree still contains %s after cascade: %s", id, treeText)
+			}
+		}
+		if !strings.Contains(treeText, "id=rootroor") {
+			t.Errorf("tree should still contain rootroor: %s", treeText)
+		}
+
+		deltaText := env.TextContent(t, env.CallTool(t, "MemoryDelta", map[string]any{
+			"since_snapshot": 0,
+		}))
+		if got := strings.Count(deltaText, "[rem]"); got != 3 {
+			t.Errorf("rem count = %d, want 3: %s", got, deltaText)
+		}
+
+		// FTS5 sync: cascaded labels must not surface in search.
+		searchText := env.TextContent(t, env.CallTool(t, "MemorySearch", map[string]any{
+			"query":  "leaf0001",
+			"budget": 500,
+		}))
+		if !strings.Contains(searchText, "no results") {
+			t.Errorf("search for cascaded label should return no results: %s", searchText)
+		}
+	})
+
+	t.Run("Reparent_WithGrandparent", func(t *testing.T) {
+		env := mcptest.NewEnv(t)
+		ctx := context.Background()
+		seedForgetNode(t, env, "rootroor", "")
+		seedForgetNode(t, env, "mid00001", "rootroor")
+		seedForgetNode(t, env, "leaf0001", "mid00001")
+		seedForgetNode(t, env, "leaf0002", "mid00001")
+
+		env.CallTool(t, "MemoryForget", map[string]any{
+			"node_id": "mid00001",
+			"mode":    "reparent",
+		})
+
+		if _, err := env.Store.GetNode(ctx, "mid00001"); err == nil {
+			t.Error("mid00001 still present after reparent")
+		}
+
+		for _, id := range []string{"leaf0001", "leaf0002"} {
+			n, err := env.Store.GetNode(ctx, id)
+			if err != nil {
+				t.Fatalf("get %s: %v", id, err)
+			}
+
+			if n.ParentID != "rootroor" {
+				t.Errorf("%s parent = %q, want rootroor", id, n.ParentID)
+			}
+		}
+
+		deltaText := env.TextContent(t, env.CallTool(t, "MemoryDelta", map[string]any{
+			"since_snapshot": 0,
+		}))
+		if got := strings.Count(deltaText, "[rem]"); got != 1 {
+			t.Errorf("rem count = %d, want 1: %s", got, deltaText)
+		}
+		if got := strings.Count(deltaText, "[mod]"); got != 2 {
+			t.Errorf("mod count = %d, want 2 (structural reparent): %s", got, deltaText)
+		}
+	})
+
+	t.Run("Reparent_AtRoot", func(t *testing.T) {
+		env := mcptest.NewEnv(t)
+		ctx := context.Background()
+		seedForgetNode(t, env, "rootroor", "")
+		seedForgetNode(t, env, "child001", "rootroor")
+		seedForgetNode(t, env, "child002", "rootroor")
+
+		env.CallTool(t, "MemoryForget", map[string]any{
+			"node_id": "rootroor",
+			"mode":    "reparent",
+		})
+
+		for _, id := range []string{"child001", "child002"} {
+			n, err := env.Store.GetNode(ctx, id)
+			if err != nil {
+				t.Fatalf("get %s: %v", id, err)
+			}
+
+			if n.ParentID != "" {
+				t.Errorf("%s parent = %q, want empty (promoted to root)", id, n.ParentID)
+			}
+		}
+	})
+
+	t.Run("InvalidMode", func(t *testing.T) {
+		env := mcptest.NewEnv(t)
+		seedForgetNode(t, env, "leaf0001", "")
+
+		result, err := env.Session.CallTool(context.Background(), &gomcp.CallToolParams{
+			Name:      "MemoryForget",
+			Arguments: map[string]any{"node_id": "leaf0001", "mode": "bogus"},
+		})
+		if err != nil {
+			t.Fatalf("CallTool transport: %v", err)
+		}
+
+		if !result.IsError {
+			t.Fatalf("expected IsError=true for unknown mode")
+		}
+		if msg := env.TextContent(t, result); !strings.Contains(msg, "unknown delete mode") {
+			t.Errorf("error should mention unknown mode: %s", msg)
+		}
+	})
+}
+
+func seedForgetNode(t *testing.T, env *mcptest.Env, id, parent string) {
+	t.Helper()
+
+	err := env.Store.UpsertNode(context.Background(), &store.Node{
+		ID: id, ParentID: parent,
+		SourceFile: "test.md", NodeType: "heading", Depth: 1,
+		Label: "label " + id, Content: "content " + id,
+		Format: "plain", TokenCount: 5, ContentHash: "hash" + id,
+	})
+	if err != nil {
+		t.Fatalf("seedForgetNode %s: %v", id, err)
+	}
 }
