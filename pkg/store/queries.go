@@ -12,7 +12,8 @@ const (
 	n.temperature, n.access_count, n.last_accessed_at,
 	n.created_at, n.updated_at, n.pinned`
 
-	diffColumns = `snapshot_id, node_id, op, old_hash, new_hash, old_content, new_content`
+	diffColumns = `snapshot_id, node_id, op, old_hash, new_hash, old_content, new_content,
+	old_parent_id, old_source_file, old_node_type, old_depth, old_label, old_format, old_token_count`
 
 	snapshotColumns = `id, cursor_hash, parent_id, message, compile_root, created_at`
 )
@@ -142,8 +143,9 @@ const (
 		WHERE compile_root != ''
 		ORDER BY id DESC LIMIT 1`
 
-	qInsertDiff = `INSERT INTO diffs (snapshot_id, node_id, op, old_hash, new_hash, old_content, new_content)
-		VALUES (?, ?, ?, ?, ?, ?, ?)`
+	qInsertDiff = `INSERT INTO diffs (snapshot_id, node_id, op, old_hash, new_hash, old_content, new_content,
+		old_parent_id, old_source_file, old_node_type, old_depth, old_label, old_format, old_token_count)
+		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
 
 	qUpsertHeadCursor = `INSERT INTO cursors (id, snapshot_id) VALUES ('HEAD', ?)
 		ON CONFLICT(id) DO UPDATE SET snapshot_id = excluded.snapshot_id, updated_at = unixepoch()`
@@ -164,6 +166,13 @@ const (
 		WHERE snapshot_id > ? AND snapshot_id <= ? ORDER BY snapshot_id, id`
 
 	qSelectDiffsForNode = `SELECT ` + diffColumns + ` FROM diffs WHERE node_id = ? ORDER BY snapshot_id`
+
+	qSelectDiffsAfter = `SELECT ` + diffColumns + ` FROM diffs WHERE snapshot_id > ?
+		ORDER BY snapshot_id DESC, id DESC`
+
+	qDeleteDiffsAfter = `DELETE FROM diffs WHERE snapshot_id > ? AND snapshot_id != ?`
+
+	qDeleteSnapshotsAfter = `DELETE FROM snapshots WHERE id > ? AND id != ?`
 )
 
 // search

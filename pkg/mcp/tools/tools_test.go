@@ -1663,6 +1663,483 @@ func TestHandleForget_BlocksOnOpMu(t *testing.T) {
 	}
 }
 
+func writeAndSnap(t *testing.T, d *Deps, payload string) (nodeID string, snapID int64) {
+	t.Helper()
+	ctx := context.Background()
+
+	res, _, err := d.HandleWrite(ctx, &gomcp.CallToolRequest{}, WriteInput{Payload: payload})
+	if err != nil {
+		t.Fatalf("HandleWrite: %v", err)
+	}
+
+	text := textContent(t, res)
+	nodeID = extractWrittenNodeID(text)
+	if nodeID == "" {
+		t.Fatalf("could not parse node id from write result: %q", text)
+	}
+
+	snaps, err := d.Store.ListSnapshots(ctx, 1)
+	if err != nil || len(snaps) == 0 {
+		t.Fatalf("ListSnapshots: %v (len=%d)", err, len(snaps))
+	}
+	return nodeID, snaps[0].ID
+}
+
+// "wrote node <id> (N tokens)" → "<id>"
+func extractWrittenNodeID(s string) string {
+	const prefix = "wrote node "
+	i := strings.Index(s, prefix)
+	if i < 0 {
+		return ""
+	}
+
+	rest := s[i+len(prefix):]
+	end := strings.IndexByte(rest, ' ')
+	if end < 0 {
+		return rest
+	}
+
+	return rest[:end]
+}
+
+func TestHandleRollback_RestoresMutatedContent(t *testing.T) {
+	d, st := setup(t)
+	ctx := context.Background()
+
+	nodeID, snap1 := writeAndSnap(t, d, "Title alpha\nbody v1\n")
+
+	_, _, err := d.HandleWrite(ctx, &gomcp.CallToolRequest{}, WriteInput{Anchor: nodeID, Payload: "Title alpha\nbody v2\n"})
+	must(t, err)
+
+	_, _, err = d.HandleRollback(ctx, &gomcp.CallToolRequest{}, RollbackInput{SnapshotID: snap1})
+	must(t, err)
+
+	got, err := st.GetNode(ctx, nodeID)
+	must(t, err)
+
+	if !strings.Contains(got.Content, "body v1") {
+		t.Errorf("content after rollback = %q, want it to contain 'body v1'", got.Content)
+	}
+	if strings.Contains(got.Content, "body v2") {
+		t.Errorf("content after rollback still has 'body v2': %q", got.Content)
+	}
+}
+
+func TestHandleRollback_RemovesNodeAddedAfterTarget(t *testing.T) {
+	d, st := setup(t)
+	ctx := context.Background()
+
+	idA, snap1 := writeAndSnap(t, d, "Title alpha\nfirst note\n")
+	idB, _ := writeAndSnap(t, d, "Title beta\nsecond note\n")
+
+	_, _, err := d.HandleRollback(ctx, &gomcp.CallToolRequest{}, RollbackInput{SnapshotID: snap1})
+	must(t, err)
+
+	if _, err := st.GetNode(ctx, idA); err != nil {
+		t.Errorf("nodeA disappeared after rollback: %v", err)
+	}
+	if _, err := st.GetNode(ctx, idB); !errors.Is(err, sql.ErrNoRows) {
+		t.Errorf("nodeB still present after rollback; err = %v", err)
+	}
+}
+
+func TestHandleRollback_RestoresDeletedNode(t *testing.T) {
+	d, st := setup(t)
+	ctx := context.Background()
+
+	id, snap1 := writeAndSnap(t, d, "Title alpha\nbody to delete\n")
+
+	_, _, err := d.HandleForget(ctx, &gomcp.CallToolRequest{}, ForgetInput{NodeID: id, Mode: "cascade"})
+	must(t, err)
+
+	if _, err := st.GetNode(ctx, id); !errors.Is(err, sql.ErrNoRows) {
+		t.Fatalf("expected node to be deleted, got err = %v", err)
+	}
+
+	_, _, err = d.HandleRollback(ctx, &gomcp.CallToolRequest{}, RollbackInput{SnapshotID: snap1})
+	must(t, err)
+
+	got, err := st.GetNode(ctx, id)
+	if err != nil {
+		t.Fatalf("nodeA gone after rollback that should restore it: %v", err)
+	}
+	if !strings.Contains(got.Content, "body to delete") {
+		t.Errorf("restored content = %q, want it to contain 'body to delete'", got.Content)
+	}
+}
+
+func TestHandleRollback_DropAfterTrue_PrunesIntermediate(t *testing.T) {
+	d, st := setup(t)
+	ctx := context.Background()
+
+	idAlpha, snap1 := writeAndSnap(t, d, "Title alpha\nfirst\n")
+	idBeta, _ := writeAndSnap(t, d, "Title beta\nsecond\n")
+	idGamma, _ := writeAndSnap(t, d, "Title gamma\nthird\n")
+
+	snapsBefore, err := st.ListSnapshots(ctx, 100)
+	must(t, err)
+	if len(snapsBefore) != 3 {
+		t.Fatalf("expected 3 snapshots before rollback, got %d", len(snapsBefore))
+	}
+
+	_, _, err = d.HandleRollback(ctx, &gomcp.CallToolRequest{}, RollbackInput{SnapshotID: snap1, DropAfter: true})
+	must(t, err)
+
+	snapsAfter, err := st.ListSnapshots(ctx, 100)
+	must(t, err)
+	if len(snapsAfter) != 2 {
+		t.Fatalf("expected 2 snapshots after drop_after rollback (snap1 + rollback), got %d", len(snapsAfter))
+	}
+
+	// DESC order: rollback then snap1.
+	rollbackSnap := snapsAfter[0]
+	if !strings.HasPrefix(rollbackSnap.Message, "rollback to ") {
+		t.Errorf("HEAD message = %q, want it to start with 'rollback to '", rollbackSnap.Message)
+	}
+	if !rollbackSnap.ParentID.Valid || rollbackSnap.ParentID.Int64 != snap1 {
+		t.Errorf("rollback snap parent = %v, want %d (drop_after=true linearizes to target)", rollbackSnap.ParentID, snap1)
+	}
+
+	// Node graph at snap1 held only alpha; beta and gamma were added later and must be gone.
+	alpha, err := st.GetNode(ctx, idAlpha)
+	if err != nil {
+		t.Fatalf("alpha missing after rollback: %v", err)
+	}
+	if !strings.Contains(alpha.Content, "first") {
+		t.Errorf("alpha content = %q, want it to contain 'first'", alpha.Content)
+	}
+	for _, id := range []string{idBeta, idGamma} {
+		if _, err := st.GetNode(ctx, id); !errors.Is(err, sql.ErrNoRows) {
+			t.Errorf("node %s still present after rollback; err = %v", id, err)
+		}
+	}
+}
+
+func TestHandleRollback_DropAfterFalse_KeepsIntermediate(t *testing.T) {
+	d, st := setup(t)
+	ctx := context.Background()
+
+	idAlpha, snap1 := writeAndSnap(t, d, "Title alpha\nfirst\n")
+	idBeta, _ := writeAndSnap(t, d, "Title beta\nsecond\n")
+	idGamma, snap3 := writeAndSnap(t, d, "Title gamma\nthird\n")
+
+	_, _, err := d.HandleRollback(ctx, &gomcp.CallToolRequest{}, RollbackInput{SnapshotID: snap1})
+	must(t, err)
+
+	snapsAfter, err := st.ListSnapshots(ctx, 100)
+	must(t, err)
+	if len(snapsAfter) != 4 {
+		t.Fatalf("expected 4 snapshots after non-pruning rollback, got %d", len(snapsAfter))
+	}
+
+	rollbackSnap := snapsAfter[0]
+	if !rollbackSnap.ParentID.Valid || rollbackSnap.ParentID.Int64 != snap3 {
+		t.Errorf("rollback snap parent = %v, want %d (drop_after=false hangs off prev HEAD)", rollbackSnap.ParentID, snap3)
+	}
+
+	alpha, err := st.GetNode(ctx, idAlpha)
+	if err != nil {
+		t.Fatalf("alpha missing after rollback: %v", err)
+	}
+
+	if !strings.Contains(alpha.Content, "first") {
+		t.Errorf("alpha content = %q, want it to contain 'first'", alpha.Content)
+	}
+	for _, id := range []string{idBeta, idGamma} {
+		if _, err := st.GetNode(ctx, id); !errors.Is(err, sql.ErrNoRows) {
+			t.Errorf("node %s still present after rollback; err = %v", id, err)
+		}
+	}
+}
+
+func TestHandleRollback_NextWriteChainsOnRollback(t *testing.T) {
+	d, st := setup(t)
+	ctx := context.Background()
+
+	_, snap1 := writeAndSnap(t, d, "Title alpha\nfirst\n")
+	_, _ = writeAndSnap(t, d, "Title beta\nsecond\n")
+
+	_, _, err := d.HandleRollback(ctx, &gomcp.CallToolRequest{}, RollbackInput{SnapshotID: snap1})
+	must(t, err)
+
+	rollbackHead, err := st.GetHeadSnapshotID(ctx)
+	must(t, err)
+
+	_, _, err = d.HandleWrite(ctx, &gomcp.CallToolRequest{}, WriteInput{Payload: "Title delta\npost-rollback\n"})
+	must(t, err)
+
+	snaps, err := st.ListSnapshots(ctx, 1)
+	must(t, err)
+	if len(snaps) == 0 {
+		t.Fatal("no snapshot after post-rollback write")
+	}
+
+	post := snaps[0]
+	if !post.ParentID.Valid || post.ParentID.Int64 != rollbackHead {
+		t.Errorf("post-rollback write parent = %v, want %d (rollback snap)", post.ParentID, rollbackHead)
+	}
+}
+
+func TestHandleRollback_NoOpWhenTargetIsHead(t *testing.T) {
+	d, st := setup(t)
+	ctx := context.Background()
+
+	_, snap1 := writeAndSnap(t, d, "Title alpha\nbody\n")
+
+	res, _, err := d.HandleRollback(ctx, &gomcp.CallToolRequest{}, RollbackInput{SnapshotID: snap1})
+	must(t, err)
+	if !strings.Contains(textContent(t, res), "already at snapshot") {
+		t.Errorf("expected 'already at snapshot' message, got %q", textContent(t, res))
+	}
+
+	snaps, err := st.ListSnapshots(ctx, 100)
+	must(t, err)
+	if len(snaps) != 1 {
+		t.Errorf("snapshot count = %d, want 1 (no-op must not emit)", len(snaps))
+	}
+}
+
+func TestHandleRollback_RejectsInvalidInput(t *testing.T) {
+	d, _ := setup(t)
+	ctx := context.Background()
+
+	for _, tc := range []struct {
+		name   string
+		snapID int64
+	}{
+		{"zero", 0},
+		{"negative", -1},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			_, _, err := d.HandleRollback(ctx, &gomcp.CallToolRequest{}, RollbackInput{SnapshotID: tc.snapID})
+
+			if err == nil {
+				t.Fatalf("expected error for snapshot_id=%d, got nil", tc.snapID)
+			}
+		})
+	}
+}
+
+func TestHandleRollback_RejectsNonexistentSnapshot(t *testing.T) {
+	d, _ := setup(t)
+	ctx := context.Background()
+
+	_, _ = writeAndSnap(t, d, "warm-up\n")
+
+	_, _, err := d.HandleRollback(ctx, &gomcp.CallToolRequest{}, RollbackInput{SnapshotID: 999})
+	if err == nil {
+		t.Fatal("expected error for nonexistent snapshot, got nil")
+	}
+}
+
+func TestHandleRollback_BlocksOnOpMu(t *testing.T) {
+	d, st := setup(t)
+	ctx := context.Background()
+
+	_, snap1 := writeAndSnap(t, d, "Title alpha\nbody\n")
+	_, _ = writeAndSnap(t, d, "Title beta\nbody\n")
+
+	st.OpMu.Lock()
+	done := make(chan error, 1)
+	go func() {
+		_, _, err := d.HandleRollback(ctx, &gomcp.CallToolRequest{}, RollbackInput{SnapshotID: snap1})
+		done <- err
+	}()
+
+	select {
+	case <-done:
+		t.Fatal("HandleRollback completed while OpMu was held")
+	case <-time.After(50 * time.Millisecond):
+	}
+
+	st.OpMu.Unlock()
+
+	select {
+	case err := <-done:
+		if err != nil {
+			t.Fatalf("HandleRollback after unlock: %v", err)
+		}
+	case <-time.After(500 * time.Millisecond):
+		t.Fatal("HandleRollback did not complete after OpMu.Unlock")
+	}
+}
+
+func TestHandleRollback_RestoresSubtreeAfterCascade(t *testing.T) {
+	d, st := setup(t)
+	ctx := context.Background()
+
+	// Seed a 3-deep tree directly via UpsertNode — no snapshot yet.
+	seedForget(t, st, "rootid01234", "")
+	seedForget(t, st, "midid012345", "rootid01234")
+	seedForget(t, st, "leafid01234", "midid012345")
+
+	_, baseline := writeAndSnap(t, d, "Title baseline\nwarmup body\n")
+
+	_, _, err := d.HandleForget(ctx, &gomcp.CallToolRequest{}, ForgetInput{NodeID: "rootid01234", Mode: "cascade"})
+	must(t, err)
+
+	for _, id := range []string{"rootid01234", "midid012345", "leafid01234"} {
+		if _, err := st.GetNode(ctx, id); !errors.Is(err, sql.ErrNoRows) {
+			t.Fatalf("subtree node %s still present after cascade: %v", id, err)
+		}
+	}
+
+	// Roll back to the baseline.
+	_, _, err = d.HandleRollback(ctx, &gomcp.CallToolRequest{}, RollbackInput{SnapshotID: baseline})
+	must(t, err)
+
+	// All three nodes must be back with the right parent chain.
+	root, err := st.GetNode(ctx, "rootid01234")
+	must(t, err)
+	if root.ParentID != "" {
+		t.Errorf("rootid parent = %q, want empty (root)", root.ParentID)
+	}
+
+	mid, err := st.GetNode(ctx, "midid012345")
+	must(t, err)
+	if mid.ParentID != "rootid01234" {
+		t.Errorf("midid parent = %q, want rootid01234", mid.ParentID)
+	}
+
+	leaf, err := st.GetNode(ctx, "leafid01234")
+	must(t, err)
+	if leaf.ParentID != "midid012345" {
+		t.Errorf("leafid parent = %q, want midid012345", leaf.ParentID)
+	}
+}
+
+func TestHandleRollback_ChainOfModsReversesToOriginal(t *testing.T) {
+	d, st := setup(t)
+	ctx := context.Background()
+
+	id, snap1 := writeAndSnap(t, d, "Title alpha\noriginal body\n")
+
+	for _, payload := range []string{
+		"Title alpha\nfirst edit\n",
+		"Title alpha\nsecond edit\n",
+		"Title alpha\nthird edit\n",
+	} {
+		_, _, err := d.HandleWrite(ctx, &gomcp.CallToolRequest{}, WriteInput{Anchor: id, Payload: payload})
+		must(t, err)
+	}
+
+	current, err := st.GetNode(ctx, id)
+	must(t, err)
+	if !strings.Contains(current.Content, "third edit") {
+		t.Fatalf("pre-rollback content = %q, want third edit", current.Content)
+	}
+
+	_, _, err = d.HandleRollback(ctx, &gomcp.CallToolRequest{}, RollbackInput{SnapshotID: snap1})
+	must(t, err)
+
+	restored, err := st.GetNode(ctx, id)
+	must(t, err)
+
+	if !strings.Contains(restored.Content, "original body") {
+		t.Errorf("after chain rollback, content = %q, want original body", restored.Content)
+	}
+	for _, leaked := range []string{"first edit", "second edit", "third edit"} {
+		if strings.Contains(restored.Content, leaked) {
+			t.Errorf("intermediate content %q leaked into rolled-back state: %q", leaked, restored.Content)
+		}
+	}
+}
+
+func TestHandleRollback_FTSReflectsRestoredContent(t *testing.T) {
+	d, st := setup(t)
+	ctx := context.Background()
+
+	id, snap1 := writeAndSnap(t, d, "Title alpha\nUNIQUEMARKERORIGINAL\n")
+
+	_, _, err := d.HandleWrite(ctx, &gomcp.CallToolRequest{}, WriteInput{Anchor: id, Payload: "Title alpha\nUNIQUEMARKERPOSTTARGET\n"})
+	must(t, err)
+
+	_, _, err = d.HandleRollback(ctx, &gomcp.CallToolRequest{}, RollbackInput{SnapshotID: snap1})
+	must(t, err)
+
+	hits, err := st.Search(ctx, "UNIQUEMARKERORIGINAL", 10)
+	must(t, err)
+	if len(hits) == 0 {
+		t.Errorf("FTS5 missed the restored content after rollback — triggers didn't fire")
+	}
+
+	stale, err := st.Search(ctx, "UNIQUEMARKERPOSTTARGET", 10)
+	must(t, err)
+	if len(stale) != 0 {
+		t.Errorf("FTS5 still indexes the rolled-away content: %d hits", len(stale))
+	}
+}
+
+func TestHandleRollback_ReparentReversal(t *testing.T) {
+	d, st := setup(t)
+	ctx := context.Background()
+
+	// Tree: root → mid → leafA, leafB
+	seedForget(t, st, "rprt00root1", "")
+	seedForget(t, st, "rprt000mid1", "rprt00root1")
+	seedForget(t, st, "rprt0leafa1", "rprt000mid1")
+	seedForget(t, st, "rprt0leafb1", "rprt000mid1")
+
+	_, baseline := writeAndSnap(t, d, "Title baseline\nwarmup\n")
+
+	// Reparent: leaves get promoted to root, mid is deleted.
+	_, _, err := d.HandleForget(ctx, &gomcp.CallToolRequest{}, ForgetInput{NodeID: "rprt000mid1", Mode: "reparent"})
+	must(t, err)
+
+	leafA, err := st.GetNode(ctx, "rprt0leafa1")
+	must(t, err)
+
+	if leafA.ParentID != "rprt00root1" {
+		t.Fatalf("after reparent, leafA.parent = %q, want rprt00root1", leafA.ParentID)
+	}
+	if _, err := st.GetNode(ctx, "rprt000mid1"); !errors.Is(err, sql.ErrNoRows) {
+		t.Fatalf("mid not deleted after reparent: %v", err)
+	}
+
+	_, _, err = d.HandleRollback(ctx, &gomcp.CallToolRequest{}, RollbackInput{SnapshotID: baseline})
+	must(t, err)
+
+	mid, err := st.GetNode(ctx, "rprt000mid1")
+	must(t, err)
+	if mid.ParentID != "rprt00root1" {
+		t.Errorf("after rollback, mid.parent = %q, want rprt00root1", mid.ParentID)
+	}
+
+	for _, id := range []string{"rprt0leafa1", "rprt0leafb1"} {
+		n, err := st.GetNode(ctx, id)
+		must(t, err)
+
+		if n.ParentID != "rprt000mid1" {
+			t.Errorf("after rollback, %s.parent = %q, want rprt000mid1", id, n.ParentID)
+		}
+	}
+}
+
+func TestHandleRollback_PreservesTemperatureOnRestoredNode(t *testing.T) {
+	d, st := setup(t)
+	ctx := context.Background()
+
+	id, snap1 := writeAndSnap(t, d, "Title alpha\nbody\n")
+
+	// Boost temperature past the default.
+	must(t, d.Tracker.RecordAccess(ctx, []string{id}))
+	before, err := st.GetNode(ctx, id)
+	must(t, err)
+	beforeTemp := before.Temperature
+
+	_, _, err = d.HandleWrite(ctx, &gomcp.CallToolRequest{}, WriteInput{Anchor: id, Payload: "Title alpha\nedited\n"})
+	must(t, err)
+
+	_, _, err = d.HandleRollback(ctx, &gomcp.CallToolRequest{}, RollbackInput{SnapshotID: snap1})
+	must(t, err)
+
+	after, err := st.GetNode(ctx, id)
+	must(t, err)
+	if after.Temperature != beforeTemp {
+		t.Errorf("temperature after rollback = %g, want preserved %g", after.Temperature, beforeTemp)
+	}
+}
+
 func seedForget(t *testing.T, st *store.Store, id, parent string) {
 	t.Helper()
 

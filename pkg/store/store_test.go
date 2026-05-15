@@ -3,6 +3,7 @@ package store
 import (
 	"context"
 	"database/sql"
+	"fmt"
 	"path/filepath"
 	"strings"
 	"sync"
@@ -718,6 +719,177 @@ func TestSearchRanked(t *testing.T) {
 	}
 	if results[0].Rank >= 0 {
 		t.Errorf("Rank = %f, want negative (BM25)", results[0].Rank)
+	}
+}
+
+func TestPruneSnapshotsAfterTx_KeepsTargetAndExcluded(t *testing.T) {
+	st := openTestDB(t)
+	ctx := context.Background()
+
+	// Snapshots 1..4 chained normally (each parent_id points at the previous).
+	var ids [5]int64
+	for i := range 4 {
+		err := st.Tx(ctx, func(tx *sql.Tx) error {
+			cursor := fmt.Sprintf("csr%013d", i)
+			id, err := st.CreateSnapshotTx(ctx, tx, cursor, "m", "")
+			if err != nil {
+				return err
+			}
+
+			ids[i] = id
+			if err := st.InsertDiffTx(ctx, tx, &DiffRecord{
+				SnapshotID: id, NodeID: fmt.Sprintf("node%07d", i),
+				Op: "add", NewHash: "h", NewContent: "c",
+			}); err != nil {
+				return err
+			}
+
+			return st.AdvanceCursorTx(ctx, tx, id)
+		})
+		must(t, err)
+	}
+
+	err := st.Tx(ctx, func(tx *sql.Tx) error {
+		id, err := st.CreateSnapshotWithParentTx(ctx, tx, "csr000000005", "rollback to 1", "", ids[0])
+		if err != nil {
+			return err
+		}
+
+		ids[4] = id
+		return st.AdvanceCursorTx(ctx, tx, id)
+	})
+	must(t, err)
+
+	// Prune everything between ids[0] and HEAD except ids[4] (the rollback snap).
+	err = st.Tx(ctx, func(tx *sql.Tx) error {
+		n, err := st.PruneSnapshotsAfterTx(ctx, tx, ids[0], ids[4])
+		if err != nil {
+			return err
+		}
+
+		if n != 3 {
+			t.Errorf("pruned = %d, want 3 (snapshots between target and excluded)", n)
+		}
+		return nil
+	})
+	must(t, err)
+
+	remaining, err := st.ListSnapshots(ctx, 10)
+	must(t, err)
+	if len(remaining) != 2 {
+		t.Fatalf("remaining snapshots = %d, want 2 (target + excluded)", len(remaining))
+	}
+
+	gotIDs := []int64{remaining[0].ID, remaining[1].ID}
+	want := map[int64]bool{ids[0]: true, ids[4]: true}
+	for _, g := range gotIDs {
+		if !want[g] {
+			t.Errorf("unexpected surviving snapshot %d; want subset of %v", g, []int64{ids[0], ids[4]})
+		}
+	}
+
+	// Diffs for pruned snapshots must also be gone.
+	for _, prunedID := range []int64{ids[1], ids[2], ids[3]} {
+		diffs, err := st.GetDiffsBySnapshot(ctx, prunedID)
+		must(t, err)
+
+		if len(diffs) != 0 {
+			t.Errorf("diffs survived for pruned snapshot %d: %d rows", prunedID, len(diffs))
+		}
+	}
+}
+
+func TestRestoreToSnapshot_PreMigrationOpRem_ReportsSkipped(t *testing.T) {
+	st := openTestDB(t)
+	ctx := context.Background()
+
+	// Snap 1: empty baseline.
+	err := st.Tx(ctx, func(tx *sql.Tx) error {
+		id, err := st.CreateSnapshotTx(ctx, tx, "h0", "init", "")
+		if err != nil {
+			return err
+		}
+
+		return st.AdvanceCursorTx(ctx, tx, id)
+	})
+	must(t, err)
+
+	err = st.Tx(ctx, func(tx *sql.Tx) error {
+		id, err := st.CreateSnapshotTx(ctx, tx, "h1", "remX", "")
+		if err != nil {
+			return err
+		}
+
+		if err := st.InsertDiffTx(ctx, tx, &DiffRecord{
+			SnapshotID: id, NodeID: "premigrated", Op: "rem",
+			OldHash: "oldhash", OldContent: "old body",
+			// old_* metadata fields all sql.Null* zero-value (Valid=false) → NULL in DB.
+		}); err != nil {
+			return err
+		}
+
+		return st.AdvanceCursorTx(ctx, tx, id)
+	})
+	must(t, err)
+
+	res, err := st.RestoreToSnapshot(ctx, 1)
+	must(t, err)
+
+	if _, ok := res.Nodes["premigrated"]; ok {
+		t.Errorf("node restored despite NULL metadata; would silently lose parent_id/source_file/etc")
+	}
+	if len(res.Skipped) != 1 || res.Skipped[0].NodeID != "premigrated" {
+		t.Errorf("Skipped = %+v, want one entry for premigrated", res.Skipped)
+	}
+	if !strings.Contains(res.Skipped[0].Reason, "pre-migration") {
+		t.Errorf("reason = %q, want 'pre-migration' phrasing", res.Skipped[0].Reason)
+	}
+}
+
+func TestRestoreToSnapshot_RemovesPostTargetAdditions(t *testing.T) {
+	st := openTestDB(t)
+	ctx := context.Background()
+
+	// Snapshot 1: empty.
+	err := st.Tx(ctx, func(tx *sql.Tx) error {
+		id, err := st.CreateSnapshotTx(ctx, tx, "h0", "init", "")
+		if err != nil {
+			return err
+		}
+
+		return st.AdvanceCursorTx(ctx, tx, id)
+	})
+	must(t, err)
+
+	// Snapshot 2: add nodeA.
+	err = st.Tx(ctx, func(tx *sql.Tx) error {
+		if err := st.UpsertNodeTx(ctx, tx, testNode("aaaaaaaa", "")); err != nil {
+			return err
+		}
+
+		id, err := st.CreateSnapshotTx(ctx, tx, "h1", "addA", "")
+		if err != nil {
+			return err
+		}
+
+		if err := st.InsertDiffTx(ctx, tx, &DiffRecord{
+			SnapshotID: id, NodeID: "aaaaaaaa", Op: "add",
+			NewHash: "hashaaaaaaaa", NewContent: "content aaaaaaaa",
+		}); err != nil {
+			return err
+		}
+
+		return st.AdvanceCursorTx(ctx, tx, id)
+	})
+	must(t, err)
+
+	res, err := st.RestoreToSnapshot(ctx, 1)
+	must(t, err)
+	if _, ok := res.Nodes["aaaaaaaa"]; ok {
+		t.Errorf("target state contains nodeA, want it removed (was added after target)")
+	}
+	if len(res.Skipped) != 0 {
+		t.Errorf("unexpected skipped: %v", res.Skipped)
 	}
 }
 

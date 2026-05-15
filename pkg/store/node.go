@@ -103,6 +103,11 @@ func (s *Store) GetNode(ctx context.Context, id string) (*Node, error) {
 	return scanNode(row)
 }
 
+func (s *Store) GetNodeTx(ctx context.Context, tx *sql.Tx, id string) (*Node, error) {
+	row := tx.QueryRowContext(ctx, qSelectNodeByID, id)
+	return scanNode(row)
+}
+
 func (s *Store) GetNodesByFile(ctx context.Context, path string) ([]*Node, error) {
 	rows, err := s.db.QueryContext(ctx, qSelectNodesByFile, path)
 	if err != nil {
