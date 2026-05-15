@@ -493,6 +493,210 @@ func TestHandleDelta(t *testing.T) {
 	}
 }
 
+func TestHandleDiff_FullRangeAndSubset(t *testing.T) {
+	d, st := setup(t)
+	ctx := context.Background()
+
+	mustWriteSnapshot(t, d, ctx, "", "first line\nsecond line")
+	mustWriteSnapshot(t, d, ctx, "", "alpha\nbeta\ngamma")
+	mustWriteSnapshot(t, d, ctx, "", "third one")
+
+	snaps, err := st.ListSnapshots(ctx, 10)
+	if err != nil {
+		t.Fatalf("ListSnapshots: %v", err)
+	}
+	if len(snaps) < 3 {
+		t.Fatalf("snapshots = %d, want >= 3", len(snaps))
+	}
+
+	// Snapshots come back DESC; the oldest is the last element.
+	oldest := snaps[len(snaps)-1].ID
+	newest := snaps[0].ID
+
+	// Full range: from < oldest captures every snapshot up to newest.
+	full, _, err := d.HandleDiff(ctx, &gomcp.CallToolRequest{}, DiffInput{
+		FromSnapshotID: oldest - 1,
+		ToSnapshotID:   newest,
+	})
+	if err != nil {
+		t.Fatalf("HandleDiff full: %v", err)
+	}
+
+	fullText := textContent(t, full)
+	for _, want := range []string{"[add]", "+first line", "+alpha", "+third one"} {
+		if !strings.Contains(fullText, want) {
+			t.Errorf("full range output missing %q\n%s", want, fullText)
+		}
+	}
+	if strings.Contains(fullText, "(snapshot ") {
+		t.Errorf("consolidated output should not carry per-record snapshot suffix\n%s", fullText)
+	}
+
+	// Tight range: only the newest snapshot.
+	tight, _, err := d.HandleDiff(ctx, &gomcp.CallToolRequest{}, DiffInput{
+		FromSnapshotID: newest - 1,
+		ToSnapshotID:   newest,
+	})
+	if err != nil {
+		t.Fatalf("HandleDiff tight: %v", err)
+	}
+
+	tightText := textContent(t, tight)
+	if !strings.Contains(tightText, "+third one") {
+		t.Errorf("tight range output missing newest diff\n%s", tightText)
+	}
+	if strings.Contains(tightText, "first line") || strings.Contains(tightText, "alpha") {
+		t.Errorf("tight range output leaked older snapshots\n%s", tightText)
+	}
+}
+
+func TestHandleDiff_ModOpEmitsGitStyleHunk(t *testing.T) {
+	d, st := setup(t)
+	ctx := context.Background()
+
+	// First write creates the node; second write under the same anchor produces a `mod` diff.
+	createMsg := mustWriteSnapshot(t, d, ctx, "", "alpha\nbeta\ngamma\n")
+	nodeID := nodeIDFromWrite(t, createMsg)
+	mustWriteSnapshot(t, d, ctx, nodeID, "alpha\nbeta CHANGED\ngamma\n")
+
+	snaps, err := st.ListSnapshots(ctx, 10)
+	if err != nil {
+		t.Fatalf("ListSnapshots: %v", err)
+	}
+	newest, prev := snaps[0].ID, snaps[1].ID
+
+	result, _, err := d.HandleDiff(ctx, &gomcp.CallToolRequest{}, DiffInput{
+		FromSnapshotID: prev,
+		ToSnapshotID:   newest,
+	})
+	if err != nil {
+		t.Fatalf("HandleDiff: %v", err)
+	}
+
+	text := textContent(t, result)
+	for _, want := range []string{
+		"[mod] " + nodeID,
+		"@@",
+		"-beta",
+		"+beta CHANGED",
+	} {
+		if !strings.Contains(text, want) {
+			t.Errorf("mod output missing %q\n%s", want, text)
+		}
+	}
+}
+
+func TestHandleDiff_ConsolidatesMultipleMods(t *testing.T) {
+	d, st := setup(t)
+	ctx := context.Background()
+
+	// snap1 = add v1; snap2 = mod to v2; snap3 = mod to v3.
+	createMsg := mustWriteSnapshot(t, d, ctx, "", "v1 line a\nv1 line b\n")
+	nodeID := nodeIDFromWrite(t, createMsg)
+	mustWriteSnapshot(t, d, ctx, nodeID, "v2 line a\nv2 line b\n")
+	mustWriteSnapshot(t, d, ctx, nodeID, "v3 line a\nv3 line b\n")
+
+	snaps, err := st.ListSnapshots(ctx, 10)
+	if err != nil {
+		t.Fatalf("ListSnapshots: %v", err)
+	}
+
+	// snaps is DESC; snap1 = oldest, snap3 = newest.
+	snap1 := snaps[len(snaps)-1].ID
+	snap3 := snaps[0].ID
+
+	result, _, err := d.HandleDiff(ctx, &gomcp.CallToolRequest{}, DiffInput{
+		FromSnapshotID: snap1,
+		ToSnapshotID:   snap3,
+	})
+	if err != nil {
+		t.Fatalf("HandleDiff: %v", err)
+	}
+
+	text := textContent(t, result)
+
+	// One record only: the [mod] header for this node appears exactly once.
+	if got := strings.Count(text, "[mod] "+nodeID); got != 1 {
+		t.Errorf("expected 1 consolidated [mod] record, got %d:\n%s", got, text)
+	}
+
+	// Endpoints visible.
+	for _, want := range []string{"-v1 line a", "-v1 line b", "+v3 line a", "+v3 line b"} {
+		if !strings.Contains(text, want) {
+			t.Errorf("output missing endpoint line %q\n%s", want, text)
+		}
+	}
+	// Intermediate state (snap2) collapsed away.
+	if strings.Contains(text, "v2") {
+		t.Errorf("intermediate state should not appear in consolidated diff\n%s", text)
+	}
+}
+
+func TestHandleDiff_FromGreaterThanToRejects(t *testing.T) {
+	d, _ := setup(t)
+	ctx := context.Background()
+
+	_, _, err := d.HandleDiff(ctx, &gomcp.CallToolRequest{}, DiffInput{
+		FromSnapshotID: 5,
+		ToSnapshotID:   3,
+	})
+	if err == nil {
+		t.Fatal("expected error for from > to")
+	}
+	if !strings.Contains(err.Error(), "must be <=") {
+		t.Errorf("unexpected error %v", err)
+	}
+}
+
+func TestHandleDiff_EqualBoundsReturnsNoChanges(t *testing.T) {
+	d, _ := setup(t)
+	ctx := context.Background()
+
+	mustWriteSnapshot(t, d, ctx, "", "anything")
+
+	result, _, err := d.HandleDiff(ctx, &gomcp.CallToolRequest{}, DiffInput{
+		FromSnapshotID: 1,
+		ToSnapshotID:   1,
+	})
+	if err != nil {
+		t.Fatalf("HandleDiff: %v", err)
+	}
+	if got := textContent(t, result); got != "no changes" {
+		t.Errorf("got %q, want %q", got, "no changes")
+	}
+}
+
+func mustWriteSnapshot(t *testing.T, d *Deps, ctx context.Context, anchor, payload string) string {
+	t.Helper()
+
+	result, _, err := d.HandleWrite(ctx, &gomcp.CallToolRequest{}, WriteInput{
+		Anchor:  anchor,
+		Payload: payload,
+	})
+	if err != nil {
+		t.Fatalf("HandleWrite: %v", err)
+	}
+
+	return textContent(t, result)
+}
+
+func nodeIDFromWrite(t *testing.T, msg string) string {
+	t.Helper()
+
+	// "wrote node <id> (<n> tokens)"
+	rest := strings.TrimPrefix(msg, "wrote node ")
+	if rest == msg {
+		t.Fatalf("unexpected write result %q", msg)
+	}
+
+	id, _, ok := strings.Cut(rest, " ")
+	if !ok {
+		t.Fatalf("unexpected write result %q", msg)
+	}
+
+	return id
+}
+
 func TestHandleSummarize(t *testing.T) {
 	d, st := setup(t)
 	ctx := context.Background()
