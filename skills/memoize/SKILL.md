@@ -1,11 +1,11 @@
 ---
 name: memoize
-description: Write memory to a remindb MCP server with Markdown that indexes well into the node tree. Covers shape rules for good indexing, search-first updates, cold-node summarization, source recompile, wiki-link authoring, manual relation edges, pinning nodes against temperature decay, and explicit node removal with three deletion modes. Pair with `remind` for reads.
+description: Write memory to a remindb MCP server with Markdown that indexes well into the node tree. Covers shape rules for good indexing, search-first updates, cold-node summarization, source recompile, wiki-link authoring, manual relation edges, pinning nodes against temperature decay, explicit node removal with three deletion modes, and rolling back the graph to a prior snapshot with optional history pruning. Pair with `remind` for reads.
 ---
 
 # Memoize — write to remindb so it indexes well
 
-This skill owns the **write path** of remindb's MCP surface: `MemoryWrite`, `MemoryForget`, `MemorySummarize`, `MemoryCompile`, `MemoryRelate`, `MemoryPin`, and `MemoryUnpin`. It assumes you already know the read-side mental model (nodes, snapshots, IDs, ranking, notifications, budgets, relations) — that's `remind`'s job. If those terms aren't loaded, read `remind` first.
+This skill owns the **write path** of remindb's MCP surface: `MemoryWrite`, `MemoryForget`, `MemorySummarize`, `MemoryCompile`, `MemoryRelate`, `MemoryPin`, `MemoryUnpin`, and `MemoryRollback`. It assumes you already know the read-side mental model (nodes, snapshots, IDs, ranking, notifications, budgets, relations) — that's `remind`'s job. If those terms aren't loaded, read `remind` first.
 
 ## Why payload shape matters
 
@@ -192,6 +192,61 @@ Deleting a node:
 
 No action needed on the relations layer; this is server-side trigger behavior.
 
+## MemoryRollback — revert to a snapshot
+
+Use `MemoryRollback` when one or more recent writes left the graph in a bad state and you'd rather restore a known-good point than patch each affected node by hand. The verb takes a target `snapshot_id` (use `MemoryHistory` or `MemoryStats` to identify it) and emits **one new snapshot** capturing the rolled-back state — the rollback itself is an event in the diff trail, visible to `MemoryDelta` like any other write.
+
+Two idempotent fast paths skip the snapshot emit entirely: rolling back to the current HEAD returns `"already at snapshot <id>; nothing to do"`, and rolling back to a snapshot whose computed state already matches HEAD (e.g., after a no-op `MemoryWrite` of the same payload) returns `"no rollback applied; computed state matches HEAD for snapshot <id>"`. Neither emits a diff row, so an accidental rollback-to-self doesn't pollute history.
+
+### The two modes
+
+```
+remindb__MemoryRollback(snapshot_id=42)                       # default: drop_after=false
+remindb__MemoryRollback(snapshot_id=42, drop_after=true)
+```
+
+- **`drop_after=false` (default)** — preserves the discarded snapshots as branched history. The main spine becomes `target → ... → previous_HEAD → rollback_snap`; the intermediate snapshots stay reachable via `MemoryHistory` for each affected node so you can still audit what was rolled back. Use this whenever the audit trail matters or you might want to cherry-pick a single change back.
+- **`drop_after=true`** — hard-deletes every snapshot row (and its `diffs` rows) between target and the rollback snapshot. The main spine collapses to `target → rollback_snap` and `MemoryHistory` no longer surfaces the discarded events. Use this when the intervening writes are noise — agent thrash, half-written notes, leaked secrets — and you don't want them recoverable. **Irreversible:** once `drop_after=true` commits, the deleted snapshots can't be brought back; another `MemoryRollback` won't find them.
+
+### What gets restored and what doesn't
+
+Restored to the target snapshot's values:
+
+- **Node content** — full text and content hash.
+- **Node metadata** — `parent_id`, `source_file`, `node_type`, `depth`, `label`, `format`, `token_count`. Reparented nodes (via `MemoryForget mode=reparent`) and renamed labels return to their pre-mutation shape.
+- **Tree shape** — nodes deleted between target and HEAD reappear; nodes created since target are removed.
+- **FTS5 index** — automatically by triggers on the row updates the rollback emits.
+
+**Not** restored:
+
+- **Temperature, access count, last-accessed timestamp.** These reflect access history, not content history, and rolling them back would lose information about how the agent has been navigating the graph. They keep their current values.
+- **Pinned state.** Same reason: pin reflects a workflow decision, not content state. Nodes that get recreated by the rollback (deleted between target and HEAD) start unpinned regardless of whether they were pinned at the target snapshot.
+- **Relations and pending relations.** The relations layer is a sideband, distinct from the snapshot-tracked node graph. A `MemoryRelate` edge created between target and HEAD stays after rollback (the rollback didn't touch it); a `MemoryRelate` edge that existed at target but was deleted along with its endpoint node will re-resolve through the normal pending-relations flow on the next compile if the endpoint is restored.
+
+### Pre-migration limitation
+
+Rollback target older than the `0005_diff_metadata` migration cut-over carries NULL old-metadata for any `OpRem` events in the range. Nodes that were deleted in that range can't be fully reconstructed — the rollback **skips** them and surfaces a per-node warning in the result text:
+
+```
+rolled back to snapshot 42 (new snapshot 71, 8 nodes affected)
+warning: 2 node(s) could not be fully restored:
+  - abc12345678: pre-migration OpRem; node metadata unavailable
+  - def98765432: pre-migration OpRem; node metadata unavailable
+```
+
+Treat these warnings as actionable — the rolled-back graph is missing those nodes. If they were important, recreate them manually via `MemoryWrite` and reconstruct any relations you remember. The limitation only affects targets *older* than the migration; new diffs always capture the full metadata.
+
+### Atomicity
+
+The handler runs the entire flow — node mutations, snapshot insert, diff inserts, cursor advance, optional prune — in a single `Store.Tx`. A crash or `ctx` cancellation mid-call rolls everything back; you never see a half-rolled-back graph with a stale HEAD cursor. This is the reason `MemoryRollback` bypasses `emitter.Emit` (the standard write tools use Emit, but two transactions for emit + prune would leave a recoverable-but-real failure window).
+
+### When to choose rollback over MemoryForget
+
+- **Multiple bad writes** to clean up at once → rollback (one verb, one snapshot, atomic).
+- **Single bad node**, the rest of the recent diff trail is fine → `MemoryForget` (smaller blast radius, leaves history intact).
+- **Polluted compile** that re-ingested the wrong source root → rollback to before the compile, then `MemoryCompile` the correct path.
+- **Privacy-sensitive content** accidentally written → rollback with `drop_after=true` to hard-delete the snapshots that hold the bad content. The `diffs.old_content` / `new_content` rows are the only place the content survives; pruning removes them.
+
 ## Authoring wiki-links — graph relations in your payload
 
 A `[[Label]]` marker in a Markdown or HTML payload becomes a **parsed edge** in the relations graph (see `remind`'s "Relations — the graph layer" section for the mental model). The parser strips resolver parameters from the stored content and captures them as edge metadata; what readers see is the clean normalized marker.
@@ -366,3 +421,7 @@ If a `.remindb.ignore` file lives at the source root, `MemoryCompile` (and the b
 - Don't pin everything. A universally pinned tree has no cold set; the temperature notifications stop being a signal. Pin sparingly — only nodes the user has flagged as invariants.
 - Don't expect `MemoryPin` / `MemoryUnpin` to surface in `MemoryDelta`, `MemoryHistory`, or move the cursor. Pin state is metadata, not content — same sideband treatment as `MemoryRelate`.
 - Don't use pinning as a workaround for premature summarization. If a node keeps cooling because it isn't being accessed, that's the cold-node notifier doing its job — summarize it. Pin only when the *content itself* should remain verbatim, not when you'd rather not deal with the summary yet.
+- Don't `MemoryRollback` to clean up a single bad node — use `MemoryForget`. Rollback's blast radius is every snapshot since the target; reaching for it to undo one write throws away unrelated diff history.
+- Don't `MemoryRollback` with `drop_after=true` to "tidy up" the snapshot list. The pruning is irreversible; if the goal is cosmetic, leave `drop_after=false` and accept the orphan branches — `MemoryHistory` and `MemoryDelta` already filter by node, so the visible noise per query is small.
+- Don't expect `MemoryRollback` to restore temperature, pinned state, or relations. It restores the snapshot-tracked node graph; sideband state stays current. If you need the rolled-back nodes pinned again, call `MemoryPin` after the rollback.
+- Don't ignore the "could not be fully restored" warning. Each skipped node means the rolled-back graph is missing content that existed at the target. Either accept the gap deliberately or recreate the nodes via `MemoryWrite`.
