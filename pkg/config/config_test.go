@@ -418,6 +418,81 @@ func TestLoad_CompileBlock_AbsentLeavesZero(t *testing.T) {
 	}
 }
 
+func TestLoad_ServerBlock(t *testing.T) {
+	ws := t.TempDir()
+	writeConfig(t, ws, `{"server": {"transport": "http", "listen": "0.0.0.0:9000", "logging": {"level": "debug", "format": "json", "output_path": "/tmp/r.log"}}}`)
+
+	cfg, err := Load(ws)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	sc := cfg.Server
+	if sc.Transport == nil || *sc.Transport != "http" {
+		t.Errorf("transport = %v, want http", sc.Transport)
+	}
+	if sc.Listen == nil || *sc.Listen != "0.0.0.0:9000" {
+		t.Errorf("listen = %v, want 0.0.0.0:9000", sc.Listen)
+	}
+	if sc.Logging.Level == nil || *sc.Logging.Level != "debug" {
+		t.Errorf("logging.level = %v, want debug", sc.Logging.Level)
+	}
+	if sc.Logging.Format == nil || *sc.Logging.Format != "json" {
+		t.Errorf("logging.format = %v, want json", sc.Logging.Format)
+	}
+	if sc.Logging.OutputPath == nil || *sc.Logging.OutputPath != "/tmp/r.log" {
+		t.Errorf("logging.output_path = %v, want /tmp/r.log", sc.Logging.OutputPath)
+	}
+}
+
+func TestLoad_ServerBlock_AbsentLeavesZero(t *testing.T) {
+	ws := t.TempDir()
+	writeConfig(t, ws, `{"temperature": {"decay_rate": 0.01}}`)
+
+	cfg, err := Load(ws)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	if cfg.Server != (ServerConfig{}) {
+		t.Errorf("absent server block should leave zero value, got %+v", cfg.Server)
+	}
+}
+
+func TestValidate_ServerBlock(t *testing.T) {
+	badTransport := "grpc"
+	badLevel := "trace"
+	badFormat := "yaml"
+
+	bad := []Config{
+		{Server: ServerConfig{Transport: &badTransport}},
+		{Server: ServerConfig{Logging: LoggingConfig{Level: &badLevel}}},
+		{Server: ServerConfig{Logging: LoggingConfig{Format: &badFormat}}},
+	}
+	for i, c := range bad {
+		if err := c.Validate(); err == nil {
+			t.Errorf("case %d: expected validation error, got nil", i)
+		}
+	}
+
+	httpT, dbg, jsonF := "http", "debug", "json"
+	ok := Config{Server: ServerConfig{Transport: &httpT, Logging: LoggingConfig{Level: &dbg, Format: &jsonF}}}
+	if err := ok.Validate(); err != nil {
+		t.Errorf("valid server block should pass, got %v", err)
+	}
+}
+
+func TestLoad_ServerBlock_RejectsBadValueAtStartup(t *testing.T) {
+	ws := t.TempDir()
+	writeConfig(t, ws, `{"server": {"logging": {"level": "trace"}}}`)
+
+	if _, err := Load(ws); err == nil {
+		t.Fatal("expected Load to reject invalid logging.level")
+	} else if !strings.Contains(err.Error(), "trace") {
+		t.Errorf("error should name the offending value, got: %v", err)
+	}
+}
+
 func TestValidate_CompileBlock(t *testing.T) {
 	zero := ByteSize(0)
 	zeroPar := 0
