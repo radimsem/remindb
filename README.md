@@ -216,13 +216,21 @@ A single JSON object of feature blocks. Unknown top-level or nested keys are rej
     "tick_interval": "10m",
     "cold_notify_ttl": "2h",
     "cold_notify_limit": 100
+  },
+  "redaction": {
+    "disable_builtin_kinds": ["env_secret_assignment"],
+    "custom": [
+      { "kind": "internal_token", "pattern": "INT-[0-9a-f]{32}" }
+    ]
   }
 }
 ```
 
 The `temperature` block overrides the decay/boost policy engine-wide (distinct from `.remindb/temperatures.json`, which sets *per-path initial* temperatures). Every field is optional — only the keys you specify override the default; the rest keep the engine baseline. Durations are strings (`"10m"`, `"2h"`). Out-of-range values (e.g. a `decay_rate` below 0, a threshold outside `[0, 1]`) fail `serve` at startup with the offending field named. Read by `serve`; `compile` validates the file but does not apply temperature policy (it has no running tracker).
 
-Reserved for future releases, each its own issue when the feature lands: `redaction`, `server`, `logging`, `compile`, `snapshots`, `budgets`.
+The `redaction` block configures the secret-scrubber applied on ingest by both `compile` and `serve`. Both fields are optional. By default every built-in detector is active; `disable_builtin_kinds` mutes the kinds you list (the rest stay on — omit the key to keep all defaults; see the kind list in `internal/redaction/patterns.go`). `custom` *adds* your own `{ "kind", "pattern" }` regexes on top. An unknown kind in `disable_builtin_kinds` or an invalid custom regex fails startup with the offending name reported.
+
+Reserved for future releases, each its own issue when the feature lands: `server`, `logging`, `compile`, `snapshots`, `budgets`.
 
 #### Filtering with `.remindb/ignore`
 

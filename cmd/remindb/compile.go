@@ -65,12 +65,17 @@ func runCompile(cmd *cobra.Command, args []string) error {
 	if !fi.IsDir() {
 		workspace = filepath.Dir(path)
 	}
-	// Validate fail-loud; no consumer reads the loaded value yet.
-	if _, err := config.Load(workspace); err != nil {
+	workspaceCfg, err := config.Load(workspace)
+	if err != nil {
 		return fmt.Errorf("failed to load: workspace config: %w", err)
 	}
 
-	red, err := redaction.New(redaction.DefaultConfig())
+	redCfg, err := applyRedactionOverrides(redaction.DefaultConfig(), workspaceCfg.Redaction)
+	if err != nil {
+		return fmt.Errorf("invalid redaction config in %s: %w", config.Path, err)
+	}
+
+	red, err := redaction.New(redCfg)
 	if err != nil {
 		return fmt.Errorf("failed to build: redactor: %w", err)
 	}

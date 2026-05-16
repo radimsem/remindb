@@ -3,6 +3,7 @@ package config
 import (
 	"os"
 	"path/filepath"
+	"reflect"
 	"strings"
 	"testing"
 	"time"
@@ -27,7 +28,7 @@ func TestLoad_MissingDir(t *testing.T) {
 		t.Fatalf("unexpected error: %v", err)
 	}
 
-	if cfg != (Config{}) {
+	if !reflect.DeepEqual(cfg, Config{}) {
 		t.Errorf("expected zero-value Config, got %+v", cfg)
 	}
 }
@@ -42,7 +43,7 @@ func TestLoad_MissingFile(t *testing.T) {
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
-	if cfg != (Config{}) {
+	if !reflect.DeepEqual(cfg, Config{}) {
 		t.Errorf("expected zero-value Config, got %+v", cfg)
 	}
 }
@@ -55,7 +56,7 @@ func TestLoad_EmptyFile(t *testing.T) {
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
-	if cfg != (Config{}) {
+	if !reflect.DeepEqual(cfg, Config{}) {
 		t.Errorf("expected zero-value Config, got %+v", cfg)
 	}
 }
@@ -68,7 +69,7 @@ func TestLoad_EmptyObject(t *testing.T) {
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
-	if cfg != (Config{}) {
+	if !reflect.DeepEqual(cfg, Config{}) {
 		t.Errorf("expected zero-value Config, got %+v", cfg)
 	}
 }
@@ -207,5 +208,59 @@ func TestLoad_TemperatureBlock_BadDuration(t *testing.T) {
 
 	if !strings.Contains(err.Error(), "invalid duration") {
 		t.Errorf("expected 'invalid duration' in error, got: %v", err)
+	}
+}
+
+func TestLoad_RedactionBlock_Fields(t *testing.T) {
+	ws := t.TempDir()
+	writeConfig(t, ws, `{
+		"redaction": {
+			"disable_builtin_kinds": ["env_secret_assignment", "jwt"],
+			"custom": [{"kind": "internal_token", "pattern": "INT-[0-9a-f]{32}"}]
+		}
+	}`)
+
+	cfg, err := Load(ws)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	rc := cfg.Redaction
+	if !reflect.DeepEqual(rc.DisableBuiltinKinds, []string{"env_secret_assignment", "jwt"}) {
+		t.Errorf("DisableBuiltinKinds = %v, want [env_secret_assignment jwt]", rc.DisableBuiltinKinds)
+	}
+
+	want := []RedactionPattern{{Kind: "internal_token", Pattern: "INT-[0-9a-f]{32}"}}
+	if !reflect.DeepEqual(rc.Custom, want) {
+		t.Errorf("Custom = %v, want %v", rc.Custom, want)
+	}
+}
+
+func TestLoad_RedactionBlock_AbsentLeavesZero(t *testing.T) {
+	ws := t.TempDir()
+	writeConfig(t, ws, `{"temperature": {"decay_rate": 0.01}}`)
+
+	cfg, err := Load(ws)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	rc := cfg.Redaction
+	if rc.DisableBuiltinKinds != nil || rc.Custom != nil {
+		t.Errorf("absent redaction block should leave zero value, got %+v", rc)
+	}
+}
+
+func TestLoad_RedactionBlock_UnknownNestedKeyRejected(t *testing.T) {
+	ws := t.TempDir()
+	writeConfig(t, ws, `{"redaction": {"disabel_builtin_kinds": ["jwt"]}}`)
+
+	_, err := Load(ws)
+	if err == nil {
+		t.Fatal("expected unknown-key error for typo'd field")
+	}
+
+	if !strings.Contains(err.Error(), `unknown key "disabel_builtin_kinds"`) {
+		t.Errorf(`expected 'unknown key "disabel_builtin_kinds"', got: %v`, err)
 	}
 }

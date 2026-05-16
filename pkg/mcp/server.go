@@ -42,6 +42,7 @@ type options struct {
 	listen          string
 	listener        net.Listener
 	workspaceConfig config.Config
+	redactor        *redaction.Redactor
 }
 
 func WithSourceDir(dir string) Option {
@@ -68,6 +69,10 @@ func WithWorkspaceConfig(c config.Config) Option {
 	return func(o *options) { o.workspaceConfig = c }
 }
 
+func WithRedactor(r *redaction.Redactor) Option {
+	return func(o *options) { o.redactor = r }
+}
+
 func NewServer(st *store.Store, tracker *temperature.Tracker, cfg temperature.Config, opts ...Option) (*Server, error) {
 	var o options
 	for _, opt := range opts {
@@ -89,9 +94,14 @@ func NewServer(st *store.Store, tracker *temperature.Tracker, cfg temperature.Co
 		listen = DefaultListenAddr
 	}
 
-	red, err := redaction.New(redaction.DefaultConfig())
-	if err != nil {
-		return nil, fmt.Errorf("failed to build: redactor: %w", err)
+	red := o.redactor
+	if red == nil {
+		def, err := redaction.New(redaction.DefaultConfig())
+		if err != nil {
+			return nil, fmt.Errorf("failed to build: redactor: %w", err)
+		}
+
+		red = def
 	}
 
 	s := &Server{
