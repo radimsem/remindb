@@ -131,6 +131,9 @@ const (
 
 	qRewriteSourcePaths = `UPDATE nodes SET source_file = ? || substr(source_file, length(?) + 1)
 		WHERE source_file LIKE ? || '%'`
+
+	qRewriteCompileRoots = `UPDATE snapshots SET compile_root = ? || substr(compile_root, length(?) + 1)
+		WHERE compile_root LIKE ? || '%'`
 )
 
 // snapshots & diffs
