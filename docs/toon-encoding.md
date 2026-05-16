@@ -2,7 +2,7 @@
 
 > Don't compress for the sake of compressing. Compress where the structure makes it free, and leave prose alone.
 
-[← back to README](../README.md) · related: [node tree](./node-tree.md) · [search](./search.md)
+[← back to README](../README.md) · related: [MathML → LaTeX](./mathml-latex.md) · [node tree](./node-tree.md) · [search](./search.md)
 
 ## The problem
 

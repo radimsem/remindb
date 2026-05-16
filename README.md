@@ -45,7 +45,7 @@ Each point is a summary — the full reasoning, with the tradeoffs, lives in [`d
 
 **Git-style versioning, free.** Every compile or write lands a snapshot with per-node diffs. A returning agent resyncs with `MemoryDelta` — a tiny payload instead of a whole-file re-read. → **[Versioning](./docs/versioning.md)**
 
-**TOON encoding where it pays off.** Arrays of uniform objects store ~40% smaller in TOON than YAML or JSON. The parser tries both per node and keeps the win only when it's real; irregular prose stays plain text. → **[TOON encoding](./docs/toon-encoding.md)**
+**TOON encoding where it pays off.** Arrays of uniform objects store ~40% smaller in TOON than YAML or JSON. The parser tries both per node and keeps the win only when it's real; irregular prose stays plain text. The same ≥15% rule converts MathML in HTML to compact LaTeX. → **[TOON encoding](./docs/toon-encoding.md)** · **[MathML → LaTeX](./docs/mathml-latex.md)**
 
 **FTS5 search, not grep.** Ranked anchors in milliseconds over a porter-tokenized index — no file rescans, no regex timeouts — trimmed to exactly the token budget you pass. → **[Search](./docs/search.md)**
 
@@ -137,7 +137,7 @@ The README is the trailer. The manual is in [`docs/`](./docs/) — each page ope
 | [Architecture](./docs/architecture.md) | The layer-by-layer map: parser → transformer → emitter → store, then query → mcp. |
 | [CLI reference](./docs/cli.md) | Every subcommand — `compile`, `serve`, `inspect`, `bench`, `doctor`, `update` — with flags. |
 | [Configuration](./docs/configuration.md) | The `.remindb/` directory: `config.json` feature blocks, `ignore`, `temperatures.json`. |
-| [The node tree](./docs/node-tree.md) · [Temperature](./docs/temperature.md) · [Versioning](./docs/versioning.md) · [Search](./docs/search.md) · [TOON](./docs/toon-encoding.md) · [Knowledge graph](./docs/knowledge-graph.md) | The feature deep-dives linked from *What you get*. |
+| [The node tree](./docs/node-tree.md) · [Temperature](./docs/temperature.md) · [Versioning](./docs/versioning.md) · [Search](./docs/search.md) · [TOON](./docs/toon-encoding.md) · [MathML → LaTeX](./docs/mathml-latex.md) · [Knowledge graph](./docs/knowledge-graph.md) | The feature deep-dives linked from *What you get*. |
 
 ## MCP tools
 
@@ -186,12 +186,17 @@ For any other MCP-capable agent, add this to its MCP config by hand. Stdio (the 
     "remindb": {
       "type": "stdio",
       "command": "remindb",
-      "args": ["serve", "--db", "/absolute/path/to/memory.db", "--source", "/absolute/path/to/notes"],
-      "env": {}
+      "args": ["serve"],
+      "env": {
+        "REMINDB_DB": "/absolute/path/to/memory.db",
+        "REMINDB_SOURCE": "/absolute/path/to/notes"
+      }
     }
   }
 }
 ```
+
+Every `serve` flag has a `REMINDB_*` environment equivalent — `REMINDB_DB`, `REMINDB_SOURCE`, `REMINDB_RESCAN_INTERVAL`, `REMINDB_TRANSPORT`, `REMINDB_LISTEN` — so pass them via `args`, the `env` block above, or a committed `.remindb/config.json`. Precedence is explicit flag → `.remindb/config.json` → env → built-in default; see [Configuration](./docs/configuration.md).
 
 Or HTTP, when you want one long-running server that multiple agent sessions (a local IDE, a CI worker, a hosted session) share. Start `remindb serve --transport http --db ... --source ...` once, then point each client at the listen URL:
 
@@ -209,7 +214,7 @@ Or HTTP, when you want one long-running server that multiple agent sessions (a l
 On startup the agent sees the full `Memory*` tool suite alongside its usual toolbox. A reasonable first prompt:
 
 ```
-Call MemoryTree to orient. Then call MemorySearch for "<topic>" with budget 1000
+/remind Call MemoryTree to orient. Then call MemorySearch for "<topic>" with budget 1000
 and MemoryFetch on the top hit. Explain what you learned and which files it came from.
 ```
 

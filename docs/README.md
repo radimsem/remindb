@@ -13,6 +13,7 @@ Start here if you want to understand the design rather than just use it.
 - **[Versioning](./versioning.md)** — snapshots, diffs, and the tiny-payload resync (`MemoryDelta` / `MemoryDiff` / `MemoryHistory`).
 - **[Search](./search.md)** — FTS5 ranked search, the OR-rewrite you must know, and budgeted fetching.
 - **[TOON encoding](./toon-encoding.md)** — when uniform structure stores ~40% smaller, and why prose stays plain.
+- **[MathML → LaTeX](./mathml-latex.md)** — the same ≥15% rule applied to math: MathML in HTML becomes compact LaTeX.
 - **[Knowledge graph](./knowledge-graph.md)** — `[[wiki-link]]` edges, weighted traversal, and why relations are a sideband.
 - **[Architecture](./architecture.md)** — the layer-by-layer map of the whole pipeline.
 

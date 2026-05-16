@@ -183,7 +183,7 @@ If you touch X, update Y. CI won't catch a desynced public skill or stale README
 | New parser format | README's "Why I built this" formats list (currently *Markdown, HTML, JSON, YAML, TOON*). |
 | CLI flag added / removed / renamed | `docs/cli.md`. Each plugin README in `plugins/` that demos the flag. |
 | New migration | `docs/architecture.md` Store row if the schema description shifts. The `add-store-query` skill if a new convention emerged. |
-| Feature behavior change (node tree, temperature, versioning, search, TOON, relations) | The matching `docs/*.md` deep-dive, and the one-line summary in README's *What you get*. |
+| Feature behavior change (node tree, temperature, versioning, search, TOON, MathML→LaTeX, relations) | The matching `docs/*.md` deep-dive, and the one-line summary in README's *What you get*. |
 | New private skill (`.claude/skills/`) | The `Workflow shortcuts` table in CLAUDE.md and (if it's a common task) in this CONTRIBUTING.md. |
 
 ### Commit messages drive the changelog

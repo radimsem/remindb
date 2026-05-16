@@ -41,7 +41,7 @@ remindb serve --db ./notes.db --source ./notes
 remindb serve --db ./notes.db --source ./notes --rescan-interval 30s -v
 remindb serve --db ./notes.db --source ./notes --transport http
 remindb serve --db ./notes.db --source ./notes --transport http --listen 127.0.0.1:7474
-remindb serve --db ./notes.db                                                          # DB-only (no source, no rescan)
+remindb serve --db ./notes.db # DB-only (no source, no rescan)
 ```
 
 HTTP defaults to `127.0.0.1:7474`. Binding to a non-loopback address (e.g. `--listen 0.0.0.0:7474`) emits a one-time Warn at startup — there is no built-in authentication yet, so put a reverse proxy in front before exposing the server beyond localhost.

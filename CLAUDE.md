@@ -19,10 +19,11 @@ Pipeline: `parser → transformer → emitter → store`. Read side: `query → 
 - `pkg/compiler/` — full-workspace compile pipeline
 - `pkg/mcp/` — MCP server; tools in `pkg/mcp/tools/` (one file per tool)
 - `pkg/temperature/` — decay/boost/cold-set + cold-node notifier
-- `cmd/remindb/` — CLI: `serve`, `compile`, `inspect`, `bench`, `update`
+- `cmd/remindb/` — CLI: `serve`, `compile`, `inspect`, `bench`, `doctor`, `update`
 - `migrations/` — `0001_init.sql`, `0002_*.sql`, applied via embed.FS in `migrations.go`
 - `internal/` — bench, contentid, fileext, ignore, mcptest, tempfile, testutil, tokens
 - `skills/remind/`, `skills/memoize/` — **public** skills shipped to MCP clients: `remind` is the read path + mental model, `memoize` is the write path + Markdown-shape rules (distinct from `.claude/skills/`)
+- `docs/` — **public** end-user manual: `architecture.md` / `cli.md` / `configuration.md` (reference) plus one deep-dive per feature; editable diagram sources in `assets/excalidraw/`, exported `assets/*.svg`
 - `plugins/` — per-agent plugin folders (claude-code, gemini-cli, codex, opencode, openclaw)
 - Top-level: `integration_test.go`, `mcp_integration_test.go`, `bench_test.go`
 
@@ -31,7 +32,8 @@ Pipeline: `parser → transformer → emitter → store`. Read side: `query → 
 | Question | Source |
 |---|---|
 | End-to-end product story, benchmarks, feature pitch | `README.md` |
-| Architecture / pipeline deep-dive, CLI, `.remindb/` config | `docs/` (`architecture.md`, `cli.md`, `configuration.md`) |
+| Architecture, CLI, `.remindb/` config (reference) | `docs/architecture.md` · `docs/cli.md` · `docs/configuration.md` |
+| Feature deep-dive — node tree · temperature · versioning · search · TOON · MathML→LaTeX · knowledge graph | the matching `docs/<topic>.md` |
 | How clients call the MCP read tools (the contract) | `skills/remind/SKILL.md` |
 | How clients author content for MCP write tools (the contract) | `skills/memoize/SKILL.md` |
 | Go style, naming, error/log/concurrency idioms | `.claude/rules/go-concise.md` |
