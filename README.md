@@ -207,6 +207,12 @@ A single JSON object of feature blocks. Unknown top-level or nested keys are rej
 
 ```json
 {
+  "budgets": {
+    "search": 1000,
+    "fetch": 1500,
+    "fetch_batch": 4000,
+    "related": 1000
+  },
   "compile": {
     "max_file_size": "2GB",
     "max_parallelism": 4,
@@ -237,7 +243,9 @@ The `redaction` block configures the secret-scrubber applied on ingest by both `
 
 The `compile` block bounds the ingest pipeline for both `compile` and the `serve` rescan loop (and the `MemoryCompile` tool, so a client-triggered compile behaves identically to the CLI). Every field is optional — absent → current behavior (unbounded file size, `GOMAXPROCS` parallelism, no deadline). `max_file_size` accepts a size string (`"2GB"`, `"500MB"`, or a bare byte count like `"1048576"`; units are 1024-based) — a file over the limit is **skipped with a `Warn` log naming the path**, never an error, so the rest of the tree still compiles. `max_parallelism` caps the per-file worker pool (default: `GOMAXPROCS`). `wall_clock_timeout` is a string duration (`"10m"`) that aborts a runaway compile with a clear error; because emission is transactional, a timeout commits **no partial state**. Out-of-range values (`max_file_size ≤ 0`, `max_parallelism < 1`, negative `wall_clock_timeout`) fail at startup with the offending field named.
 
-Reserved for future releases, each its own issue when the feature lands: `server`, `logging`, `snapshots`, `budgets`.
+The `budgets` block sets the default token budget for the four read tools that take one — `MemorySearch`, `MemoryFetch`, `MemoryFetchBatch`, `MemoryRelated`. Every field is optional. Resolution is per-tool and local: an explicit positive `budget` arg on the call always wins; otherwise the configured default applies; otherwise the built-in. `MemoryRelated`'s built-in is 1000; `MemorySearch` / `MemoryFetch` / `MemoryFetchBatch` treat an unset budget as **unlimited** (no trimming — return the full ranked set / full context / whole batch). Configure these to bound default response cost without forcing every call to pass an explicit `budget`. Write tools are unaffected. Out-of-range values (any field ≤ 0) fail at startup with the offending field named.
+
+Reserved for future releases, each its own issue when the feature lands: `server`, `logging`, `snapshots`.
 
 #### Filtering with `.remindb/ignore`
 

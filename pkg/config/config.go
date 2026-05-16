@@ -20,9 +20,17 @@ const (
 )
 
 type Config struct {
+	Budgets     BudgetsConfig     `json:"budgets"`
 	Compile     CompileConfig     `json:"compile"`
 	Redaction   RedactionConfig   `json:"redaction"`
 	Temperature TemperatureConfig `json:"temperature"`
+}
+
+type BudgetsConfig struct {
+	Search     *int `json:"search,omitempty"`
+	Fetch      *int `json:"fetch,omitempty"`
+	FetchBatch *int `json:"fetch_batch,omitempty"`
+	Related    *int `json:"related,omitempty"`
 }
 
 type CompileConfig struct {
@@ -177,6 +185,21 @@ func (c Config) Validate() error {
 	}
 	if cc.WallClockTimeout != nil && *cc.WallClockTimeout < 0 {
 		return errors.New("compile.wall_clock_timeout must not be negative")
+	}
+
+	bc := c.Budgets
+
+	if bc.Search != nil && *bc.Search <= 0 {
+		return errors.New("budgets.search must be positive")
+	}
+	if bc.Fetch != nil && *bc.Fetch <= 0 {
+		return errors.New("budgets.fetch must be positive")
+	}
+	if bc.FetchBatch != nil && *bc.FetchBatch <= 0 {
+		return errors.New("budgets.fetch_batch must be positive")
+	}
+	if bc.Related != nil && *bc.Related <= 0 {
+		return errors.New("budgets.related must be positive")
 	}
 
 	return nil

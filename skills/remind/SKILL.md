@@ -79,6 +79,8 @@ Every read-side tool takes a `budget` (int, tokens). The engine fills results up
 - `1000` — topic exploration, a few related anchors.
 - `1500` — broad sweep, discover what's in the area.
 
+An operator can set per-tool defaults in `.remindb/config.json` under a `budgets` block (`search`, `fetch`, `fetch_batch`, `related` — the four read tools that take a budget). Resolution is per-tool: an explicit positive `budget` on the call always wins; otherwise the configured default applies; otherwise the built-in. `MemoryRelated`'s built-in is 1000. `MemorySearch`/`MemoryFetch`/`MemoryFetchBatch` treat an unset budget as **unlimited** — no trimming. Pass an explicit `budget` when you care about response size; don't assume a server-side default is configured.
+
 ## Search-query syntax — critical
 
 remindb's search goes through SQLite's FTS5 extension. The server does a small pre-processing step: **bare multi-word queries are rewritten to `OR` between each word**. Anything that already looks like FTS5 syntax passes through unchanged.
