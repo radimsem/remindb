@@ -4,6 +4,10 @@
 
 [← back to README](../README.md) · related: [node tree](./node-tree.md) · [temperature](./temperature.md) · [knowledge graph](./knowledge-graph.md)
 
+<p align="center">
+  <img src="../assets/versioning.svg" alt="linear snapshot chain with delta, diff, and history ranges" width="100%" />
+</p>
+
 ## The problem
 
 When an agent edits memory, two things usually go wrong. Either there's no history at all — the old wording is just gone — or "history" means re-reading the whole file to figure out what moved. Both are bad. The first loses information; the second is the exact full-freight re-read remindb exists to avoid.

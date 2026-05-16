@@ -4,6 +4,10 @@
 
 [← back to README](../README.md) · related: [node tree](./node-tree.md) · [temperature](./temperature.md)
 
+<p align="center">
+  <img src="../assets/search.svg" alt="FTS5 search pipeline — OR-rewrite, ranking, budget trim" width="100%" />
+</p>
+
 ## The problem
 
 When an agent doesn't have a memory layer, "find where I wrote about rate limiting" means: list the directory, read the candidate files, grep through them, hope the regex didn't time out on the big one. It's O(corpus) every single time, and it returns raw bytes — no ranking, no notion of what's recently relevant, no way to say "give me 500 tokens of the best matches and stop."

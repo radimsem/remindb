@@ -4,6 +4,10 @@
 
 [← back to README](../README.md) · related: [node tree](./node-tree.md) · [versioning](./versioning.md) · [search](./search.md) · [temperature](./temperature.md)
 
+<p align="center">
+  <img src="../assets/arch.svg" alt="remindb architecture — compiler phase, SQLite, MCP runtime" width="100%" />
+</p>
+
 The shape of remindb is deliberately boring: a compiler turns source files into versioned nodes at ingest time, and an MCP runtime answers the agent in milliseconds on every call. The `.db` is the entire handoff between them — copy it, commit it, sync it, and any MCP-capable agent picks up exactly where the last one left off. No daemon, no external state, nothing to stand up.
 
 Here's what each layer is responsible for:

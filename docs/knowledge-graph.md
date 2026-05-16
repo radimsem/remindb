@@ -4,6 +4,10 @@
 
 [← back to README](../README.md) · related: [node tree](./node-tree.md) · [versioning](./versioning.md)
 
+<p align="center">
+  <img src="../assets/knowledge-graph.svg" alt="weighted directed relations graph with parsed, pending, and manual edges" width="100%" />
+</p>
+
 ## The problem
 
 The [node tree](./node-tree.md) is great at structure — parent, child, section, subsection. What it can't express is a sideways connection: this deployment note matters to that architecture decision, even though they live in different files under different headings. In raw Markdown you'd just write prose and hope the agent notices. It usually doesn't.

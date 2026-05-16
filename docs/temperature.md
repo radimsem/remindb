@@ -4,6 +4,10 @@
 
 [← back to README](../README.md) · related: [node tree](./node-tree.md) · [search](./search.md) · [versioning](./versioning.md)
 
+<p align="center">
+  <img src="../assets/temperature.svg" alt="temperature lifecycle — boost, decay, cold-notify, summarize, rebound" width="100%" />
+</p>
+
 ## The problem
 
 Notes don't age evenly. The architecture section gets read every session. That observability checklist you wrote once and never opened again still sits there, full size, crowding every search result and costing tokens on every tree dump. A pile of Markdown has no way to tell yesterday's stale note from today's hot one. A 1M-token window doesn't fix that — it just lets you pay for the staleness in bulk.

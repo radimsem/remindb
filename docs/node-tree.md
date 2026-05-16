@@ -4,6 +4,10 @@
 
 [← back to README](../README.md) · related: [search](./search.md) · [temperature](./temperature.md) · [versioning](./versioning.md)
 
+<p align="center">
+  <img src="../assets/node-tree.svg" alt="Markdown and HTML compiled into one typed context tree" width="100%" />
+</p>
+
 ## The problem
 
 Watch an agent start a session. It lists a directory. It reads `CLAUDE.md`. It reads the notes folder. It greps for the thing it half-remembers. Every one of those is full-price prose it has already processed a dozen times, and none of it tells the agent what's *important* — just what exists.
