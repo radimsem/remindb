@@ -6,54 +6,34 @@ Two paired skills that teach an agent how to actually *use* remindb's MCP tool s
 
 | Skill | Purpose |
 |---|---|
-| [`remind/`](./remind/) | **Read path.** Orient with the tree, search and fetch under a token budget, resync via delta. Covers the node/snapshot/temperature mental model and the FTS5 query syntax. |
-| [`memoize/`](./memoize/) | **Write path.** Author Markdown that indexes well into the node tree, search-first updates, cold-node summarization, source recompile. |
+| [`remind/`](./remind/) | **Read path.** Orient with the tree; search, fetch (single or batched), resync via delta, diff two snapshots, walk a node's history, traverse the relations graph, and check DB health. Covers the node/snapshot/temperature/relations mental model and the FTS5 query syntax. |
+| [`memoize/`](./memoize/) | **Write path.** Author Markdown that indexes well into the node tree: search-first updates, cold-node summarization, source recompile, wiki-link relations, manual edges, pinning against decay, three-mode node removal, and snapshot rollback. Notes how shape also drives automatic TOON/MathML compaction. |
 
-The two are designed to load together. `memoize` references the mental model that `remind` defines, so install both.
+The two are designed to load together — `memoize` references the mental model `remind` defines, so install both.
 
-## Per-agent installation
+## Install
 
-The [`plugins/<agent>/`](../plugins/) folders install the MCP server. The skills are a separate manual install — every supported agent has a native skill loader, so installation is the same shape across the board: copy the two folders into the agent's skills directory and (where required) reload.
-
-| Agent | Native loader | Where the skills go |
-|---|---|---|
-| **[Claude Code](../plugins/claude-code/)** | Yes | Copy both folders into `~/.claude/skills/`. Invoke per session via `/remind` or `/memoize`. |
-| **[OpenClaw](../plugins/openclaw/)** | Yes | Copy both folders into `~/.openclaw/skills/`. Restart the gateway: `openclaw gateway restart`. |
-| **[Codex](../plugins/codex/)** | Yes | Copy both folders into `~/.codex/skills/`. Restart the Codex TUI to pick them up. |
-| **[Gemini CLI](../plugins/gemini-cli/)** | Yes | Copy both folders into `~/.gemini/skills/`. Run `/skills reload` (or `/skills refresh`) to pick them up. |
-| **[OpenCode](../plugins/opencode/)** | Yes | Copy both folders into `~/.config/opencode/skills/`. Auto-discovered on next prompt. |
-
-### Fast path — clone-and-copy
-
-Every supported agent has a native skill loader. Clone once, copy into the agent's skills directory:
+The skills are published from this repo and managed by [`vercel-labs/skills`](https://github.com/vercel-labs/skills). Every supported agent has a native skill loader, so one command installs both into the right place for your agent:
 
 ```bash
-git clone https://github.com/radimsem/remindb /tmp/remindb
-cp -r /tmp/remindb/skills/{remind,memoize} ~/.claude/skills/             # Claude Code
-# or
-cp -r /tmp/remindb/skills/{remind,memoize} ~/.codex/skills/              # Codex
-# or
-cp -r /tmp/remindb/skills/{remind,memoize} ~/.openclaw/skills/           # OpenClaw
-# or
-cp -r /tmp/remindb/skills/{remind,memoize} ~/.gemini/skills/             # Gemini CLI (then /skills reload)
-# or
-cp -r /tmp/remindb/skills/{remind,memoize} ~/.config/opencode/skills/    # OpenCode
+npx skills@latest add radimsem/remindb/skills -a claude-code
+# -a codex | gemini-cli | opencode | openclaw | ...
 ```
 
-OpenCode and Gemini CLI also walk up from the current directory looking for project-local skills — drop the folders into `.opencode/skills/` or `.gemini/skills/` (or the cross-agent `.agents/skills/` alias both honour) and commit them with the repo if you want the skills to travel with the project.
+Run it again with a different `-a <agent>` to add the skills for another agent. This is the *skills* half of setup; the [`plugins/<agent>/`](../plugins/) folders install the MCP server itself — you want both.
 
 ## Updating
 
-Skills evolve with the MCP tool surface. Re-pull and recopy after a remindb upgrade:
+Skills evolve with the MCP tool surface. Refresh every installed skill to the latest published version:
 
 ```bash
-cd /tmp/remindb && git pull
-cp -r skills/{remind,memoize} ~/.claude/skills/   # or your agent's path
+npx skills@latest update
 ```
 
-`cp -r` overwrites the existing skill folders in place. For Gemini CLI, run `/skills reload` afterwards.
+No re-clone, no manual copy — `update` re-pulls in place across whichever agents you installed for.
 
 ## See also
 
 - [Top-level README](../README.md) — what remindb is, the MCP server, benchmarks
 - [`plugins/<agent>/README.md`](../plugins/) — per-agent MCP plugin install (the other half of setup)
+- [`vercel-labs/skills`](https://github.com/vercel-labs/skills) — the installer these commands invoke

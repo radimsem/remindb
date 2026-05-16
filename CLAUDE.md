@@ -19,10 +19,11 @@ Pipeline: `parser → transformer → emitter → store`. Read side: `query → 
 - `pkg/compiler/` — full-workspace compile pipeline
 - `pkg/mcp/` — MCP server; tools in `pkg/mcp/tools/` (one file per tool)
 - `pkg/temperature/` — decay/boost/cold-set + cold-node notifier
-- `cmd/remindb/` — CLI: `serve`, `compile`, `inspect`, `bench`, `update`
+- `cmd/remindb/` — CLI: `serve`, `compile`, `inspect`, `bench`, `doctor`, `update`
 - `migrations/` — `0001_init.sql`, `0002_*.sql`, applied via embed.FS in `migrations.go`
 - `internal/` — bench, contentid, fileext, ignore, mcptest, tempfile, testutil, tokens
 - `skills/remind/`, `skills/memoize/` — **public** skills shipped to MCP clients: `remind` is the read path + mental model, `memoize` is the write path + Markdown-shape rules (distinct from `.claude/skills/`)
+- `docs/` — **public** end-user manual: `architecture.md` / `cli.md` / `configuration.md` (reference) plus one deep-dive per feature; editable diagram sources in `assets/excalidraw/`, exported `assets/*.svg`
 - `plugins/` — per-agent plugin folders (claude-code, gemini-cli, codex, opencode, openclaw)
 - Top-level: `integration_test.go`, `mcp_integration_test.go`, `bench_test.go`
 
@@ -30,7 +31,9 @@ Pipeline: `parser → transformer → emitter → store`. Read side: `query → 
 
 | Question | Source |
 |---|---|
-| End-to-end product story, architecture, benchmarks | `README.md` |
+| End-to-end product story, benchmarks, feature pitch | `README.md` |
+| Architecture, CLI, `.remindb/` config (reference) | `docs/architecture.md` · `docs/cli.md` · `docs/configuration.md` |
+| Feature deep-dive — node tree · temperature · versioning · search · TOON · MathML→LaTeX · knowledge graph | the matching `docs/<topic>.md` |
 | How clients call the MCP read tools (the contract) | `skills/remind/SKILL.md` |
 | How clients author content for MCP write tools (the contract) | `skills/memoize/SKILL.md` |
 | Go style, naming, error/log/concurrency idioms | `.claude/rules/go-concise.md` |
@@ -45,7 +48,7 @@ These zones have either an external contract or a silent-drift hazard. Don't cha
 
 ### MCP tool surface (`pkg/mcp/tools/`, `pkg/mcp/server.go`)
 
-The eleven `Memory*` tools are a contract shipped to clients via two public skills: `skills/remind/SKILL.md` (read tools — `MemoryTree`, `MemorySearch`, `MemoryFetch`, `MemoryDelta`, `MemoryHistory`, `MemoryRelated`, `MemoryStats`) and `skills/memoize/SKILL.md` (write tools — `MemoryWrite`, `MemorySummarize`, `MemoryCompile`, `MemoryRelate`). Renaming, removing, or changing semantics breaks every client and desyncs the relevant public skill. Use the **`add-mcp-tool` skill** for any new/modified tool, follow `.claude/rules/mcp-tool-conventions.md`, and dispatch the **`mcp-surface-reviewer` agent** before merge.
+The `Memory*` tool suite is a contract shipped to clients via two public skills: `skills/remind/SKILL.md` (read tools — `MemoryTree`, `MemorySearch`, `MemoryFetch`, `MemoryFetchBatch`, `MemoryDelta`, `MemoryDiff`, `MemoryHistory`, `MemoryRelated`, `MemoryStats`) and `skills/memoize/SKILL.md` (write tools — `MemoryWrite`, `MemorySummarize`, `MemoryCompile`, `MemoryRelate`, `MemoryForget`, `MemoryRollback`, `MemoryPin`, `MemoryUnpin`). Renaming, removing, or changing semantics breaks every client and desyncs the relevant public skill. Use the **`add-mcp-tool` skill** for any new/modified tool, follow `.claude/rules/mcp-tool-conventions.md`, and dispatch the **`mcp-surface-reviewer` agent** before merge.
 
 ### SQLite schema & migrations (`migrations/`, `pkg/store/`)
 

@@ -66,6 +66,17 @@ export REMINDB_SOURCE=$HOME/.claude/projects
 
 Stick them in `~/.bashrc` / `~/.zshrc` / your fish equivalent to make the mapping permanent, or scope them to a single session if you want to switch workspaces between runs. Undefined `${VAR}` references resolve to empty strings, which is what triggers the cwd fallback.
 
+Prefer the paths in config rather than shell state? Edit the `env` block of the plugin's `.mcp.json` directly, swapping the `${VAR}` placeholders for absolute paths:
+
+```json
+"env": {
+    "REMINDB_DB": "/home/you/.cache/remindb/claude.db",
+    "REMINDB_SOURCE": "/home/you/.claude/projects"
+}
+```
+
+This is clean for a local checkout (`--plugin-dir ./plugins/claude-code`, step 4) — you own the file. For a marketplace install the manifest lives in the plugin cache under `~/.claude/plugins/` and is overwritten on every plugin update, so the shell-export path above stays the durable choice there. Either way, don't try to override it from a same-named server in `~/.claude.json` — Claude Code *replaces* the plugin's bundled entry rather than merging it (see step 4), so a user-scope copy drops the plugin wiring entirely.
+
 ### 4. Install the plugin
 
 Pick one:
