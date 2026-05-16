@@ -23,7 +23,20 @@ type Config struct {
 	Budgets     BudgetsConfig     `json:"budgets"`
 	Compile     CompileConfig     `json:"compile"`
 	Redaction   RedactionConfig   `json:"redaction"`
+	Server      ServerConfig      `json:"server"`
 	Temperature TemperatureConfig `json:"temperature"`
+}
+
+type ServerConfig struct {
+	Transport *string       `json:"transport,omitempty"`
+	Listen    *string       `json:"listen,omitempty"`
+	Logging   LoggingConfig `json:"logging,omitempty"`
+}
+
+type LoggingConfig struct {
+	Level      *string `json:"level,omitempty"`
+	Format     *string `json:"format,omitempty"`
+	OutputPath *string `json:"output_path,omitempty"`
 }
 
 type BudgetsConfig struct {
@@ -200,6 +213,33 @@ func (c Config) Validate() error {
 	}
 	if bc.Related != nil && *bc.Related <= 0 {
 		return errors.New("budgets.related must be positive")
+	}
+
+	sc := c.Server
+
+	if sc.Transport != nil {
+		switch *sc.Transport {
+		case "stdio", "http":
+		default:
+			return fmt.Errorf("server.transport must be \"stdio\" or \"http\", got %q", *sc.Transport)
+		}
+	}
+
+	lg := sc.Logging
+
+	if lg.Level != nil {
+		switch *lg.Level {
+		case "debug", "info", "warn", "error":
+		default:
+			return fmt.Errorf("server.logging.level must be one of debug|info|warn|error, got %q", *lg.Level)
+		}
+	}
+	if lg.Format != nil {
+		switch *lg.Format {
+		case "text", "json":
+		default:
+			return fmt.Errorf("server.logging.format must be \"text\" or \"json\", got %q", *lg.Format)
+		}
 	}
 
 	return nil

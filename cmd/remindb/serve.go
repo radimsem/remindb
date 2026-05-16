@@ -49,8 +49,6 @@ func runServe(cmd *cobra.Command, _ []string) error {
 		return err
 	}
 
-	logger := newServeLogger(verbose)
-
 	st, err := store.Open(dbPath)
 	if err != nil {
 		return fmt.Errorf("failed to open: %s: %w", dbPath, err)
@@ -70,6 +68,18 @@ func runServe(cmd *cobra.Command, _ []string) error {
 		if err != nil {
 			return fmt.Errorf("failed to load: workspace config: %w", err)
 		}
+	}
+
+	if err := resolveServerConfig(cmd, workspaceCfg.Server); err != nil {
+		return err
+	}
+
+	logger, logFile, err := newServeLogger(verbose, workspaceCfg.Server.Logging)
+	if err != nil {
+		return err
+	}
+	if logFile != nil {
+		defer func() { _ = logFile.Close() }()
 	}
 
 	cfg := applyTemperatureOverrides(temperature.DefaultConfig(), workspaceCfg.Temperature)
@@ -209,12 +219,47 @@ func applyRedactionOverrides(base redaction.Config, o config.RedactionConfig) (r
 	return base, nil
 }
 
-func newServeLogger(verbose bool) *slog.Logger {
+// Build the serve logger from config; --verbose forces debug and wins.
+func newServeLogger(verbose bool, lg config.LoggingConfig) (*slog.Logger, *os.File, error) {
 	level := slog.LevelInfo
+	if lg.Level != nil {
+		level = parseLogLevel(*lg.Level)
+	}
 	if verbose {
 		level = slog.LevelDebug
 	}
-	return slog.New(slog.NewTextHandler(os.Stderr, &slog.HandlerOptions{Level: level}))
+
+	out := os.Stderr
+	var file *os.File
+	if lg.OutputPath != nil {
+		f, err := os.OpenFile(*lg.OutputPath, os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0o644)
+		if err != nil {
+			return nil, nil, fmt.Errorf("failed to open: log output %s: %w", *lg.OutputPath, err)
+		}
+
+		out, file = f, f
+	}
+
+	opts := &slog.HandlerOptions{Level: level}
+	var h slog.Handler = slog.NewTextHandler(out, opts)
+
+	if lg.Format != nil && *lg.Format == "json" {
+		h = slog.NewJSONHandler(out, opts)
+	}
+	return slog.New(h), file, nil
+}
+
+func parseLogLevel(s string) slog.Level {
+	switch s {
+	case "debug":
+		return slog.LevelDebug
+	case "warn":
+		return slog.LevelWarn
+	case "error":
+		return slog.LevelError
+	default:
+		return slog.LevelInfo
+	}
 }
 
 func startupAttrs(tickInterval time.Duration) []any {
@@ -267,19 +312,20 @@ func applyServeEnv(cmd *cobra.Command) error {
 		return fmt.Errorf("rescan interval requires --source (or REMINDB_SOURCE)")
 	}
 
-	if !cmd.Flags().Changed("transport") {
-		if v := os.Getenv("REMINDB_TRANSPORT"); v != "" {
-			transport = v
-		}
-	}
+	return nil
+}
 
-	listenFromEnv := false
-	if !cmd.Flags().Changed("listen") {
-		if v := os.Getenv("REMINDB_LISTEN"); v != "" {
-			listen = v
-			listenFromEnv = true
-		}
-	}
+func resolveServerConfig(cmd *cobra.Command, sc config.ServerConfig) error {
+	transport = config.Resolve(
+		cmd.Flags().Changed("transport"), transport,
+		sc.Transport, envPtr("REMINDB_TRANSPORT"),
+		remindb.TransportStdio,
+	)
+	listen = config.Resolve(
+		cmd.Flags().Changed("listen"), listen,
+		sc.Listen, envPtr("REMINDB_LISTEN"),
+		remindb.DefaultListenAddr,
+	)
 
 	switch transport {
 	case remindb.TransportStdio, remindb.TransportHttp:
@@ -287,8 +333,16 @@ func applyServeEnv(cmd *cobra.Command) error {
 		return fmt.Errorf("unsupported transport %q (want %q or %q)", transport, remindb.TransportStdio, remindb.TransportHttp)
 	}
 
-	if transport != remindb.TransportHttp && (cmd.Flags().Changed("listen") || listenFromEnv) {
+	listenSet := cmd.Flags().Changed("listen") || sc.Listen != nil || envPtr("REMINDB_LISTEN") != nil
+	if transport != remindb.TransportHttp && listenSet {
 		return fmt.Errorf("listen address requires --transport=http")
+	}
+	return nil
+}
+
+func envPtr(key string) *string {
+	if v := os.Getenv(key); v != "" {
+		return &v
 	}
 	return nil
 }

@@ -1,6 +1,10 @@
 package main
 
 import (
+	"context"
+	"log/slog"
+	"os"
+	"path/filepath"
 	"reflect"
 	"strings"
 	"testing"
@@ -8,10 +12,163 @@ import (
 
 	"github.com/radimsem/remindb/internal/redaction"
 	"github.com/radimsem/remindb/pkg/config"
+	remindb "github.com/radimsem/remindb/pkg/mcp"
 	"github.com/radimsem/remindb/pkg/temperature"
+	"github.com/spf13/cobra"
 )
 
 func ptr[T any](v T) *T { return &v }
+
+func newServeTestCmd(t *testing.T) *cobra.Command {
+	t.Helper()
+
+	c := &cobra.Command{Use: "serve"}
+	c.Flags().StringVar(&transport, "transport", remindb.TransportStdio, "")
+	c.Flags().StringVar(&listen, "listen", remindb.DefaultListenAddr, "")
+
+	return c
+}
+
+func TestResolveServerConfig_FlagBeatsConfig(t *testing.T) {
+	c := newServeTestCmd(t)
+	if err := c.Flags().Set("transport", "http"); err != nil {
+		t.Fatal(err)
+	}
+
+	if err := resolveServerConfig(c, config.ServerConfig{Transport: ptr("stdio")}); err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if transport != "http" {
+		t.Errorf("transport = %q, want http (flag wins)", transport)
+	}
+}
+
+func TestResolveServerConfig_ConfigBeatsEnv(t *testing.T) {
+	c := newServeTestCmd(t)
+	t.Setenv("REMINDB_TRANSPORT", "stdio")
+
+	if err := resolveServerConfig(c, config.ServerConfig{Transport: ptr("http")}); err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if transport != "http" {
+		t.Errorf("transport = %q, want http (config beats env)", transport)
+	}
+}
+
+func TestResolveServerConfig_EnvBeatsDefault(t *testing.T) {
+	c := newServeTestCmd(t)
+	t.Setenv("REMINDB_TRANSPORT", "http")
+
+	if err := resolveServerConfig(c, config.ServerConfig{}); err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if transport != "http" {
+		t.Errorf("transport = %q, want http (env beats default)", transport)
+	}
+}
+
+func TestResolveServerConfig_DefaultWhenUnset(t *testing.T) {
+	c := newServeTestCmd(t)
+
+	if err := resolveServerConfig(c, config.ServerConfig{}); err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if transport != remindb.TransportStdio {
+		t.Errorf("transport = %q, want stdio (default)", transport)
+	}
+	if listen != remindb.DefaultListenAddr {
+		t.Errorf("listen = %q, want %q (default)", listen, remindb.DefaultListenAddr)
+	}
+}
+
+func TestResolveServerConfig_ConfigListenRequiresHTTP(t *testing.T) {
+	c := newServeTestCmd(t)
+
+	err := resolveServerConfig(c, config.ServerConfig{Listen: ptr("0.0.0.0:9000")})
+	if err == nil {
+		t.Fatal("expected error: listen with stdio transport")
+	}
+	if !strings.Contains(err.Error(), "--transport=http") {
+		t.Errorf("error should mention the http requirement, got: %v", err)
+	}
+}
+
+func TestResolveServerConfig_UnsupportedTransport(t *testing.T) {
+	c := newServeTestCmd(t)
+	t.Setenv("REMINDB_TRANSPORT", "grpc")
+
+	err := resolveServerConfig(c, config.ServerConfig{})
+	if err == nil {
+		t.Fatal("expected error: unsupported transport")
+	}
+	if !strings.Contains(err.Error(), "unsupported transport") {
+		t.Errorf("error should name the unsupported transport, got: %v", err)
+	}
+}
+
+func TestNewServeLogger_ConfigLevel(t *testing.T) {
+	lg, file, err := newServeLogger(false, config.LoggingConfig{Level: ptr("warn")})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if file != nil {
+		t.Error("no output_path set, file should be nil")
+	}
+
+	ctx := context.Background()
+	if lg.Enabled(ctx, slog.LevelInfo) {
+		t.Error("info should be below the configured warn level")
+	}
+	if !lg.Enabled(ctx, slog.LevelWarn) {
+		t.Error("warn should be enabled at the configured level")
+	}
+}
+
+func TestNewServeLogger_VerboseBeatsConfig(t *testing.T) {
+	lg, _, err := newServeLogger(true, config.LoggingConfig{Level: ptr("error")})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	if !lg.Enabled(context.Background(), slog.LevelDebug) {
+		t.Error("--verbose must force debug even when config says error")
+	}
+}
+
+func TestNewServeLogger_JsonFileOutput(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "r.log")
+
+	lg, file, err := newServeLogger(false, config.LoggingConfig{Format: ptr("json"), OutputPath: ptr(path)})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if file == nil {
+		t.Fatal("output_path set, file handle should be returned for cleanup")
+	}
+	defer func() { _ = file.Close() }()
+
+	lg.Info("hello", "k", "v")
+
+	data, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(data), `"msg":"hello"`) {
+		t.Errorf("expected JSON output to file, got: %q", data)
+	}
+}
+
+func TestNewServeLogger_OutputOpenFailsLoud(t *testing.T) {
+	bad := filepath.Join(t.TempDir(), "no-such-dir", "r.log")
+
+	_, _, err := newServeLogger(false, config.LoggingConfig{OutputPath: ptr(bad)})
+	if err == nil {
+		t.Fatal("expected loud failure when output_path cannot be opened")
+	}
+	if !strings.Contains(err.Error(), bad) {
+		t.Errorf("error should name the unopenable path, got: %v", err)
+	}
+}
 
 func TestApplyTemperatureOverrides_Empty(t *testing.T) {
 	base := temperature.DefaultConfig()

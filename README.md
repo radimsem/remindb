@@ -233,6 +233,15 @@ A single JSON object of feature blocks. Unknown top-level or nested keys are rej
     "custom": [
       { "kind": "internal_token", "pattern": "INT-[0-9a-f]{32}" }
     ]
+  },
+  "server": {
+    "transport": "http",
+    "listen": "127.0.0.1:7474",
+    "logging": {
+      "level": "debug",
+      "format": "json",
+      "output_path": "/var/log/remindb.log"
+    }
   }
 }
 ```
@@ -245,7 +254,11 @@ The `compile` block bounds the ingest pipeline for both `compile` and the `serve
 
 The `budgets` block sets the default token budget for the four read tools that take one — `MemorySearch`, `MemoryFetch`, `MemoryFetchBatch`, `MemoryRelated`. Every field is optional. Resolution is per-tool and local: an explicit positive `budget` arg on the call always wins; otherwise the configured default applies; otherwise the built-in. `MemoryRelated`'s built-in is 1000; `MemorySearch` / `MemoryFetch` / `MemoryFetchBatch` treat an unset budget as **unlimited** (no trimming — return the full ranked set / full context / whole batch). Configure these to bound default response cost without forcing every call to pass an explicit `budget`. Write tools are unaffected. Out-of-range values (any field ≤ 0) fail at startup with the offending field named.
 
-Reserved for future releases, each its own issue when the feature lands: `server`, `logging`, `snapshots`.
+The `server` block configures `serve` itself. Every field is optional. `transport` (`stdio`|`http`) and `listen` mirror the flags of the same name; the nested `logging` object sets `level` (`debug`|`info`|`warn`|`error`), `format` (`text`|`json`), and `output_path` (a file; absent → stderr). Absent → today's behavior (stdio, info-level text logs to stderr). An invalid `transport`/`level`/`format`, or an `output_path` that cannot be opened, fails `serve` at startup. `--verbose` is now sugar for `logging.level=debug`.
+
+**Precedence** for any setting expressible in more than one place is, highest first: **explicit CLI flag → `.remindb/config.json` → environment variable → built-in default**. The committed workspace config is authoritative — an env var only fills a key the config leaves unset, it does not override one the config sets. In CI/automation, override a committed config value with the explicit flag, not `REMINDB_*`. (`logging` has no flag/env tier beyond `--verbose`, which forces `debug` and wins.)
+
+Reserved for future releases, each its own issue when the feature lands: `snapshots`.
 
 #### Filtering with `.remindb/ignore`
 
@@ -311,9 +324,9 @@ HTTP defaults to `127.0.0.1:7474`. Binding to a non-loopback address (e.g. `--li
 | `--db` | `REMINDB_DB` | Database file. |
 | `--source` | `REMINDB_SOURCE` | Source directory to watch and incrementally recompile. Omit for DB-only mode. |
 | `--rescan-interval` | `REMINDB_RESCAN_INTERVAL` | e.g. `30s`, `5m`. `0` keeps the tracker's default. Requires `--source`. |
-| `--transport` | `REMINDB_TRANSPORT` | `stdio` (default) or `http`. |
-| `--listen` | `REMINDB_LISTEN` | Listen address for HTTP transport. Default `127.0.0.1:7474`; requires `--transport=http`. |
-| `-v, --verbose` | — | Debug-level logs. Default is info. |
+| `--transport` | `REMINDB_TRANSPORT` | `stdio` (default) or `http`. Also `server.transport` (see precedence above). |
+| `--listen` | `REMINDB_LISTEN` | Listen address for HTTP transport. Default `127.0.0.1:7474`; requires `--transport=http`. Also `server.listen`. |
+| `-v, --verbose` | — | Force debug-level logs (default info). Sugar for `server.logging.level=debug`; wins over config. |
 
 ### `inspect`
 
