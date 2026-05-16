@@ -13,6 +13,7 @@ import (
 	gomcp "github.com/modelcontextprotocol/go-sdk/mcp"
 	"github.com/radimsem/remindb/internal/redaction"
 	"github.com/radimsem/remindb/pkg/compiler"
+	"github.com/radimsem/remindb/pkg/config"
 	"github.com/radimsem/remindb/pkg/query"
 	"github.com/radimsem/remindb/pkg/relations"
 	"github.com/radimsem/remindb/pkg/store"
@@ -2236,5 +2237,177 @@ func must(t *testing.T, err error) {
 	t.Helper()
 	if err != nil {
 		t.Fatal(err)
+	}
+}
+
+func intPtr(n int) *int { return &n }
+
+func TestResolveBudget(t *testing.T) {
+	cases := []struct {
+		name    string
+		arg     int
+		cfg     *int
+		builtin int
+		want    int
+	}{
+		{"explicit arg wins over config", 700, intPtr(300), 1000, 700},
+		{"explicit arg wins over builtin", 700, nil, 1000, 700},
+		{"config used when arg absent", 0, intPtr(300), 1000, 300},
+		{"builtin used when arg absent and config nil", 0, nil, 1000, 1000},
+		{"builtin used when config non-positive", 0, intPtr(0), 1000, 1000},
+		{"negative arg falls through to config", -5, intPtr(300), 1000, 300},
+	}
+
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			if got := resolveBudget(c.arg, c.cfg, c.builtin); got != c.want {
+				t.Errorf("resolveBudget(%d, %v, %d) = %d, want %d", c.arg, c.cfg, c.builtin, got, c.want)
+			}
+		})
+	}
+}
+
+func seedFetchTree(t *testing.T, st *store.Store) {
+	t.Helper()
+	ctx := context.Background()
+
+	root := &store.Node{
+		ID: "rootnode", SourceFile: "t.md", NodeType: "text",
+		Depth: 1, Label: "root body", Content: "root body",
+		Format: "plain", TokenCount: 10, ContentHash: "h_root",
+	}
+	child := &store.Node{
+		ID: "childnode", ParentID: "rootnode", SourceFile: "t.md", NodeType: "text",
+		Depth: 2, Label: "child body", Content: "child body",
+		Format: "plain", TokenCount: 100, ContentHash: "h_child",
+	}
+
+	must(t, st.UpsertNode(ctx, root))
+	must(t, st.UpsertNode(ctx, child))
+}
+
+func TestHandleFetch_ConfigDefaultAppliedWhenArgAbsent(t *testing.T) {
+	d, st := setup(t)
+	seedFetchTree(t, st)
+	d.WorkspaceConfig = config.Config{Budgets: config.BudgetsConfig{Fetch: intPtr(200)}}
+
+	result, _, err := d.HandleFetch(context.Background(), &gomcp.CallToolRequest{}, FetchInput{
+		Anchor: "rootnode", // Budget omitted -> config default 200 (200-10 >= 100)
+	})
+	if err != nil {
+		t.Fatalf("HandleFetch: %v", err)
+	}
+
+	text := textContent(t, result)
+	if !strings.Contains(text, "child body") {
+		t.Errorf("config default budget should have admitted the child:\n%s", text)
+	}
+}
+
+func TestHandleFetch_ExplicitArgOverridesConfigDefault(t *testing.T) {
+	d, st := setup(t)
+	seedFetchTree(t, st)
+	d.WorkspaceConfig = config.Config{Budgets: config.BudgetsConfig{Fetch: intPtr(200)}}
+
+	result, _, err := d.HandleFetch(context.Background(), &gomcp.CallToolRequest{}, FetchInput{
+		Anchor: "rootnode", Budget: 50, // explicit 50 wins over config 200 (50-10 < 100)
+	})
+	if err != nil {
+		t.Fatalf("HandleFetch: %v", err)
+	}
+
+	text := textContent(t, result)
+	if strings.Contains(text, "child body") {
+		t.Errorf("explicit budget should have excluded the child:\n%s", text)
+	}
+	if !strings.Contains(text, "root body") {
+		t.Errorf("anchor should always be present:\n%s", text)
+	}
+}
+
+func TestHandleFetchBatch_BudgetResolution(t *testing.T) {
+	ctx := context.Background()
+	ids := []string{"rootnode", "childnode"}
+
+	t.Run("config default trims when arg absent", func(t *testing.T) {
+		d, st := setup(t)
+		seedFetchTree(t, st)
+		d.WorkspaceConfig = config.Config{Budgets: config.BudgetsConfig{FetchBatch: intPtr(50)}}
+
+		res, _, err := d.HandleFetchBatch(ctx, &gomcp.CallToolRequest{}, FetchBatchInput{NodeIDs: ids})
+		if err != nil {
+			t.Fatalf("HandleFetchBatch: %v", err)
+		}
+		if txt := textContent(t, res); strings.Contains(txt, "child body") {
+			t.Errorf("config default 50 should trim the 100-tok child:\n%s", txt)
+		}
+	})
+
+	t.Run("explicit arg overrides config default", func(t *testing.T) {
+		d, st := setup(t)
+		seedFetchTree(t, st)
+		d.WorkspaceConfig = config.Config{Budgets: config.BudgetsConfig{FetchBatch: intPtr(50)}}
+
+		res, _, err := d.HandleFetchBatch(ctx, &gomcp.CallToolRequest{}, FetchBatchInput{NodeIDs: ids, Budget: 5000})
+		if err != nil {
+			t.Fatalf("HandleFetchBatch: %v", err)
+		}
+		if txt := textContent(t, res); !strings.Contains(txt, "child body") {
+			t.Errorf("explicit 5000 should override config 50:\n%s", txt)
+		}
+	})
+
+	t.Run("no arg and no config is unlimited", func(t *testing.T) {
+		d, st := setup(t)
+		seedFetchTree(t, st)
+
+		res, _, err := d.HandleFetchBatch(ctx, &gomcp.CallToolRequest{}, FetchBatchInput{NodeIDs: ids})
+		if err != nil {
+			t.Fatalf("HandleFetchBatch: %v", err)
+		}
+		if txt := textContent(t, res); !strings.Contains(txt, "child body") {
+			t.Errorf("no arg + no config should be unlimited and include the child:\n%s", txt)
+		}
+	})
+}
+
+func TestHandleSearch_NoArgNoConfigIsUnlimited(t *testing.T) {
+	d, st := setup(t)
+	seedFetchTree(t, st)
+
+	res, _, err := d.HandleSearch(context.Background(), &gomcp.CallToolRequest{}, SearchInput{Query: "body"})
+	if err != nil {
+		t.Fatalf("HandleSearch: %v", err)
+	}
+
+	txt := textContent(t, res)
+	if strings.Contains(txt, "no results") {
+		t.Errorf("Search with no budget arg and no config must not return empty (unlimited):\n%s", txt)
+	}
+	if !strings.Contains(txt, "root body") && !strings.Contains(txt, "child body") {
+		t.Errorf("Search should have surfaced the seeded nodes:\n%s", txt)
+	}
+}
+
+func TestBudgetResolution_PerToolIndependence(t *testing.T) {
+	d, st := setup(t)
+	seedFetchTree(t, st)
+
+	// Search default is tiny; Fetch default is generous.
+	d.WorkspaceConfig = config.Config{Budgets: config.BudgetsConfig{
+		Search: intPtr(5),
+		Fetch:  intPtr(200),
+	}}
+
+	result, _, err := d.HandleFetch(context.Background(), &gomcp.CallToolRequest{}, FetchInput{
+		Anchor: "rootnode",
+	})
+	if err != nil {
+		t.Fatalf("HandleFetch: %v", err)
+	}
+
+	text := textContent(t, result)
+	if !strings.Contains(text, "child body") {
+		t.Errorf("Fetch resolved the wrong config field (used Search=5 not Fetch=200):\n%s", text)
 	}
 }

@@ -113,6 +113,32 @@ func TestFetch_IncludesContext(t *testing.T) {
 	}
 }
 
+func TestFetch_ZeroBudgetIsUnlimited(t *testing.T) {
+	st := testutil.OpenTestDB(t)
+	seedTree(t, st)
+
+	eng := NewEngine(st)
+	ctx := context.Background()
+
+	capped, err := eng.Fetch(ctx, "child001", 50, 0)
+	if err != nil {
+		t.Fatalf("Fetch capped: %v", err)
+	}
+	unlimited, err := eng.Fetch(ctx, "child001", 0, 0)
+	if err != nil {
+		t.Fatalf("Fetch unlimited: %v", err)
+	}
+
+	if len(unlimited.Nodes) <= len(capped.Nodes) {
+		t.Errorf("budget 0 should return more than a tight budget: unlimited=%d capped=%d",
+			len(unlimited.Nodes), len(capped.Nodes))
+	}
+	// All four seeded nodes: anchor child001 + context (rootroor, child002, grand001).
+	if len(unlimited.Nodes) != 4 {
+		t.Errorf("unlimited Fetch nodes = %d, want 4 (anchor + full context)", len(unlimited.Nodes))
+	}
+}
+
 func TestFetch_DepthBoundary(t *testing.T) {
 	st := testutil.OpenTestDB(t)
 	ctx := context.Background()
@@ -333,6 +359,31 @@ func TestSearch_RespectsBudget(t *testing.T) {
 	}
 	if result.TokensUsed > 25 {
 		t.Errorf("TokensUsed = %d, exceeds budget 25", result.TokensUsed)
+	}
+}
+
+func TestSearch_ZeroBudgetIsUnlimited(t *testing.T) {
+	st := testutil.OpenTestDB(t)
+	seedTree(t, st)
+
+	eng := NewEngine(st)
+	ctx := context.Background()
+
+	capped, err := eng.Search(ctx, "about", 25)
+	if err != nil {
+		t.Fatalf("Search capped: %v", err)
+	}
+	unlimited, err := eng.Search(ctx, "about", 0)
+	if err != nil {
+		t.Fatalf("Search unlimited: %v", err)
+	}
+
+	if len(unlimited.Nodes) == 0 {
+		t.Fatal("budget 0 must not return empty — unlimited semantics")
+	}
+	if len(unlimited.Nodes) < len(capped.Nodes) {
+		t.Errorf("budget 0 should return at least as many as a tight budget: unlimited=%d capped=%d",
+			len(unlimited.Nodes), len(capped.Nodes))
 	}
 }
 

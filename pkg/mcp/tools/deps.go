@@ -82,6 +82,18 @@ func emitNodeChange(ctx context.Context, st *store.Store, node *parser.ContextNo
 	)
 }
 
+// Resolve a token budget: explicit call arg > configured default > built-in.
+func resolveBudget(arg int, cfg *int, builtin int) int {
+	if arg > 0 {
+		return arg
+	}
+	if cfg != nil && *cfg > 0 {
+		return *cfg
+	}
+
+	return builtin
+}
+
 func firstLine(s string, maxLen int) string {
 	for i, c := range s {
 		if c == '\n' {

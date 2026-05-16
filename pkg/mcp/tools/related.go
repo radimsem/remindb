@@ -26,9 +26,10 @@ const (
 )
 
 func (d *Deps) HandleRelated(ctx context.Context, _ *gomcp.CallToolRequest, input RelatedInput) (_ *gomcp.CallToolResult, _ any, err error) {
+	budget := resolveBudget(input.Budget, d.WorkspaceConfig.Budgets.Related, defaultRelatedBudget)
 	defer d.logCall("MemoryRelated", &err, time.Now(),
 		"anchor", input.Anchor, "direction", input.Direction,
-		"depth", input.Depth, "budget", input.Budget, "weight_min", input.WeightMin)
+		"depth", input.Depth, "budget", budget, "weight_min", input.WeightMin)
 
 	if input.Anchor == "" {
 		return nil, nil, fmt.Errorf("anchor is required")
@@ -45,11 +46,6 @@ func (d *Deps) HandleRelated(ctx context.Context, _ *gomcp.CallToolRequest, inpu
 	}
 	if depth > maxRelatedDepth {
 		depth = maxRelatedDepth
-	}
-
-	budget := input.Budget
-	if budget < 1 {
-		budget = defaultRelatedBudget
 	}
 
 	related, err := d.Store.GetRelatedNodes(ctx, input.Anchor, direction, depth, input.WeightMin, relatedQueryLimit)

@@ -265,6 +265,93 @@ func TestLoad_RedactionBlock_UnknownNestedKeyRejected(t *testing.T) {
 	}
 }
 
+func TestLoad_BudgetsBlock(t *testing.T) {
+	ws := t.TempDir()
+	writeConfig(t, ws, `{"budgets": {"search": 1500, "fetch": 800, "fetch_batch": 4000, "related": 1200}}`)
+
+	cfg, err := Load(ws)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	bc := cfg.Budgets
+	if bc.Search == nil || *bc.Search != 1500 {
+		t.Errorf("search = %v, want 1500", bc.Search)
+	}
+	if bc.Fetch == nil || *bc.Fetch != 800 {
+		t.Errorf("fetch = %v, want 800", bc.Fetch)
+	}
+	if bc.FetchBatch == nil || *bc.FetchBatch != 4000 {
+		t.Errorf("fetch_batch = %v, want 4000", bc.FetchBatch)
+	}
+	if bc.Related == nil || *bc.Related != 1200 {
+		t.Errorf("related = %v, want 1200", bc.Related)
+	}
+}
+
+func TestLoad_BudgetsBlock_PartialLeavesRestNil(t *testing.T) {
+	ws := t.TempDir()
+	writeConfig(t, ws, `{"budgets": {"search": 500}}`)
+
+	cfg, err := Load(ws)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	bc := cfg.Budgets
+	if bc.Search == nil || *bc.Search != 500 {
+		t.Errorf("search = %v, want 500", bc.Search)
+	}
+	if bc.Fetch != nil || bc.FetchBatch != nil || bc.Related != nil {
+		t.Error("unset fields should remain nil")
+	}
+}
+
+func TestLoad_BudgetsBlock_AbsentLeavesZero(t *testing.T) {
+	ws := t.TempDir()
+	writeConfig(t, ws, `{"temperature": {"decay_rate": 0.01}}`)
+
+	cfg, err := Load(ws)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	if cfg.Budgets != (BudgetsConfig{}) {
+		t.Errorf("absent budgets block should leave zero value, got %+v", cfg.Budgets)
+	}
+}
+
+func TestLoad_BudgetsBlock_UnknownNestedKeyRejected(t *testing.T) {
+	ws := t.TempDir()
+	writeConfig(t, ws, `{"budgets": {"serach": 500}}`)
+
+	_, err := Load(ws)
+	if err == nil {
+		t.Fatal("expected unknown-key error for typo'd field")
+	}
+
+	if !strings.Contains(err.Error(), `unknown key "serach"`) {
+		t.Errorf(`expected 'unknown key "serach"', got: %v`, err)
+	}
+}
+
+func TestValidate_BudgetsBlock(t *testing.T) {
+	zero := 0
+	neg := -100
+
+	bad := []Config{
+		{Budgets: BudgetsConfig{Search: &zero}},
+		{Budgets: BudgetsConfig{Fetch: &neg}},
+		{Budgets: BudgetsConfig{FetchBatch: &zero}},
+		{Budgets: BudgetsConfig{Related: &neg}},
+	}
+	for i, c := range bad {
+		if err := c.Validate(); err == nil {
+			t.Errorf("case %d: expected validation error, got nil", i)
+		}
+	}
+}
+
 func TestParseByteSize(t *testing.T) {
 	ok := map[string]int64{
 		"1024":  1024,
