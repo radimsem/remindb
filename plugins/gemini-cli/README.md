@@ -43,14 +43,26 @@ Drop a `.remindb/ignore` at the workspace root if you need to exclude noise (bui
 
 ### 3. Point remindb at your workspace
 
-The extension reads two env vars to find your workspace: `REMINDB_SOURCE` (the directory to compile and watch) and `REMINDB_DB` (where the compiled SQLite file lives). Export them in the shell **before launching Gemini with the extension installed** — otherwise the first activation falls back to a stray `memory.db` in cwd:
+The extension's `gemini-extension.json` declares an `env` block for the spawned server. You install from a local clone (step 4), so the cleanest setup is to write the two absolute paths straight into that clone's manifest before installing — the workspace mapping then travels with the extension instead of living in your shell:
+
+```jsonc
+// ~/code/remindb/plugins/gemini-cli/gemini-extension.json
+"env": {
+    "REMINDB_DB": "/home/you/.cache/remindb/my-project.db",
+    "REMINDB_SOURCE": "/home/you/code/my-project"
+}
+```
+
+Replace `/home/you` with your `$HOME` — use absolute paths. Re-run the step-4 re-install (`uninstall` + `install`) after editing, and again whenever you swap the paths for a different workspace.
+
+The bundled manifest ships these as `${REMINDB_DB}` / `${REMINDB_SOURCE}` passthroughs instead, so the alternative is to leave the manifest untouched and export the pair in the shell **before launching Gemini with the extension installed** — otherwise the first activation falls back to a stray `memory.db` in cwd:
 
 ```bash
 export REMINDB_DB=$HOME/.cache/remindb/my-project.db
 export REMINDB_SOURCE=$HOME/code/my-project
 ```
 
-Add them to your shell rc (`~/.bashrc`, `~/.zshrc`, fish config) to make it permanent, or set them per-session if you switch between workspaces.
+Add them to your shell rc (`~/.bashrc`, `~/.zshrc`, fish config) to make it permanent.
 
 ### 4. Install the extension
 
