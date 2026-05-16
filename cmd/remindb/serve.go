@@ -9,6 +9,7 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/radimsem/remindb/internal/redaction"
 	"github.com/radimsem/remindb/pkg/config"
 	remindb "github.com/radimsem/remindb/pkg/mcp"
 	"github.com/radimsem/remindb/pkg/store"
@@ -76,6 +77,16 @@ func runServe(cmd *cobra.Command, _ []string) error {
 		return fmt.Errorf("invalid temperature config in %s: %w", config.Path, err)
 	}
 
+	redCfg, err := applyRedactionOverrides(redaction.DefaultConfig(), workspaceCfg.Redaction)
+	if err != nil {
+		return fmt.Errorf("invalid redaction config in %s: %w", config.Path, err)
+	}
+
+	red, err := redaction.New(redCfg)
+	if err != nil {
+		return fmt.Errorf("failed to build: redactor: %w", err)
+	}
+
 	tracker, err := temperature.NewTracker(st, cfg, logger)
 	if err != nil {
 		return err
@@ -87,6 +98,7 @@ func runServe(cmd *cobra.Command, _ []string) error {
 		remindb.WithTransport(transport),
 		remindb.WithListen(listen),
 		remindb.WithWorkspaceConfig(workspaceCfg),
+		remindb.WithRedactor(red),
 	)
 	if err != nil {
 		return fmt.Errorf("failed to build: server: %w", err)
@@ -165,6 +177,36 @@ func applyTemperatureOverrides(base temperature.Config, o config.TemperatureConf
 		base.ColdNotifyLimit = *o.ColdNotifyLimit
 	}
 	return base
+}
+
+func applyRedactionOverrides(base redaction.Config, o config.RedactionConfig) (redaction.Config, error) {
+	if len(o.DisableBuiltinKinds) > 0 {
+		valid := make(map[string]bool, len(base.BuiltinKinds))
+		for _, k := range base.BuiltinKinds {
+			valid[k] = true
+		}
+
+		disabled := make(map[string]bool, len(o.DisableBuiltinKinds))
+		for _, k := range o.DisableBuiltinKinds {
+			if !valid[k] {
+				return base, fmt.Errorf("unknown built-in redaction kind %q", k)
+			}
+			disabled[k] = true
+		}
+
+		kept := make([]string, 0, len(base.BuiltinKinds))
+		for _, k := range base.BuiltinKinds {
+			if !disabled[k] {
+				kept = append(kept, k)
+			}
+		}
+		base.BuiltinKinds = kept
+	}
+
+	for _, p := range o.Custom {
+		base.Custom = append(base.Custom, redaction.CustomPattern{Kind: p.Kind, Pattern: p.Pattern})
+	}
+	return base, nil
 }
 
 func newServeLogger(verbose bool) *slog.Logger {

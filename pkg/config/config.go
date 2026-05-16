@@ -23,7 +23,15 @@ type Config struct {
 	Temperature TemperatureConfig `json:"temperature"`
 }
 
-type RedactionConfig struct{}
+type RedactionConfig struct {
+	DisableBuiltinKinds []string           `json:"disable_builtin_kinds,omitempty"`
+	Custom              []RedactionPattern `json:"custom,omitempty"`
+}
+
+type RedactionPattern struct {
+	Kind    string `json:"kind"`
+	Pattern string `json:"pattern"`
+}
 
 type TemperatureConfig struct {
 	DecayRate        *float64  `json:"decay_rate,omitempty"`
