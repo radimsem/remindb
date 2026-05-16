@@ -43,8 +43,6 @@ func (e *Engine) Fetch(ctx context.Context, anchor string, budget, depth int) (*
 		return nil, err
 	}
 
-	remaining := max(budget-node.TokenCount, 0)
-
 	d := e.maxDepth
 	if depth > 0 {
 		d = clampDepth(depth)
@@ -57,7 +55,12 @@ func (e *Engine) Fetch(ctx context.Context, anchor string, budget, depth int) (*
 
 	now := time.Now()
 	scored := rankNodes(context, now)
-	filled := fillBudget(scored, remaining)
+
+	filled := allNodes(scored)
+	if budget > 0 {
+		remaining := max(budget-node.TokenCount, 0)
+		filled = fillBudget(scored, remaining)
+	}
 
 	// Ascending score so the anchor lands at the prompt tail where LLM attention peaks.
 	slices.Reverse(filled.Nodes)
@@ -104,11 +107,8 @@ func (e *Engine) FetchBatch(ctx context.Context, ids []string, budget int) (*Res
 	}
 
 	if budget <= 0 {
-		used := 0
-		for _, sn := range ordered {
-			used += sn.Node.TokenCount
-		}
-		return &Result{Nodes: ordered, TokensUsed: used}, missing, nil
+		all := allNodes(ordered)
+		return &all, missing, nil
 	}
 
 	filled := fillBudget(ordered, budget)
@@ -123,7 +123,11 @@ func (e *Engine) Search(ctx context.Context, query string, budget int) (*Result,
 
 	now := time.Now()
 	scored := rankSearchResults(ranked, now)
-	filled := fillBudget(scored, budget)
+
+	filled := allNodes(scored)
+	if budget > 0 {
+		filled = fillBudget(scored, budget)
+	}
 
 	// Ascending score so the top hit lands at the prompt tail where LLM attention peaks.
 	slices.Reverse(filled.Nodes)

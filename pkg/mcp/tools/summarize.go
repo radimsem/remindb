@@ -33,8 +33,11 @@ func (d *Deps) HandleSummarize(ctx context.Context, _ *gomcp.CallToolRequest, in
 		return nil, nil, fmt.Errorf("failed to get node: %s: %w", input.NodeID, err)
 	}
 
+	summary, hits := d.Redactor.Scrub(input.Summary)
+	d.logRedaction("MemorySummarize", hits)
+
 	oldTokens := existing.TokenCount
-	tokenCount := tokens.Estimate(input.Summary)
+	tokenCount := tokens.Estimate(summary)
 
 	prev := map[string]diff.NodeState{
 		input.NodeID: {Hash: existing.ContentHash, Content: existing.Content},
@@ -51,11 +54,11 @@ func (d *Deps) HandleSummarize(ctx context.Context, _ *gomcp.CallToolRequest, in
 		SourceFile:  existing.SourceFile,
 		NodeType:    parser.NodeType(existing.NodeType),
 		Depth:       existing.Depth,
-		Label:       "Summary: " + firstLine(input.Summary, 70),
-		Content:     input.Summary,
+		Label:       "Summary: " + firstLine(summary, 70),
+		Content:     summary,
 		Format:      existing.Format,
 		TokenCount:  tokenCount,
-		ContentHash: contentid.ContentHash(input.Summary),
+		ContentHash: contentid.ContentHash(summary),
 		Temperature: &rebound,
 	}
 

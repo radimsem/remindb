@@ -6,6 +6,8 @@ import (
 	"time"
 	"unicode/utf8"
 
+	"github.com/radimsem/remindb/internal/redaction"
+	"github.com/radimsem/remindb/pkg/config"
 	"github.com/radimsem/remindb/pkg/diff"
 	"github.com/radimsem/remindb/pkg/emitter"
 	"github.com/radimsem/remindb/pkg/parser"
@@ -20,8 +22,10 @@ type Deps struct {
 	Engine           *query.Engine
 	Resolver         *relations.Resolver
 	Tracker          *temperature.Tracker
+	Redactor         *redaction.Redactor
 	Logger           *slog.Logger
 	SourceDir        string
+	WorkspaceConfig  config.Config
 	SummarizeRebound float64
 }
 
@@ -39,6 +43,17 @@ func (d *Deps) logCall(name string, errp *error, start time.Time, attrs ...any) 
 		return
 	}
 	d.Logger.Debug("mcp call", fields...)
+}
+
+func (d *Deps) logRedaction(source string, hits []redaction.Hit) {
+	if d.Logger == nil || len(hits) == 0 {
+		return
+	}
+
+	d.Logger.Info("redacted secrets",
+		"source", source,
+		"hit_count", len(hits),
+		"kinds", redaction.KindCounts(hits))
 }
 
 func (d *Deps) boostResultNodes(ctx context.Context, result *query.Result) {
@@ -65,6 +80,18 @@ func emitNodeChange(ctx context.Context, st *store.Store, node *parser.ContextNo
 		emitter.WithCursorHash(diff.CursorHash(roots)),
 		emitter.WithMessage(msg),
 	)
+}
+
+// Resolve a token budget: explicit call arg > configured default > built-in.
+func resolveBudget(arg int, cfg *int, builtin int) int {
+	if arg > 0 {
+		return arg
+	}
+	if cfg != nil && *cfg > 0 {
+		return *cfg
+	}
+
+	return builtin
 }
 
 func firstLine(s string, maxLen int) string {

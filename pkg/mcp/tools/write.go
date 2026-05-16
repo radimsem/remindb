@@ -23,14 +23,17 @@ func (d *Deps) HandleWrite(ctx context.Context, _ *gomcp.CallToolRequest, input 
 	d.Store.OpMu.Lock()
 	defer d.Store.OpMu.Unlock()
 
-	contentHash := contentid.ContentHash(input.Payload)
+	payload, hits := d.Redactor.Scrub(input.Payload)
+	d.logRedaction("MemoryWrite", hits)
+
+	contentHash := contentid.ContentHash(payload)
 	nodeID := input.Anchor
 	if nodeID == "" {
-		nodeID = contentid.IdentifyPayload("mcp:write", input.Payload)
+		nodeID = contentid.IdentifyPayload("mcp:write", payload)
 	}
 
-	tokenCount := tokens.Estimate(input.Payload)
-	label := firstLine(input.Payload, 80)
+	tokenCount := tokens.Estimate(payload)
+	label := firstLine(payload, 80)
 
 	prev := make(map[string]diff.NodeState)
 	existing, _ := d.Store.GetNode(ctx, nodeID)
@@ -46,7 +49,7 @@ func (d *Deps) HandleWrite(ctx context.Context, _ *gomcp.CallToolRequest, input 
 			NodeType:    parser.NodeType(existing.NodeType),
 			Depth:       existing.Depth,
 			Label:       label,
-			Content:     input.Payload,
+			Content:     payload,
 			Format:      existing.Format,
 			TokenCount:  tokenCount,
 			ContentHash: contentHash,
@@ -59,7 +62,7 @@ func (d *Deps) HandleWrite(ctx context.Context, _ *gomcp.CallToolRequest, input 
 			NodeType:    parser.NodeText,
 			Depth:       1,
 			Label:       label,
-			Content:     input.Payload,
+			Content:     payload,
 			Format:      parser.FormatPlain,
 			TokenCount:  tokenCount,
 			ContentHash: contentHash,

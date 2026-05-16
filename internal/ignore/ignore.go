@@ -1,4 +1,4 @@
-// Package ignore filters source-tree walks via a .remindb.ignore sidecar file.
+// Package ignore filters source-tree walks via a .remindb/ignore sidecar file.
 package ignore
 
 import (
@@ -10,9 +10,14 @@ import (
 	"path/filepath"
 	"slices"
 	"strings"
+
+	"github.com/radimsem/remindb/pkg/config"
 )
 
-const FileName = ".remindb.ignore"
+const (
+	FileName = "ignore"
+	Path     = config.DirName + "/" + FileName
+)
 
 type Matcher struct {
 	patterns []pattern
@@ -26,14 +31,14 @@ type pattern struct {
 	negated  bool
 }
 
-// Read <dir>/.remindb.ignore; (nil, nil) if absent.
+// Read <dir>/.remindb/ignore; (nil, nil) if absent.
 func Load(dir string) (*Matcher, error) {
-	f, err := os.Open(filepath.Join(dir, FileName))
+	f, err := os.Open(filepath.Join(dir, config.DirName, FileName))
 	if err != nil {
 		if errors.Is(err, os.ErrNotExist) {
 			return nil, nil
 		}
-		return nil, fmt.Errorf("failed to read: %s: %w", FileName, err)
+		return nil, fmt.Errorf("failed to read: %s: %w", Path, err)
 	}
 	defer func() { _ = f.Close() }()
 
@@ -56,7 +61,7 @@ func Load(dir string) (*Matcher, error) {
 		patterns = append(patterns, p)
 	}
 	if err := scanner.Err(); err != nil {
-		return nil, fmt.Errorf("failed to read: %s: %w", FileName, err)
+		return nil, fmt.Errorf("failed to read: %s: %w", Path, err)
 	}
 
 	return &Matcher{patterns: patterns}, nil

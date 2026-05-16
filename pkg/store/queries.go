@@ -131,6 +131,9 @@ const (
 
 	qRewriteSourcePaths = `UPDATE nodes SET source_file = ? || substr(source_file, length(?) + 1)
 		WHERE source_file LIKE ? || '%'`
+
+	qRewriteCompileRoots = `UPDATE snapshots SET compile_root = ? || substr(compile_root, length(?) + 1)
+		WHERE compile_root LIKE ? || '%'`
 )
 
 // snapshots & diffs
@@ -359,4 +362,39 @@ const (
 	// IN clause is closed by the caller after appending placeholders.
 	qResetTemperaturesByFilesPrefix = `UPDATE nodes SET temperature = ?, updated_at = unixepoch()
 		WHERE source_file IN (`
+)
+
+// doctor — diagnostic counts and fixes
+const (
+	qCountNodes = `SELECT count(*) FROM nodes`
+
+	// Level 2 = internal consistency + index/content match + row-count match (strictest for external-content tables).
+	qFTSIntegrityCheck = `INSERT INTO nodes_fts(nodes_fts, rank) VALUES('integrity-check', 2)`
+
+	qCountOrphanParents = `SELECT count(*) FROM nodes
+		WHERE parent_id IS NOT NULL AND parent_id NOT IN (SELECT id FROM nodes)`
+
+	qCountDanglingDiffs = `SELECT count(*) FROM diffs
+		WHERE snapshot_id NOT IN (SELECT id FROM snapshots)`
+
+	qCountSnapshots = `SELECT count(*) FROM snapshots`
+
+	qSelectSnapshotExists = `SELECT 1 FROM snapshots WHERE id = ? LIMIT 1`
+
+	qSelectMaxSnapshotID = `SELECT id FROM snapshots ORDER BY id DESC LIMIT 1`
+
+	qSelectAppliedMigrationVersions = `SELECT version FROM schema_migrations ORDER BY version`
+
+	qSelectDistinctCompileRoots = `SELECT DISTINCT compile_root FROM snapshots
+		WHERE compile_root != '' ORDER BY compile_root`
+
+	qFixRebuildFTS = `INSERT INTO nodes_fts(nodes_fts) VALUES('rebuild')`
+
+	qFixPromoteOrphansToRoots = `UPDATE nodes SET parent_id = NULL, updated_at = unixepoch()
+		WHERE parent_id IS NOT NULL AND parent_id NOT IN (SELECT id FROM nodes)`
+
+	qFixDeleteDanglingDiffs = `DELETE FROM diffs
+		WHERE snapshot_id NOT IN (SELECT id FROM snapshots)`
+
+	qFixDeleteHeadCursor = `DELETE FROM cursors WHERE id = 'HEAD'`
 )

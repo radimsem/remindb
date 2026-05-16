@@ -1,4 +1,4 @@
-// Package tempfile resolves pre-seeded temperatures from .temp.json files.
+// Package tempfile resolves pre-seeded temperatures from .remindb/temperatures.json.
 package tempfile
 
 import (
@@ -8,9 +8,14 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+
+	"github.com/radimsem/remindb/pkg/config"
 )
 
-const FileName = ".temp.json"
+const (
+	FileName = "temperatures.json"
+	Path     = config.DirName + "/" + FileName
+)
 
 type entry struct {
 	temp     *float64
@@ -21,24 +26,24 @@ type Resolver struct {
 	root *entry
 }
 
-// Read .temp.json from dir; (nil, nil) if the file is absent.
+// Read <dir>/.remindb/temperatures.json; (nil, nil) if the file is absent.
 func Load(dir string) (*Resolver, error) {
-	data, err := os.ReadFile(filepath.Join(dir, FileName))
+	data, err := os.ReadFile(filepath.Join(dir, config.DirName, FileName))
 	if err != nil {
 		if errors.Is(err, os.ErrNotExist) {
 			return nil, nil
 		}
-		return nil, fmt.Errorf("failed to read: %s: %w", FileName, err)
+		return nil, fmt.Errorf("failed to read: %s: %w", Path, err)
 	}
 
 	var raw map[string]any
 	if err := json.Unmarshal(data, &raw); err != nil {
-		return nil, fmt.Errorf("failed to parse: %s: %w", FileName, err)
+		return nil, fmt.Errorf("failed to parse: %s: %w", Path, err)
 	}
 
 	root, err := buildEntry(raw)
 	if err != nil {
-		return nil, fmt.Errorf("invalid %s: %w", FileName, err)
+		return nil, fmt.Errorf("invalid %s: %w", Path, err)
 	}
 
 	return &Resolver{root: root}, nil

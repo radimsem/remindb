@@ -2,8 +2,10 @@ package transformer
 
 import (
 	"context"
+	"strings"
 	"testing"
 
+	"github.com/radimsem/remindb/internal/redaction"
 	"github.com/radimsem/remindb/pkg/parser"
 )
 
@@ -31,7 +33,7 @@ func TestTransform_Integration(t *testing.T) {
 		},
 	}
 
-	err := Transform(context.Background(), roots, "")
+	err := Transform(context.Background(), roots, "", nil)
 	if err != nil {
 		t.Fatalf("Transform: %v", err)
 	}
@@ -87,8 +89,39 @@ func TestTransform_Integration(t *testing.T) {
 }
 
 func TestTransform_Empty(t *testing.T) {
-	if err := Transform(context.Background(), nil, ""); err != nil {
+	if err := Transform(context.Background(), nil, "", nil); err != nil {
 		t.Fatalf("Transform(nil): %v", err)
+	}
+}
+
+func TestTransform_ScrubsBeforeHash(t *testing.T) {
+	red, err := redaction.New(redaction.DefaultConfig())
+	if err != nil {
+		t.Fatalf("redaction.New: %v", err)
+	}
+
+	roots := []*parser.ContextNode{
+		{
+			SourceFile: "/project/secrets.md",
+			NodeType:   parser.NodeText,
+			Content:    "leaked AKIAIOSFODNN7EXAMPLE in notes",
+			Format:     parser.FormatPlain,
+		},
+	}
+
+	if err := Transform(context.Background(), roots, "", red); err != nil {
+		t.Fatalf("Transform: %v", err)
+	}
+
+	n := roots[0]
+	if strings.Contains(n.Content, "AKIA") {
+		t.Errorf("AKIA leaked into node content: %q", n.Content)
+	}
+	if !strings.Contains(n.Content, "«redacted:aws_access_key»") {
+		t.Errorf("marker missing: %q", n.Content)
+	}
+	if n.ContentHash == "" {
+		t.Error("ContentHash empty — hash pass must run after scrub")
 	}
 }
 

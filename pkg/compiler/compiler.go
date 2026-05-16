@@ -8,12 +8,15 @@ import (
 	"os"
 	"path/filepath"
 	"runtime"
+	"time"
 
 	"golang.org/x/sync/errgroup"
 
 	"github.com/radimsem/remindb/internal/fileext"
 	"github.com/radimsem/remindb/internal/ignore"
+	"github.com/radimsem/remindb/internal/redaction"
 	"github.com/radimsem/remindb/internal/tempfile"
+	"github.com/radimsem/remindb/pkg/config"
 	"github.com/radimsem/remindb/pkg/diff"
 	"github.com/radimsem/remindb/pkg/emitter"
 	"github.com/radimsem/remindb/pkg/parser"
@@ -38,6 +41,10 @@ type options struct {
 	temps       map[string]*float64
 	logger      *slog.Logger
 	ignore      *ignore.Matcher
+	redactor    *redaction.Redactor
+	maxFileSize int64
+	maxParallel int
+	timeout     time.Duration
 	ignoreSet   bool
 	fullRescan  bool
 	reseedTemps bool
@@ -78,6 +85,46 @@ func WithReseedTemperatures() Option {
 	return func(o *options) { o.reseedTemps = true }
 }
 
+func WithRedactor(r *redaction.Redactor) Option {
+	return func(o *options) { o.redactor = r }
+}
+
+func WithMaxFileSize(n int64) Option {
+	return func(o *options) { o.maxFileSize = n }
+}
+
+func WithMaxParallelism(n int) Option {
+	return func(o *options) { o.maxParallel = n }
+}
+
+func WithWallClockTimeout(d time.Duration) Option {
+	return func(o *options) { o.timeout = d }
+}
+
+// Translate the workspace compile block into options; absent fields keep engine defaults.
+func ConfigOptions(cc config.CompileConfig) []Option {
+	var opts []Option
+
+	if cc.MaxFileSize != nil {
+		opts = append(opts, WithMaxFileSize(int64(*cc.MaxFileSize)))
+	}
+	if cc.MaxParallelism != nil {
+		opts = append(opts, WithMaxParallelism(*cc.MaxParallelism))
+	}
+	if cc.WallClockTimeout != nil {
+		opts = append(opts, WithWallClockTimeout(time.Duration(*cc.WallClockTimeout)))
+	}
+
+	return opts
+}
+
+func withTimeout(ctx context.Context, d time.Duration) (context.Context, context.CancelFunc) {
+	if d <= 0 {
+		return ctx, func() {}
+	}
+	return context.WithTimeout(ctx, d)
+}
+
 func Compile(ctx context.Context, st *store.Store, opts ...Option) (*Result, error) {
 	var o options
 	for _, opt := range opts {
@@ -89,15 +136,35 @@ func Compile(ctx context.Context, st *store.Store, opts ...Option) (*Result, err
 		logger = slog.Default()
 	}
 
+	ctx, cancel := withTimeout(ctx, o.timeout)
+	defer cancel()
+
 	results := make([][]*parser.ContextNode, len(o.paths))
 
+	limit := o.maxParallel
+	if limit <= 0 {
+		limit = runtime.GOMAXPROCS(0)
+	}
+
 	g, gctx := errgroup.WithContext(ctx)
-	g.SetLimit(runtime.GOMAXPROCS(0))
+	g.SetLimit(limit)
 
 	for i, p := range o.paths {
 		g.Go(func() error {
 			if err := gctx.Err(); err != nil {
 				return err
+			}
+
+			if o.maxFileSize > 0 {
+				fi, err := os.Stat(p)
+				if err != nil {
+					return fmt.Errorf("failed to stat: %s: %w", p, err)
+				}
+
+				if fi.Size() > o.maxFileSize {
+					logger.Warn("compile: skipping oversize file", "path", p, "size_bytes", fi.Size(), "max_bytes", o.maxFileSize)
+					return nil
+				}
 			}
 
 			data, err := os.ReadFile(p)
@@ -124,6 +191,9 @@ func Compile(ctx context.Context, st *store.Store, opts ...Option) (*Result, err
 	}
 
 	if err := g.Wait(); err != nil {
+		if o.timeout > 0 && errors.Is(err, context.DeadlineExceeded) {
+			return nil, fmt.Errorf("failed to compile: wall-clock timeout exceeded after %s: %w", o.timeout, err)
+		}
 		return nil, err
 	}
 
@@ -137,7 +207,7 @@ func Compile(ctx context.Context, st *store.Store, opts ...Option) (*Result, err
 		roots = append(roots, nodes...)
 	}
 
-	if err := transformer.Transform(ctx, roots, o.compileRoot); err != nil {
+	if err := transformer.Transform(ctx, roots, o.compileRoot, o.redactor); err != nil {
 		return nil, fmt.Errorf("failed to transform: %w", err)
 	}
 
@@ -182,6 +252,10 @@ func CompileDir(ctx context.Context, st *store.Store, dir, message string, opts 
 		opt(&o)
 	}
 
+	// Bound the whole compile, the directory walk included, not just Compile.
+	ctx, cancel := withTimeout(ctx, o.timeout)
+	defer cancel()
+
 	absDir, err := filepath.Abs(dir)
 	if err != nil {
 		return nil, fmt.Errorf("failed to resolve: %s: %w", dir, err)
@@ -191,7 +265,7 @@ func CompileDir(ctx context.Context, st *store.Store, dir, message string, opts 
 	if !o.ignoreSet {
 		m, err := ignore.Load(absDir)
 		if err != nil {
-			return nil, fmt.Errorf("failed to load: %s: %w", ignore.FileName, err)
+			return nil, fmt.Errorf("failed to load: %s: %w", ignore.Path, err)
 		}
 
 		matcher = m
@@ -207,18 +281,17 @@ func CompileDir(ctx context.Context, st *store.Store, dir, message string, opts 
 		rel = filepath.ToSlash(rel)
 
 		if d.IsDir() {
-			if path != absDir && fileext.ShouldSkipDir(d.Name()) {
+			name := d.Name()
+			if path != absDir && (fileext.ShouldSkipDir(name) || name == config.DirName) {
 				return filepath.SkipDir
 			}
+
 			if matcher.Match(rel, true) {
 				return filepath.SkipDir
 			}
 			return nil
 		}
 
-		if rel == ignore.FileName {
-			return nil
-		}
 		if !fileext.Supported(path) {
 			return nil
 		}
@@ -311,7 +384,7 @@ func CompileFile(ctx context.Context, st *store.Store, path, message string, opt
 func resolveTemps(dir string, paths []string) (map[string]*float64, error) {
 	resolver, err := tempfile.Load(dir)
 	if err != nil {
-		return nil, fmt.Errorf("failed to load: %s: %w", tempfile.FileName, err)
+		return nil, fmt.Errorf("failed to load: %s: %w", tempfile.Path, err)
 	}
 	if resolver == nil {
 		return nil, nil

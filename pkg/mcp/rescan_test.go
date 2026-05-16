@@ -15,12 +15,13 @@ import (
 	"github.com/radimsem/remindb/internal/ignore"
 	"github.com/radimsem/remindb/internal/testutil"
 	"github.com/radimsem/remindb/pkg/compiler"
+	"github.com/radimsem/remindb/pkg/config"
 	"github.com/radimsem/remindb/pkg/store"
 )
 
 func mustRescan(t *testing.T, st *store.Store, dir string, interval time.Duration, logger *slog.Logger) *RescanLoop {
 	t.Helper()
-	r, err := NewRescanLoop(st, dir, interval, logger)
+	r, err := NewRescanLoop(st, dir, interval, config.CompileConfig{}, logger)
 
 	if err != nil {
 		t.Fatalf("NewRescanLoop: %v", err)
@@ -417,7 +418,7 @@ func TestRescanLoop_RespectsIgnore(t *testing.T) {
 	dir := t.TempDir()
 	writeFile(t, dir, "kept.md", "# Kept\n")
 	writeFile(t, dir, "session.jsonl", `{"event":"chat"}`)
-	writeFile(t, dir, ignore.FileName, "*.jsonl\n")
+	writeFile(t, dir, ignore.Path, "*.jsonl\n")
 
 	st := testutil.OpenTestDB(t)
 	r := mustRescan(t, st, dir, time.Minute, nil)
@@ -437,15 +438,15 @@ func TestRescanLoop_RespectsIgnore(t *testing.T) {
 
 func TestNewRescanLoop_FailsOnMalformedIgnore(t *testing.T) {
 	dir := t.TempDir()
-	writeFile(t, dir, ignore.FileName, "a//b\n")
+	writeFile(t, dir, ignore.Path, "a//b\n")
 
 	st := testutil.OpenTestDB(t)
-	_, err := NewRescanLoop(st, dir, time.Minute, nil)
+	_, err := NewRescanLoop(st, dir, time.Minute, config.CompileConfig{}, nil)
 	if err == nil {
 		t.Fatal("expected error for malformed ignore file")
 	}
-	if !strings.Contains(err.Error(), ignore.FileName) {
-		t.Errorf("error should mention %s, got: %v", ignore.FileName, err)
+	if !strings.Contains(err.Error(), ignore.Path) {
+		t.Errorf("error should mention %s, got: %v", ignore.Path, err)
 	}
 }
 
@@ -506,6 +507,10 @@ func TestMaybeInitialCompile_NonEmptyDB(t *testing.T) {
 func writeFile(t *testing.T, dir, name, content string) {
 	t.Helper()
 	p := filepath.Join(dir, name)
+
+	if err := os.MkdirAll(filepath.Dir(p), 0o755); err != nil {
+		t.Fatal(err)
+	}
 	if err := os.WriteFile(p, []byte(content), 0o644); err != nil {
 		t.Fatal(err)
 	}

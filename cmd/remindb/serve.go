@@ -9,6 +9,8 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/radimsem/remindb/internal/redaction"
+	"github.com/radimsem/remindb/pkg/config"
 	remindb "github.com/radimsem/remindb/pkg/mcp"
 	"github.com/radimsem/remindb/pkg/store"
 	"github.com/radimsem/remindb/pkg/temperature"
@@ -47,8 +49,6 @@ func runServe(cmd *cobra.Command, _ []string) error {
 		return err
 	}
 
-	logger := newServeLogger(verbose)
-
 	st, err := store.Open(dbPath)
 	if err != nil {
 		return fmt.Errorf("failed to open: %s: %w", dbPath, err)
@@ -62,18 +62,57 @@ func runServe(cmd *cobra.Command, _ []string) error {
 		return fmt.Errorf("failed to migrate: %w", err)
 	}
 
-	cfg := temperature.DefaultConfig()
+	var workspaceCfg config.Config
+	if sourceDir != "" {
+		workspaceCfg, err = config.Load(sourceDir)
+		if err != nil {
+			return fmt.Errorf("failed to load: workspace config: %w", err)
+		}
+	}
+
+	if err := resolveServerConfig(cmd, workspaceCfg.Server); err != nil {
+		return err
+	}
+
+	logger, logFile, err := newServeLogger(verbose, workspaceCfg.Server.Logging)
+	if err != nil {
+		return err
+	}
+	if logFile != nil {
+		defer func() { _ = logFile.Close() }()
+	}
+
+	cfg := applyTemperatureOverrides(temperature.DefaultConfig(), workspaceCfg.Temperature)
+	if err := cfg.Validate(); err != nil {
+		return fmt.Errorf("invalid temperature config in %s: %w", config.Path, err)
+	}
+
+	redCfg, err := applyRedactionOverrides(redaction.DefaultConfig(), workspaceCfg.Redaction)
+	if err != nil {
+		return fmt.Errorf("invalid redaction config in %s: %w", config.Path, err)
+	}
+
+	red, err := redaction.New(redCfg)
+	if err != nil {
+		return fmt.Errorf("failed to build: redactor: %w", err)
+	}
+
 	tracker, err := temperature.NewTracker(st, cfg, logger)
 	if err != nil {
 		return err
 	}
 
-	srv := remindb.NewServer(st, tracker, cfg,
+	srv, err := remindb.NewServer(st, tracker, cfg,
 		remindb.WithSourceDir(sourceDir),
 		remindb.WithLogger(logger),
 		remindb.WithTransport(transport),
 		remindb.WithListen(listen),
+		remindb.WithWorkspaceConfig(workspaceCfg),
+		remindb.WithRedactor(red),
 	)
+	if err != nil {
+		return fmt.Errorf("failed to build: server: %w", err)
+	}
 
 	logger.Info("serve: starting", startupAttrs(cfg.TickInterval)...)
 
@@ -102,7 +141,7 @@ func runServe(cmd *cobra.Command, _ []string) error {
 	})
 
 	if sourceDir != "" {
-		rescan, err := remindb.NewRescanLoop(st, sourceDir, rescanInterval, logger)
+		rescan, err := remindb.NewRescanLoop(st, sourceDir, rescanInterval, workspaceCfg.Compile, logger)
 		if err != nil {
 			return err
 		}
@@ -122,12 +161,105 @@ func runServe(cmd *cobra.Command, _ []string) error {
 	return nil
 }
 
-func newServeLogger(verbose bool) *slog.Logger {
+func applyTemperatureOverrides(base temperature.Config, o config.TemperatureConfig) temperature.Config {
+	if o.DecayRate != nil {
+		base.DecayRate = *o.DecayRate
+	}
+	if o.AccessBoost != nil {
+		base.AccessBoost = *o.AccessBoost
+	}
+	if o.ColdThreshold != nil {
+		base.ColdThreshold = *o.ColdThreshold
+	}
+	if o.NotifyThreshold != nil {
+		base.NotifyThreshold = *o.NotifyThreshold
+	}
+	if o.SummarizeRebound != nil {
+		base.SummarizeRebound = *o.SummarizeRebound
+	}
+	if o.TickInterval != nil {
+		base.TickInterval = time.Duration(*o.TickInterval)
+	}
+	if o.ColdNotifyTTL != nil {
+		base.ColdNotifyTTL = time.Duration(*o.ColdNotifyTTL)
+	}
+	if o.ColdNotifyLimit != nil {
+		base.ColdNotifyLimit = *o.ColdNotifyLimit
+	}
+	return base
+}
+
+func applyRedactionOverrides(base redaction.Config, o config.RedactionConfig) (redaction.Config, error) {
+	if len(o.DisableBuiltinKinds) > 0 {
+		valid := make(map[string]bool, len(base.BuiltinKinds))
+		for _, k := range base.BuiltinKinds {
+			valid[k] = true
+		}
+
+		disabled := make(map[string]bool, len(o.DisableBuiltinKinds))
+		for _, k := range o.DisableBuiltinKinds {
+			if !valid[k] {
+				return base, fmt.Errorf("unknown built-in redaction kind %q", k)
+			}
+			disabled[k] = true
+		}
+
+		kept := make([]string, 0, len(base.BuiltinKinds))
+		for _, k := range base.BuiltinKinds {
+			if !disabled[k] {
+				kept = append(kept, k)
+			}
+		}
+		base.BuiltinKinds = kept
+	}
+
+	for _, p := range o.Custom {
+		base.Custom = append(base.Custom, redaction.CustomPattern{Kind: p.Kind, Pattern: p.Pattern})
+	}
+	return base, nil
+}
+
+// Build the serve logger from config; --verbose forces debug and wins.
+func newServeLogger(verbose bool, lg config.LoggingConfig) (*slog.Logger, *os.File, error) {
 	level := slog.LevelInfo
+	if lg.Level != nil {
+		level = parseLogLevel(*lg.Level)
+	}
 	if verbose {
 		level = slog.LevelDebug
 	}
-	return slog.New(slog.NewTextHandler(os.Stderr, &slog.HandlerOptions{Level: level}))
+
+	out := os.Stderr
+	var file *os.File
+	if lg.OutputPath != nil {
+		f, err := os.OpenFile(*lg.OutputPath, os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0o644)
+		if err != nil {
+			return nil, nil, fmt.Errorf("failed to open: log output %s: %w", *lg.OutputPath, err)
+		}
+
+		out, file = f, f
+	}
+
+	opts := &slog.HandlerOptions{Level: level}
+	var h slog.Handler = slog.NewTextHandler(out, opts)
+
+	if lg.Format != nil && *lg.Format == "json" {
+		h = slog.NewJSONHandler(out, opts)
+	}
+	return slog.New(h), file, nil
+}
+
+func parseLogLevel(s string) slog.Level {
+	switch s {
+	case "debug":
+		return slog.LevelDebug
+	case "warn":
+		return slog.LevelWarn
+	case "error":
+		return slog.LevelError
+	default:
+		return slog.LevelInfo
+	}
 }
 
 func startupAttrs(tickInterval time.Duration) []any {
@@ -180,19 +312,20 @@ func applyServeEnv(cmd *cobra.Command) error {
 		return fmt.Errorf("rescan interval requires --source (or REMINDB_SOURCE)")
 	}
 
-	if !cmd.Flags().Changed("transport") {
-		if v := os.Getenv("REMINDB_TRANSPORT"); v != "" {
-			transport = v
-		}
-	}
+	return nil
+}
 
-	listenFromEnv := false
-	if !cmd.Flags().Changed("listen") {
-		if v := os.Getenv("REMINDB_LISTEN"); v != "" {
-			listen = v
-			listenFromEnv = true
-		}
-	}
+func resolveServerConfig(cmd *cobra.Command, sc config.ServerConfig) error {
+	transport = config.Resolve(
+		cmd.Flags().Changed("transport"), transport,
+		sc.Transport, envPtr("REMINDB_TRANSPORT"),
+		remindb.TransportStdio,
+	)
+	listen = config.Resolve(
+		cmd.Flags().Changed("listen"), listen,
+		sc.Listen, envPtr("REMINDB_LISTEN"),
+		remindb.DefaultListenAddr,
+	)
 
 	switch transport {
 	case remindb.TransportStdio, remindb.TransportHttp:
@@ -200,8 +333,16 @@ func applyServeEnv(cmd *cobra.Command) error {
 		return fmt.Errorf("unsupported transport %q (want %q or %q)", transport, remindb.TransportStdio, remindb.TransportHttp)
 	}
 
-	if transport != remindb.TransportHttp && (cmd.Flags().Changed("listen") || listenFromEnv) {
+	listenSet := cmd.Flags().Changed("listen") || sc.Listen != nil || envPtr("REMINDB_LISTEN") != nil
+	if transport != remindb.TransportHttp && listenSet {
 		return fmt.Errorf("listen address requires --transport=http")
+	}
+	return nil
+}
+
+func envPtr(key string) *string {
+	if v := os.Getenv(key); v != "" {
+		return &v
 	}
 	return nil
 }

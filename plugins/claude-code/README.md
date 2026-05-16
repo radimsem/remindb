@@ -36,10 +36,10 @@ remindb needs a SQLite file built from a source tree before the agent can read f
 
 A natural source for Claude Code is its own per-project memory at `~/.claude/projects/<project>/memory/` — those markdown files Claude has been quietly accumulating about each repo it works in. Indexing them across all projects lets Claude query its own persistent memory through remindb instead of grepping the dot folder.
 
-`~/.claude/projects/<project>/` sits next to a few other artifacts that don't belong in long-term memory: session-log `.jsonl` files, plus `subagents/` and `tool-results/` subtrees under each session UUID directory. Drop a `.remindb.ignore` at `~/.claude/projects/` to filter them out, so the only thing the compiler ingests is `memory/*.md` per project:
+`~/.claude/projects/<project>/` sits next to a few other artifacts that don't belong in long-term memory: session-log `.jsonl` files, plus `subagents/` and `tool-results/` subtrees under each session UUID directory. Drop a `.remindb/ignore` at `~/.claude/projects/` to filter them out, so the only thing the compiler ingests is `memory/*.md` per project:
 
 ```bash
-mkdir -p ~/.cache/remindb
+mkdir -p ~/.cache/remindb ~/.claude/projects/.remindb
 printf '%s\n' \
     '# Compile only per-project memory/ markdown; skip the surrounding telemetry.' \
     '' \
@@ -49,11 +49,11 @@ printf '%s\n' \
     'subagents/' \
     '# Per-session tool outputs (any depth).' \
     'tool-results/' \
-    > ~/.claude/projects/.remindb.ignore
+    > ~/.claude/projects/.remindb/ignore
 remindb compile ~/.claude/projects --db ~/.cache/remindb/claude.db
 ```
 
-The same `.remindb.ignore` is honored by `serve`'s background rescan and the `MemoryCompile` tool — set it once, all paths agree. If Claude Code adds a new sibling-of-`memory/` artifact in some future release, append it to the file and recompile. Or point at any other workspace you want the agent to see — a docs tree, a notes repo, a project directory. Re-run `compile` whenever you want a fresh baseline; `serve` keeps the DB current after that.
+The same `.remindb/ignore` is honored by `serve`'s background rescan and the `MemoryCompile` tool — set it once, all paths agree. If Claude Code adds a new sibling-of-`memory/` artifact in some future release, append it to the file and recompile. Or point at any other workspace you want the agent to see — a docs tree, a notes repo, a project directory. Re-run `compile` whenever you want a fresh baseline; `serve` keeps the DB current after that.
 
 ### 3. Point remindb at your workspace
 
@@ -65,6 +65,17 @@ export REMINDB_SOURCE=$HOME/.claude/projects
 ```
 
 Stick them in `~/.bashrc` / `~/.zshrc` / your fish equivalent to make the mapping permanent, or scope them to a single session if you want to switch workspaces between runs. Undefined `${VAR}` references resolve to empty strings, which is what triggers the cwd fallback.
+
+Prefer the paths in config rather than shell state? Edit the `env` block of the plugin's `.mcp.json` directly, swapping the `${VAR}` placeholders for absolute paths:
+
+```json
+"env": {
+    "REMINDB_DB": "/home/you/.cache/remindb/claude.db",
+    "REMINDB_SOURCE": "/home/you/.claude/projects"
+}
+```
+
+This is clean for a local checkout (`--plugin-dir ./plugins/claude-code`, step 4) — you own the file. For a marketplace install the manifest lives in the plugin cache under `~/.claude/plugins/` and is overwritten on every plugin update, so the shell-export path above stays the durable choice there. Either way, don't try to override it from a same-named server in `~/.claude.json` — Claude Code *replaces* the plugin's bundled entry rather than merging it (see step 4), so a user-scope copy drops the plugin wiring entirely.
 
 ### 4. Install the plugin
 

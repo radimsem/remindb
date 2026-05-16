@@ -12,7 +12,7 @@ Rules for designing and modifying tools exposed via the MCP server in `remindb`.
 
 ## 1. Tools Are `Memory<Verb>`, Always ★
 
-Every public MCP tool name is `Memory` + a single verb in PascalCase. The current set is `MemoryTree`, `MemorySearch`, `MemoryFetch`, `MemoryWrite`, `MemoryDelta`, `MemoryHistory`, `MemorySummarize`, `MemoryCompile`, `MemoryRelated`, `MemoryRelate`, `MemoryRollback`. Anything new follows the same shape.
+Every public MCP tool name is `Memory` + a single verb in PascalCase. The current set is `MemoryTree`, `MemorySearch`, `MemoryFetch`, `MemoryFetchBatch`, `MemoryDelta`, `MemoryDiff`, `MemoryHistory`, `MemoryRelated`, `MemoryStats`, `MemoryWrite`, `MemorySummarize`, `MemoryCompile`, `MemoryRelate`, `MemoryForget`, `MemoryRollback`, `MemoryPin`, `MemoryUnpin` — the canonical list is whatever `pkg/mcp/` registers; treat any count here as derived, not authoritative. Anything new follows the same shape.
 
 ```go
 // Bad — non-prefixed name; clients can't filter the tool list

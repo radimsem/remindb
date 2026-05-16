@@ -41,22 +41,11 @@ mkdir -p ~/.cache/remindb
 remindb compile ~/.codex/memories --db ~/.cache/remindb/codex.db
 ```
 
-`memories/` is pure user content, so no `.remindb.ignore` is needed. Skills under `~/.codex/skills/` and slash-command prompts under `~/.codex/prompts/` are deliberately *not* indexed — Codex already loads them as live instructions, so re-indexing them in remindb would double-count. Or point at any other workspace you want the agent to see — a docs tree, a notes repo, a project directory.
+`memories/` is pure user content, so no `.remindb/ignore` is needed. Skills under `~/.codex/skills/` and slash-command prompts under `~/.codex/prompts/` are deliberately *not* indexed — Codex already loads them as live instructions, so re-indexing them in remindb would double-count. Or point at any other workspace you want the agent to see — a docs tree, a notes repo, a project directory.
 
 ### 3. Point remindb at your workspace
 
-`remindb serve` reads `REMINDB_DB` and `REMINDB_SOURCE` as fallbacks for its `--db` and `--source` flags. Codex propagates the launching shell's environment to plugin-spawned MCP subprocesses, so export them in the shell **before launching Codex with the plugin enabled** — otherwise the first activation falls back to a stray `memory.db` in cwd:
-
-```bash
-export REMINDB_DB=$HOME/.cache/remindb/codex.db
-export REMINDB_SOURCE=$HOME/.codex/memories
-```
-
-Stick them in `~/.bashrc` / `~/.zshrc` / your fish equivalent to make it permanent, or scope to a single session if you want to switch workspaces between runs.
-
-If shell-rc isn't an option for you, sidestep the plugin entirely and define a top-level `[mcp_servers.remindb]` block in `~/.codex/config.toml` instead.
-
-Why the workaround? Codex's `[plugins.<name>]` table only accepts `enabled` and does no `${VAR}` / `$VAR` / `{env:VAR}` expansion in either `config.toml` or the plugin's bundled `.mcp.json` (which is why the bundled `.mcp.json` ships with `env: {}` — placeholders would be passed through literally and override the inherited shell values with garbage). There's no first-class way to inject env into a plugin-bundled MCP server from user config. So:
+`remindb serve` reads `REMINDB_DB` and `REMINDB_SOURCE` as fallbacks for its `--db` and `--source` flags. The cleanest place to set them is a top-level `[mcp_servers.remindb]` block in `~/.codex/config.toml`, with the paths written straight into the `env` table:
 
 ```toml
 [mcp_servers.remindb]
@@ -65,7 +54,18 @@ args = ["serve"]
 env = { REMINDB_DB = "/home/you/.cache/remindb/codex.db", REMINDB_SOURCE = "/home/you/.codex/memories" }
 ```
 
-Replace `/home/you` with your absolute `$HOME` — `config.toml` does not expand it. This registers `remindb` as a user-defined MCP server, not a plugin server, so the plugin can stay disabled or removed entirely if you take this path.
+Replace `/home/you` with your absolute `$HOME` — `config.toml` does not expand it. This registers `remindb` as a user-defined MCP server rather than a plugin server, so the bundled plugin can stay disabled or removed entirely if you take this path. It keeps the workspace mapping with the rest of your Codex config instead of in shell state.
+
+Why not inject env into the plugin entry? Codex's `[plugins.<name>]` table only accepts `enabled` and does no `${VAR}` / `$VAR` / `{env:VAR}` expansion in either `config.toml` or the plugin's bundled `.mcp.json` (which is why that file ships with `env: {}` — placeholders would pass through literally and overwrite inherited shell values with garbage). There's no first-class way to inject env into a plugin-bundled MCP server from user config.
+
+If you'd rather keep the plugin and not maintain a `config.toml` server block, Codex propagates the launching shell's environment to plugin-spawned subprocesses — export the pair before launching Codex with the plugin enabled (otherwise the first activation falls back to a stray `memory.db` in cwd):
+
+```bash
+export REMINDB_DB=$HOME/.cache/remindb/codex.db
+export REMINDB_SOURCE=$HOME/.codex/memories
+```
+
+Stick them in `~/.bashrc` / `~/.zshrc` / your fish equivalent to make it permanent.
 
 ### 4. Add the plugin from GitHub
 

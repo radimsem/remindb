@@ -384,6 +384,11 @@ func (s *Store) ExecRewriteSourcePaths(ctx context.Context, oldPrefix, newPrefix
 	return err
 }
 
+func (s *Store) ExecRewriteCompileRoots(ctx context.Context, oldPrefix, newPrefix string) error {
+	_, err := s.db.ExecContext(ctx, qRewriteCompileRoots, newPrefix, oldPrefix, oldPrefix)
+	return err
+}
+
 func BuildTree(nodes []*Node) (roots []*Node, children map[string][]*Node) {
 	children = make(map[string][]*Node, len(nodes))
 

@@ -36,10 +36,10 @@ remindb needs a SQLite file built from a source tree before the agent can read f
 
 A natural source for OpenClaw is its own state folder at `~/.openclaw/` — `openclaw.json`, hook scripts under `hooks/<id>/`, agent workspaces under `workspace/` (and `workspace-*`), per-agent state under `agents/<id>/`, installed plugins under `extensions/`, and shared skill definitions under `skills/`. Indexing it lets OpenClaw query its own persistent context through remindb instead of grepping the dot folder.
 
-`~/.openclaw/` also accumulates session transcripts at `agents/<id>/sessions/*.jsonl`, OAuth + API-key stores at `agents/<id>/agent/auth-profiles.json` (with provider apiKey residues sometimes spilling into adjacent `models.json`), the `extensions/` plugin install dir (you don't want remindb indexing its own bundled `index.ts`), and `sandboxes/` / `sandbox/` runtime state. Drop a `.remindb.ignore` at `~/.openclaw/` to filter them out (gitignore-style subset: `*`, `?`, `[abc]`, `**`, trailing `/`, leading `/`, `!` negation, `\!` / `\#` escapes, `#` comments):
+`~/.openclaw/` also accumulates session transcripts at `agents/<id>/sessions/*.jsonl`, OAuth + API-key stores at `agents/<id>/agent/auth-profiles.json` (with provider apiKey residues sometimes spilling into adjacent `models.json`), the `extensions/` plugin install dir (you don't want remindb indexing its own bundled `index.ts`), and `sandboxes/` / `sandbox/` runtime state. Drop a `.remindb/ignore` at `~/.openclaw/` to filter them out (gitignore-style subset: `*`, `?`, `[abc]`, `**`, trailing `/`, leading `/`, `!` negation, `\!` / `\#` escapes, `#` comments):
 
 ```bash
-mkdir -p ~/.cache/remindb
+mkdir -p ~/.cache/remindb ~/.openclaw/.remindb
 printf '%s\n' \
     '# Compile only curated context; skip session transcripts, secrets, and runtime state.' \
     '' \
@@ -57,11 +57,11 @@ printf '%s\n' \
     'sandboxes/' \
     '# Sandbox config (containers.json).' \
     'sandbox/' \
-    > ~/.openclaw/.remindb.ignore
+    > ~/.openclaw/.remindb/ignore
 remindb compile ~/.openclaw --db ~/.cache/remindb/openclaw.db
 ```
 
-The same `.remindb.ignore` is honored by `serve`'s background rescan and the `MemoryCompile` tool — set it once, all paths agree. Or point at any other workspace you want the agent to see:
+The same `.remindb/ignore` is honored by `serve`'s background rescan and the `MemoryCompile` tool — set it once, all paths agree. Or point at any other workspace you want the agent to see:
 
 ```bash
 remindb compile /path/to/workspace --db /path/to/workspace.db
@@ -71,14 +71,12 @@ Re-run `compile` whenever you want a fresh baseline; `serve` keeps the DB curren
 
 ### 3. Point remindb at your workspace
 
-`remindb serve` reads two env vars as fallbacks for its `--db` and `--source` flags. Export them in the shell **before launching OpenClaw with the plugin enabled** — otherwise the first activation falls back to a stray `memory.db` in cwd:
+`remindb serve` reads `REMINDB_DB` and `REMINDB_SOURCE` as fallbacks for its `--db` and `--source` flags. OpenClaw registers the MCP server from a JSON spec (step 5, `openclaw mcp set`), and that spec carries an `env` object straight through to the spawned subprocess — so the workspace mapping lives in the gateway's MCP registration, not in shell state. Decide the two absolute paths now; you'll pass them in step 5:
 
-```bash
-export REMINDB_DB=/absolute/path/to/workspace.db
-export REMINDB_SOURCE=/absolute/path/to/workspace
-```
+- `REMINDB_DB` — e.g. `/absolute/path/to/workspace.db`
+- `REMINDB_SOURCE` — e.g. `/absolute/path/to/workspace`
 
-Stick them in `~/.bashrc` / `~/.zshrc` / your fish equivalent to make it permanent, or scope to a single session if you want to switch workspaces between runs. Re-export and restart the gateway whenever the agent should target a different workspace.
+Swap them and re-run `openclaw mcp set` (then restart the gateway) whenever the agent should target a different workspace.
 
 ### 4. Install the plugin
 
@@ -107,9 +105,11 @@ cp plugins/openclaw/index.ts plugins/openclaw/openclaw.plugin.json ~/.openclaw/e
 ### 5. Register the MCP server and restart the gateway
 
 ```bash
-openclaw mcp set remindb '{"command":"remindb","args":["serve"]}'
+openclaw mcp set remindb '{"command":"remindb","args":["serve"],"env":{"REMINDB_DB":"/absolute/path/to/workspace.db","REMINDB_SOURCE":"/absolute/path/to/workspace"}}'
 openclaw gateway restart
 ```
+
+The `env` object is passed straight to the spawned `remindb serve` — these are the two paths you settled on in step 3. (Equivalently, pass `--db` / `--source` as `args` instead; see [Configuration](#configuration).)
 
 Then add the bare plugin id `"remindb"` to each agent's `tools.allow` array in `~/.openclaw/openclaw.json` (no CLI flag exists for this — it's a manual JSON edit per agent). Without it, the agent loads the plugin but can't see any `remindb__*` tools.
 

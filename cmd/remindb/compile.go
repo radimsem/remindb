@@ -4,8 +4,12 @@ import (
 	"context"
 	"fmt"
 	"os"
+	"path/filepath"
+	"slices"
 
+	"github.com/radimsem/remindb/internal/redaction"
 	"github.com/radimsem/remindb/pkg/compiler"
+	"github.com/radimsem/remindb/pkg/config"
 	"github.com/radimsem/remindb/pkg/store"
 	"github.com/spf13/cobra"
 )
@@ -24,7 +28,7 @@ var compileCmd = &cobra.Command{
 
 func init() {
 	compileCmd.Flags().StringVarP(&compileMsg, "message", "m", "", "Snapshot message")
-	compileCmd.Flags().BoolVar(&compileReseedTemps, "reseed-temperatures", false, "Override stored temperatures with .temp.json values on unchanged nodes (directory compiles only)")
+	compileCmd.Flags().BoolVar(&compileReseedTemps, "reseed-temperatures", false, "Override stored temperatures with .remindb/temperatures.json values on unchanged nodes (directory compiles only)")
 	rootCmd.AddCommand(compileCmd)
 }
 
@@ -57,16 +61,38 @@ func runCompile(cmd *cobra.Command, args []string) error {
 		return fmt.Errorf("failed to stat: %w", err)
 	}
 
+	workspace := path
+	if !fi.IsDir() {
+		workspace = filepath.Dir(path)
+	}
+	workspaceCfg, err := config.Load(workspace)
+	if err != nil {
+		return fmt.Errorf("failed to load: workspace config: %w", err)
+	}
+
+	redCfg, err := applyRedactionOverrides(redaction.DefaultConfig(), workspaceCfg.Redaction)
+	if err != nil {
+		return fmt.Errorf("invalid redaction config in %s: %w", config.Path, err)
+	}
+
+	red, err := redaction.New(redCfg)
+	if err != nil {
+		return fmt.Errorf("failed to build: redactor: %w", err)
+	}
+
+	baseOpts := []compiler.Option{compiler.WithRedactor(red)}
+	baseOpts = append(baseOpts, compiler.ConfigOptions(workspaceCfg.Compile)...)
+
 	var result *compiler.Result
 	if fi.IsDir() {
-		var dirOpts []compiler.Option
+		dirOpts := slices.Clone(baseOpts)
 		if compileReseedTemps {
 			dirOpts = append(dirOpts, compiler.WithReseedTemperatures())
 		}
 
 		result, err = compiler.CompileDir(ctx, st, path, msg, dirOpts...)
 	} else {
-		result, err = compiler.CompileFile(ctx, st, path, msg)
+		result, err = compiler.CompileFile(ctx, st, path, msg, baseOpts...)
 	}
 	if err != nil {
 		return fmt.Errorf("failed to compile: %s: %w", path, err)

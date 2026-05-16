@@ -1,16 +1,21 @@
 package compiler
 
 import (
+	"bytes"
 	"context"
 	"errors"
 	"fmt"
+	"log/slog"
 	"os"
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/radimsem/remindb/internal/ignore"
+	"github.com/radimsem/remindb/internal/tempfile"
 	"github.com/radimsem/remindb/internal/testutil"
+	"github.com/radimsem/remindb/pkg/config"
 	"github.com/radimsem/remindb/pkg/store"
 )
 
@@ -21,6 +26,32 @@ func writeFile(t *testing.T, dir, name, content string) string {
 		t.Fatal(err)
 	}
 	return p
+}
+
+func writeTempfile(t *testing.T, dir, content string) {
+	t.Helper()
+
+	stateDir := filepath.Join(dir, config.DirName)
+	if err := os.MkdirAll(stateDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+
+	if err := os.WriteFile(filepath.Join(stateDir, tempfile.FileName), []byte(content), 0o644); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func writeIgnoreFile(t *testing.T, dir, content string) {
+	t.Helper()
+
+	stateDir := filepath.Join(dir, config.DirName)
+	if err := os.MkdirAll(stateDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+
+	if err := os.WriteFile(filepath.Join(stateDir, ignore.FileName), []byte(content), 0o644); err != nil {
+		t.Fatal(err)
+	}
 }
 
 func TestCompile(t *testing.T) {
@@ -336,7 +367,7 @@ func TestCompileDir_RespectsIgnore(t *testing.T) {
 	}
 	writeFile(t, subdir, "log.json", `{"id":1}`)
 
-	writeFile(t, dir, ignore.FileName, "*.jsonl\nsessions/\n")
+	writeIgnoreFile(t, dir, "*.jsonl\nsessions/\n")
 
 	result, err := CompileDir(ctx, st, dir, "ignore-test")
 	if err != nil {
@@ -354,8 +385,8 @@ func TestCompileDir_RespectsIgnore(t *testing.T) {
 		if strings.Contains(n.SourceFile, "sessions"+string(filepath.Separator)) {
 			t.Errorf("indexed file in excluded dir: %s", n.SourceFile)
 		}
-		if filepath.Base(n.SourceFile) == ignore.FileName {
-			t.Errorf("indexed the ignore file itself: %s", n.SourceFile)
+		if strings.Contains(filepath.ToSlash(n.SourceFile), config.DirName+"/") {
+			t.Errorf("indexed file inside %s/: %s", config.DirName, n.SourceFile)
 		}
 	}
 	if result.Added == 0 {
@@ -369,14 +400,14 @@ func TestCompileDir_MalformedIgnore(t *testing.T) {
 	dir := t.TempDir()
 
 	writeFile(t, dir, "doc.md", "# Hi\n")
-	writeFile(t, dir, ignore.FileName, "a//b\n")
+	writeIgnoreFile(t, dir, "a//b\n")
 
 	_, err := CompileDir(ctx, st, dir, "bad-ignore")
 	if err == nil {
 		t.Fatal("expected error for malformed ignore file")
 	}
-	if !strings.Contains(err.Error(), ignore.FileName) {
-		t.Errorf("error should mention %s, got: %v", ignore.FileName, err)
+	if !strings.Contains(err.Error(), ignore.Path) {
+		t.Errorf("error should mention %s, got: %v", ignore.Path, err)
 	}
 }
 
@@ -467,7 +498,7 @@ func TestCompileDir_PrunesIgnored(t *testing.T) {
 		t.Fatal("expected draft nodes after initial compile")
 	}
 
-	writeFile(t, dir, ignore.FileName, "drafts/\n")
+	writeIgnoreFile(t, dir, "drafts/\n")
 	result, err := CompileDir(ctx, st, dir, "v2")
 	if err != nil {
 		t.Fatalf("CompileDir v2: %v", err)
@@ -621,7 +652,7 @@ func TestCompileDir_ReseedTemperatures_OverridesUnchanged(t *testing.T) {
 	ctx := context.Background()
 	dir := t.TempDir()
 
-	writeFile(t, dir, ".temp.json", `{"doc.md": 0.9}`)
+	writeTempfile(t, dir, `{"doc.md": 0.9}`)
 	writeFile(t, dir, "doc.md", "# Hi\n\nBody one.\n\nBody two.\n")
 
 	if _, err := CompileDir(ctx, st, dir, "v1"); err != nil {
@@ -630,7 +661,7 @@ func TestCompileDir_ReseedTemperatures_OverridesUnchanged(t *testing.T) {
 	assertAllTempsEqual(t, nodeTemps(t, ctx, st, "doc.md"), 0.9)
 
 	setAllTemps(t, ctx, st, "doc.md", 0.3)
-	writeFile(t, dir, ".temp.json", `{"doc.md": 0.1}`)
+	writeTempfile(t, dir, `{"doc.md": 0.1}`)
 
 	if _, err := CompileDir(ctx, st, dir, "v2", WithReseedTemperatures()); err != nil {
 		t.Fatalf("CompileDir v2: %v", err)
@@ -643,7 +674,7 @@ func TestCompileDir_ReseedTemperatures_DefaultPreservesExisting(t *testing.T) {
 	ctx := context.Background()
 	dir := t.TempDir()
 
-	writeFile(t, dir, ".temp.json", `{"doc.md": 0.9}`)
+	writeTempfile(t, dir, `{"doc.md": 0.9}`)
 	writeFile(t, dir, "doc.md", "# Hi\n\nBody one.\n\nBody two.\n")
 
 	if _, err := CompileDir(ctx, st, dir, "v1"); err != nil {
@@ -651,7 +682,7 @@ func TestCompileDir_ReseedTemperatures_DefaultPreservesExisting(t *testing.T) {
 	}
 
 	setAllTemps(t, ctx, st, "doc.md", 0.3)
-	writeFile(t, dir, ".temp.json", `{"doc.md": 0.1}`)
+	writeTempfile(t, dir, `{"doc.md": 0.1}`)
 
 	if _, err := CompileDir(ctx, st, dir, "v2"); err != nil {
 		t.Fatalf("CompileDir v2: %v", err)
@@ -664,7 +695,7 @@ func TestCompileDir_ReseedTemperatures_LeavesUnseededFilesAlone(t *testing.T) {
 	ctx := context.Background()
 	dir := t.TempDir()
 
-	writeFile(t, dir, ".temp.json", `{"a.md": 0.9}`)
+	writeTempfile(t, dir, `{"a.md": 0.9}`)
 	writeFile(t, dir, "a.md", "# A\n\nAlpha.\n")
 	writeFile(t, dir, "b.md", "# B\n\nBeta.\n")
 
@@ -675,7 +706,7 @@ func TestCompileDir_ReseedTemperatures_LeavesUnseededFilesAlone(t *testing.T) {
 	setAllTemps(t, ctx, st, "a.md", 0.3)
 	setAllTemps(t, ctx, st, "b.md", 0.4)
 
-	writeFile(t, dir, ".temp.json", `{"a.md": 0.1}`)
+	writeTempfile(t, dir, `{"a.md": 0.1}`)
 
 	if _, err := CompileDir(ctx, st, dir, "v2", WithReseedTemperatures()); err != nil {
 		t.Fatalf("CompileDir v2: %v", err)
@@ -709,7 +740,7 @@ func TestCompileDir_ReseedTemperatures_NoNewSnapshot(t *testing.T) {
 	ctx := context.Background()
 	dir := t.TempDir()
 
-	writeFile(t, dir, ".temp.json", `{"doc.md": 0.9}`)
+	writeTempfile(t, dir, `{"doc.md": 0.9}`)
 	writeFile(t, dir, "doc.md", "# Hi\n\nBody.\n")
 
 	if _, err := CompileDir(ctx, st, dir, "v1"); err != nil {
@@ -860,5 +891,121 @@ func TestCompile_WikilinkPendingResolvesOnLaterCompile(t *testing.T) {
 	}
 	if related[0].Node.SourceFile != "b.md" {
 		t.Errorf("source_file = %q, want b.md", related[0].Node.SourceFile)
+	}
+}
+
+func TestCompile_SkipsOversizeFile(t *testing.T) {
+	st := testutil.OpenTestDB(t)
+	ctx := context.Background()
+	dir := t.TempDir()
+
+	small := writeFile(t, dir, "small.md", "# Small\n\ntiny.\n")
+	big := writeFile(t, dir, "big.md", "# Big\n\n"+strings.Repeat("padding ", 2000))
+
+	var logs bytes.Buffer
+	logger := slog.New(slog.NewTextHandler(&logs, &slog.HandlerOptions{Level: slog.LevelWarn}))
+
+	result, err := Compile(ctx, st,
+		WithPaths([]string{small, big}),
+		WithMessage("initial"),
+		WithMaxFileSize(64),
+		WithLogger(logger),
+	)
+	if err != nil {
+		t.Fatalf("Compile: %v", err)
+	}
+	if result.Added == 0 {
+		t.Fatal("expected the small file to compile")
+	}
+
+	out := logs.String()
+	if !strings.Contains(out, "skipping oversize file") || !strings.Contains(out, big) {
+		t.Errorf("expected oversize warn naming %s, got: %s", big, out)
+	}
+
+	nodes, err := st.GetNodesByFiles(ctx, []string{big})
+	if err != nil {
+		t.Fatalf("GetNodesByFiles: %v", err)
+	}
+	if len(nodes) != 0 {
+		t.Errorf("oversize file produced %d nodes, want 0", len(nodes))
+	}
+}
+
+func TestCompile_WallClockTimeout(t *testing.T) {
+	st := testutil.OpenTestDB(t)
+	ctx := context.Background()
+	dir := t.TempDir()
+
+	p := writeFile(t, dir, "doc.md", "# Doc\n\nbody\n")
+
+	_, err := Compile(ctx, st,
+		WithPaths([]string{p}),
+		WithMessage("initial"),
+		WithWallClockTimeout(time.Nanosecond),
+	)
+	if err == nil {
+		t.Fatal("expected timeout error")
+	}
+	if !errors.Is(err, context.DeadlineExceeded) {
+		t.Fatalf("expected DeadlineExceeded, got %v", err)
+	}
+	if !strings.Contains(err.Error(), "wall-clock timeout") {
+		t.Errorf("expected wall-clock timeout message, got %v", err)
+	}
+
+	snaps, _ := st.ListSnapshots(ctx, 10)
+	if len(snaps) != 0 {
+		t.Errorf("snapshots = %d, want 0 (timeout must not commit partial state)", len(snaps))
+	}
+}
+
+func TestCompile_MaxParallelismOne(t *testing.T) {
+	st := testutil.OpenTestDB(t)
+	ctx := context.Background()
+	dir := t.TempDir()
+
+	paths := make([]string, 5)
+	for i := range paths {
+		name := fmt.Sprintf("doc%d.md", i)
+		paths[i] = writeFile(t, dir, name, fmt.Sprintf("# Doc %d\n\nbody %d\n", i, i))
+	}
+
+	result, err := Compile(ctx, st,
+		WithPaths(paths),
+		WithMessage("initial"),
+		WithMaxParallelism(1),
+	)
+	if err != nil {
+		t.Fatalf("Compile: %v", err)
+	}
+	if result.Added == 0 {
+		t.Error("expected nodes added with serial compile")
+	}
+}
+
+func TestConfigOptions_MapsCompileBlock(t *testing.T) {
+	mb := config.ByteSize(2 << 20)
+	par := 3
+	to := config.Duration(45 * time.Second)
+	cc := config.CompileConfig{MaxFileSize: &mb, MaxParallelism: &par, WallClockTimeout: &to}
+
+	var o options
+	for _, opt := range ConfigOptions(cc) {
+		opt(&o)
+	}
+
+	if o.maxFileSize != 2<<20 {
+		t.Errorf("maxFileSize = %d, want %d", o.maxFileSize, 2<<20)
+	}
+	if o.maxParallel != 3 {
+		t.Errorf("maxParallel = %d, want 3", o.maxParallel)
+	}
+	if o.timeout != 45*time.Second {
+		t.Errorf("timeout = %s, want 45s", o.timeout)
+	}
+
+	if got := ConfigOptions(config.CompileConfig{}); len(got) != 0 {
+		t.Errorf("empty config produced %d options, want 0", len(got))
 	}
 }

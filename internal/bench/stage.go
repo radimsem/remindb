@@ -9,6 +9,7 @@ import (
 
 	"github.com/radimsem/remindb/internal/fileext"
 	"github.com/radimsem/remindb/internal/ignore"
+	"github.com/radimsem/remindb/pkg/config"
 	"github.com/radimsem/remindb/pkg/store"
 )
 
@@ -35,7 +36,7 @@ func stageBench(ctx context.Context, userDBPath, overrideDir string) (*benchStag
 
 	matcher, err := ignore.Load(userDir)
 	if err != nil {
-		return nil, fmt.Errorf("failed to load: %s: %w", ignore.FileName, err)
+		return nil, fmt.Errorf("failed to load: %s: %w", ignore.Path, err)
 	}
 
 	tmpRoot, err := os.MkdirTemp("", "remindb-bench-*")
@@ -142,7 +143,8 @@ func copySourceTree(src, dst string, matcher *ignore.Matcher) error {
 		relSlash := filepath.ToSlash(rel)
 
 		if d.IsDir() {
-			if path != src && fileext.ShouldSkipDir(d.Name()) {
+			name := d.Name()
+			if path != src && (fileext.ShouldSkipDir(name) || name == config.DirName) {
 				return filepath.SkipDir
 			}
 			if matcher.Match(relSlash, true) {
@@ -151,9 +153,6 @@ func copySourceTree(src, dst string, matcher *ignore.Matcher) error {
 			return nil
 		}
 
-		if relSlash == ignore.FileName {
-			return nil
-		}
 		if !fileext.Supported(path) {
 			return nil
 		}
@@ -170,7 +169,6 @@ func copySourceTree(src, dst string, matcher *ignore.Matcher) error {
 	})
 }
 
-// Update every source file row so the staged DB matches the staged source directory.
 func rewriteSourcePaths(ctx context.Context, dbPath, userDir, stagedDir string) error {
 	st, err := store.Open(dbPath)
 	if err != nil {
@@ -180,6 +178,9 @@ func rewriteSourcePaths(ctx context.Context, dbPath, userDir, stagedDir string) 
 
 	if err := st.ExecRewriteSourcePaths(ctx, userDir, stagedDir); err != nil {
 		return fmt.Errorf("failed to rewrite: source paths: %w", err)
+	}
+	if err := st.ExecRewriteCompileRoots(ctx, userDir, stagedDir); err != nil {
+		return fmt.Errorf("failed to rewrite: compile roots: %w", err)
 	}
 	return nil
 }

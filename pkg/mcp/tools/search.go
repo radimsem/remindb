@@ -11,13 +11,14 @@ import (
 
 type SearchInput struct {
 	Query  string `json:"query" jsonschema:"Full-text search query"`
-	Budget int    `json:"budget" jsonschema:"Maximum token budget for the response"`
+	Budget int    `json:"budget,omitempty" jsonschema:"Token budget for the response (0 or omitted = configured default, else unlimited)"`
 }
 
 func (d *Deps) HandleSearch(ctx context.Context, _ *gomcp.CallToolRequest, input SearchInput) (_ *gomcp.CallToolResult, _ any, err error) {
-	defer d.logCall("MemorySearch", &err, time.Now(), "query", input.Query, "budget", input.Budget)
+	budget := resolveBudget(input.Budget, d.WorkspaceConfig.Budgets.Search, 0)
+	defer d.logCall("MemorySearch", &err, time.Now(), "query", input.Query, "budget", budget)
 
-	result, err := d.Engine.Search(ctx, input.Query, input.Budget)
+	result, err := d.Engine.Search(ctx, input.Query, budget)
 	if err != nil {
 		return nil, nil, fmt.Errorf("failed to search: %w", err)
 	}

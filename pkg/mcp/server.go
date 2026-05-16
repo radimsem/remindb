@@ -7,6 +7,8 @@ import (
 	"net"
 
 	"github.com/modelcontextprotocol/go-sdk/mcp"
+	"github.com/radimsem/remindb/internal/redaction"
+	"github.com/radimsem/remindb/pkg/config"
 	"github.com/radimsem/remindb/pkg/mcp/tools"
 	"github.com/radimsem/remindb/pkg/query"
 	"github.com/radimsem/remindb/pkg/relations"
@@ -34,11 +36,13 @@ type Server struct {
 type Option func(*options)
 
 type options struct {
-	sourceDir string
-	logger    *slog.Logger
-	transport string
-	listen    string
-	listener  net.Listener
+	sourceDir       string
+	logger          *slog.Logger
+	transport       string
+	listen          string
+	listener        net.Listener
+	workspaceConfig config.Config
+	redactor        *redaction.Redactor
 }
 
 func WithSourceDir(dir string) Option {
@@ -61,7 +65,15 @@ func WithListener(l net.Listener) Option {
 	return func(o *options) { o.listener = l }
 }
 
-func NewServer(st *store.Store, tracker *temperature.Tracker, cfg temperature.Config, opts ...Option) *Server {
+func WithWorkspaceConfig(c config.Config) Option {
+	return func(o *options) { o.workspaceConfig = c }
+}
+
+func WithRedactor(r *redaction.Redactor) Option {
+	return func(o *options) { o.redactor = r }
+}
+
+func NewServer(st *store.Store, tracker *temperature.Tracker, cfg temperature.Config, opts ...Option) (*Server, error) {
 	var o options
 	for _, opt := range opts {
 		opt(&o)
@@ -82,6 +94,16 @@ func NewServer(st *store.Store, tracker *temperature.Tracker, cfg temperature.Co
 		listen = DefaultListenAddr
 	}
 
+	red := o.redactor
+	if red == nil {
+		def, err := redaction.New(redaction.DefaultConfig())
+		if err != nil {
+			return nil, fmt.Errorf("failed to build: redactor: %w", err)
+		}
+
+		red = def
+	}
+
 	s := &Server{
 		mcp: mcp.NewServer(&mcp.Implementation{
 			Name:    "remindb",
@@ -99,13 +121,15 @@ func NewServer(st *store.Store, tracker *temperature.Tracker, cfg temperature.Co
 		Engine:           query.NewEngine(st),
 		Resolver:         relations.New(st),
 		Tracker:          tracker,
+		Redactor:         red,
 		Logger:           logger,
 		SourceDir:        o.sourceDir,
+		WorkspaceConfig:  o.workspaceConfig,
 		SummarizeRebound: cfg.SummarizeRebound,
 	}
 
 	registerTools(s.mcp, deps)
-	return s
+	return s, nil
 }
 
 func (s *Server) Run(ctx context.Context) error {

@@ -13,11 +13,12 @@ const maxFetchBatchIDs = 256
 
 type FetchBatchInput struct {
 	NodeIDs []string `json:"node_ids" jsonschema:"List of node IDs to fetch (max 256)"`
-	Budget  int      `json:"budget,omitempty" jsonschema:"Token budget shared across the batch (0 or omitted = unlimited)"`
+	Budget  int      `json:"budget,omitempty" jsonschema:"Token budget shared across the batch (0 or omitted = configured default, else unlimited)"`
 }
 
 func (d *Deps) HandleFetchBatch(ctx context.Context, _ *gomcp.CallToolRequest, input FetchBatchInput) (_ *gomcp.CallToolResult, _ any, err error) {
-	defer d.logCall("MemoryFetchBatch", &err, time.Now(), "ids", len(input.NodeIDs), "budget", input.Budget)
+	budget := resolveBudget(input.Budget, d.WorkspaceConfig.Budgets.FetchBatch, 0)
+	defer d.logCall("MemoryFetchBatch", &err, time.Now(), "ids", len(input.NodeIDs), "budget", budget)
 
 	if len(input.NodeIDs) == 0 {
 		return nil, nil, fmt.Errorf("node_ids must be non-empty")
@@ -26,7 +27,7 @@ func (d *Deps) HandleFetchBatch(ctx context.Context, _ *gomcp.CallToolRequest, i
 		return nil, nil, fmt.Errorf("node_ids length %d exceeds cap %d", len(input.NodeIDs), maxFetchBatchIDs)
 	}
 
-	result, missing, err := d.Engine.FetchBatch(ctx, input.NodeIDs, input.Budget)
+	result, missing, err := d.Engine.FetchBatch(ctx, input.NodeIDs, budget)
 	if err != nil {
 		return nil, nil, fmt.Errorf("failed to fetch batch: %w", err)
 	}
