@@ -6,6 +6,7 @@ import (
 	"testing"
 
 	"github.com/radimsem/remindb/internal/ignore"
+	"github.com/radimsem/remindb/pkg/config"
 )
 
 func writeFile(t *testing.T, dir, name, content string) {
@@ -27,7 +28,7 @@ func TestCopySourceTree_RespectsIgnore(t *testing.T) {
 	writeFile(t, src, "kept.md", "# Kept\n")
 	writeFile(t, src, "session.jsonl", `{"event":"chat"}`)
 	writeFile(t, src, "sessions/log.json", `{"id":1}`)
-	writeFile(t, src, ignore.FileName, "*.jsonl\nsessions/\n")
+	writeFile(t, src, ignore.Path, "*.jsonl\nsessions/\n")
 
 	matcher, err := ignore.Load(src)
 	if err != nil {
@@ -38,7 +39,7 @@ func TestCopySourceTree_RespectsIgnore(t *testing.T) {
 		t.Fatalf("copySourceTree: %v", err)
 	}
 
-	excluded := []string{"session.jsonl", "sessions/log.json", ignore.FileName}
+	excluded := []string{"session.jsonl", "sessions/log.json", config.DirName}
 	for _, rel := range excluded {
 		if _, err := os.Stat(filepath.Join(dst, rel)); !os.IsNotExist(err) {
 			t.Errorf("expected %s to be excluded from copy, but it exists (err=%v)", rel, err)

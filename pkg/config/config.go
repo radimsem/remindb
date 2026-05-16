@@ -1,0 +1,106 @@
+// Package config loads workspace-level remindb configuration from .remindb/config.json.
+package config
+
+import (
+	"encoding/json"
+	"errors"
+	"fmt"
+	"io"
+	"os"
+	"path/filepath"
+	"strings"
+	"time"
+)
+
+const (
+	DirName  = ".remindb"
+	FileName = "config.json"
+	Path     = DirName + "/" + FileName
+)
+
+type Config struct {
+	Redaction   RedactionConfig   `json:"redaction"`
+	Temperature TemperatureConfig `json:"temperature"`
+}
+
+type RedactionConfig struct{}
+
+type TemperatureConfig struct {
+	DecayRate        *float64  `json:"decay_rate,omitempty"`
+	AccessBoost      *float64  `json:"access_boost,omitempty"`
+	ColdThreshold    *float64  `json:"cold_threshold,omitempty"`
+	NotifyThreshold  *float64  `json:"notify_threshold,omitempty"`
+	SummarizeRebound *float64  `json:"summarize_rebound,omitempty"`
+	TickInterval     *Duration `json:"tick_interval,omitempty"`
+	ColdNotifyTTL    *Duration `json:"cold_notify_ttl,omitempty"`
+	ColdNotifyLimit  *int      `json:"cold_notify_limit,omitempty"`
+}
+
+type Duration time.Duration
+
+// Accept a duration string ("10m", "2h"); JSON has no native duration form.
+func (d *Duration) UnmarshalJSON(b []byte) error {
+	var s string
+	if err := json.Unmarshal(b, &s); err != nil {
+		return err
+	}
+
+	parsed, err := time.ParseDuration(s)
+	if err != nil {
+		return fmt.Errorf("invalid duration %q: %w", s, err)
+	}
+
+	*d = Duration(parsed)
+	return nil
+}
+
+// Read <workspace>/.remindb/config.json. Missing or empty → zero-value Config.
+func Load(workspace string) (Config, error) {
+	f, err := os.Open(filepath.Join(workspace, DirName, FileName))
+	if err != nil {
+		if errors.Is(err, os.ErrNotExist) {
+			return Config{}, nil
+		}
+		return Config{}, fmt.Errorf("failed to read: %s: %w", Path, err)
+	}
+	defer func() { _ = f.Close() }()
+
+	var cfg Config
+	dec := json.NewDecoder(f)
+	dec.DisallowUnknownFields()
+
+	if err := dec.Decode(&cfg); err != nil {
+		if errors.Is(err, io.EOF) {
+			return Config{}, nil
+		}
+
+		if key, ok := unknownFieldKey(err); ok {
+			return Config{}, fmt.Errorf("unknown key %q in %s", key, Path)
+		}
+		return Config{}, fmt.Errorf("failed to parse: %s: %w", Path, err)
+	}
+
+	if err := cfg.Validate(); err != nil {
+		return Config{}, fmt.Errorf("invalid %s: %w", Path, err)
+	}
+	return cfg, nil
+}
+
+func (c Config) Validate() error {
+	return nil
+}
+
+func unknownFieldKey(err error) (string, bool) {
+	const prefix = `json: unknown field "`
+
+	msg := err.Error()
+	if !strings.HasPrefix(msg, prefix) {
+		return "", false
+	}
+
+	key, _, found := strings.Cut(msg[len(prefix):], `"`)
+	if !found {
+		return "", false
+	}
+	return key, true
+}

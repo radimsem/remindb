@@ -15,6 +15,7 @@ import (
 	"github.com/radimsem/remindb/internal/ignore"
 	"github.com/radimsem/remindb/internal/redaction"
 	"github.com/radimsem/remindb/internal/tempfile"
+	"github.com/radimsem/remindb/pkg/config"
 	"github.com/radimsem/remindb/pkg/diff"
 	"github.com/radimsem/remindb/pkg/emitter"
 	"github.com/radimsem/remindb/pkg/parser"
@@ -197,7 +198,7 @@ func CompileDir(ctx context.Context, st *store.Store, dir, message string, opts 
 	if !o.ignoreSet {
 		m, err := ignore.Load(absDir)
 		if err != nil {
-			return nil, fmt.Errorf("failed to load: %s: %w", ignore.FileName, err)
+			return nil, fmt.Errorf("failed to load: %s: %w", ignore.Path, err)
 		}
 
 		matcher = m
@@ -213,18 +214,17 @@ func CompileDir(ctx context.Context, st *store.Store, dir, message string, opts 
 		rel = filepath.ToSlash(rel)
 
 		if d.IsDir() {
-			if path != absDir && fileext.ShouldSkipDir(d.Name()) {
+			name := d.Name()
+			if path != absDir && (fileext.ShouldSkipDir(name) || name == config.DirName) {
 				return filepath.SkipDir
 			}
+
 			if matcher.Match(rel, true) {
 				return filepath.SkipDir
 			}
 			return nil
 		}
 
-		if rel == ignore.FileName {
-			return nil
-		}
 		if !fileext.Supported(path) {
 			return nil
 		}
@@ -317,7 +317,7 @@ func CompileFile(ctx context.Context, st *store.Store, path, message string, opt
 func resolveTemps(dir string, paths []string) (map[string]*float64, error) {
 	resolver, err := tempfile.Load(dir)
 	if err != nil {
-		return nil, fmt.Errorf("failed to load: %s: %w", tempfile.FileName, err)
+		return nil, fmt.Errorf("failed to load: %s: %w", tempfile.Path, err)
 	}
 	if resolver == nil {
 		return nil, nil

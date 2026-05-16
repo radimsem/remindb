@@ -9,6 +9,7 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/radimsem/remindb/pkg/config"
 	remindb "github.com/radimsem/remindb/pkg/mcp"
 	"github.com/radimsem/remindb/pkg/store"
 	"github.com/radimsem/remindb/pkg/temperature"
@@ -62,7 +63,19 @@ func runServe(cmd *cobra.Command, _ []string) error {
 		return fmt.Errorf("failed to migrate: %w", err)
 	}
 
-	cfg := temperature.DefaultConfig()
+	var workspaceCfg config.Config
+	if sourceDir != "" {
+		workspaceCfg, err = config.Load(sourceDir)
+		if err != nil {
+			return fmt.Errorf("failed to load: workspace config: %w", err)
+		}
+	}
+
+	cfg := applyTemperatureOverrides(temperature.DefaultConfig(), workspaceCfg.Temperature)
+	if err := cfg.Validate(); err != nil {
+		return fmt.Errorf("invalid temperature config in %s: %w", config.Path, err)
+	}
+
 	tracker, err := temperature.NewTracker(st, cfg, logger)
 	if err != nil {
 		return err
@@ -73,6 +86,7 @@ func runServe(cmd *cobra.Command, _ []string) error {
 		remindb.WithLogger(logger),
 		remindb.WithTransport(transport),
 		remindb.WithListen(listen),
+		remindb.WithWorkspaceConfig(workspaceCfg),
 	)
 	if err != nil {
 		return fmt.Errorf("failed to build: server: %w", err)
@@ -123,6 +137,34 @@ func runServe(cmd *cobra.Command, _ []string) error {
 	logger.Info("serve: stopped")
 
 	return nil
+}
+
+func applyTemperatureOverrides(base temperature.Config, o config.TemperatureConfig) temperature.Config {
+	if o.DecayRate != nil {
+		base.DecayRate = *o.DecayRate
+	}
+	if o.AccessBoost != nil {
+		base.AccessBoost = *o.AccessBoost
+	}
+	if o.ColdThreshold != nil {
+		base.ColdThreshold = *o.ColdThreshold
+	}
+	if o.NotifyThreshold != nil {
+		base.NotifyThreshold = *o.NotifyThreshold
+	}
+	if o.SummarizeRebound != nil {
+		base.SummarizeRebound = *o.SummarizeRebound
+	}
+	if o.TickInterval != nil {
+		base.TickInterval = time.Duration(*o.TickInterval)
+	}
+	if o.ColdNotifyTTL != nil {
+		base.ColdNotifyTTL = time.Duration(*o.ColdNotifyTTL)
+	}
+	if o.ColdNotifyLimit != nil {
+		base.ColdNotifyLimit = *o.ColdNotifyLimit
+	}
+	return base
 }
 
 func newServeLogger(verbose bool) *slog.Logger {

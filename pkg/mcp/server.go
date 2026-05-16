@@ -8,6 +8,7 @@ import (
 
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 	"github.com/radimsem/remindb/internal/redaction"
+	"github.com/radimsem/remindb/pkg/config"
 	"github.com/radimsem/remindb/pkg/mcp/tools"
 	"github.com/radimsem/remindb/pkg/query"
 	"github.com/radimsem/remindb/pkg/relations"
@@ -35,11 +36,12 @@ type Server struct {
 type Option func(*options)
 
 type options struct {
-	sourceDir string
-	logger    *slog.Logger
-	transport string
-	listen    string
-	listener  net.Listener
+	sourceDir       string
+	logger          *slog.Logger
+	transport       string
+	listen          string
+	listener        net.Listener
+	workspaceConfig config.Config
 }
 
 func WithSourceDir(dir string) Option {
@@ -60,6 +62,10 @@ func WithListen(addr string) Option {
 
 func WithListener(l net.Listener) Option {
 	return func(o *options) { o.listener = l }
+}
+
+func WithWorkspaceConfig(c config.Config) Option {
+	return func(o *options) { o.workspaceConfig = c }
 }
 
 func NewServer(st *store.Store, tracker *temperature.Tracker, cfg temperature.Config, opts ...Option) (*Server, error) {
@@ -108,6 +114,7 @@ func NewServer(st *store.Store, tracker *temperature.Tracker, cfg temperature.Co
 		Redactor:         red,
 		Logger:           logger,
 		SourceDir:        o.sourceDir,
+		WorkspaceConfig:  o.workspaceConfig,
 		SummarizeRebound: cfg.SummarizeRebound,
 	}
 

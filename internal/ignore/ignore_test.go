@@ -4,11 +4,19 @@ import (
 	"os"
 	"path/filepath"
 	"testing"
+
+	"github.com/radimsem/remindb/pkg/config"
 )
 
 func writeIgnore(t *testing.T, dir, content string) {
 	t.Helper()
-	if err := os.WriteFile(filepath.Join(dir, FileName), []byte(content), 0o644); err != nil {
+
+	stateDir := filepath.Join(dir, config.DirName)
+	if err := os.MkdirAll(stateDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+
+	if err := os.WriteFile(filepath.Join(stateDir, FileName), []byte(content), 0o644); err != nil {
 		t.Fatal(err)
 	}
 }

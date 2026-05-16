@@ -1,0 +1,211 @@
+package config
+
+import (
+	"os"
+	"path/filepath"
+	"strings"
+	"testing"
+	"time"
+)
+
+func writeConfig(t *testing.T, workspace, content string) {
+	t.Helper()
+
+	dir := filepath.Join(workspace, DirName)
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+
+	if err := os.WriteFile(filepath.Join(dir, FileName), []byte(content), 0o644); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func TestLoad_MissingDir(t *testing.T) {
+	cfg, err := Load(t.TempDir())
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	if cfg != (Config{}) {
+		t.Errorf("expected zero-value Config, got %+v", cfg)
+	}
+}
+
+func TestLoad_MissingFile(t *testing.T) {
+	ws := t.TempDir()
+	if err := os.MkdirAll(filepath.Join(ws, DirName), 0o755); err != nil {
+		t.Fatal(err)
+	}
+
+	cfg, err := Load(ws)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if cfg != (Config{}) {
+		t.Errorf("expected zero-value Config, got %+v", cfg)
+	}
+}
+
+func TestLoad_EmptyFile(t *testing.T) {
+	ws := t.TempDir()
+	writeConfig(t, ws, "")
+
+	cfg, err := Load(ws)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if cfg != (Config{}) {
+		t.Errorf("expected zero-value Config, got %+v", cfg)
+	}
+}
+
+func TestLoad_EmptyObject(t *testing.T) {
+	ws := t.TempDir()
+	writeConfig(t, ws, "{}")
+
+	cfg, err := Load(ws)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if cfg != (Config{}) {
+		t.Errorf("expected zero-value Config, got %+v", cfg)
+	}
+}
+
+func TestLoad_EmptyRedactionBlock(t *testing.T) {
+	ws := t.TempDir()
+	writeConfig(t, ws, `{"redaction": {}}`)
+
+	if _, err := Load(ws); err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+}
+
+func TestLoad_MalformedJSON(t *testing.T) {
+	ws := t.TempDir()
+	writeConfig(t, ws, "{not json")
+
+	_, err := Load(ws)
+	if err == nil {
+		t.Fatal("expected parse error")
+	}
+	if !strings.Contains(err.Error(), "failed to parse") {
+		t.Errorf("expected 'failed to parse' prefix, got: %v", err)
+	}
+}
+
+func TestLoad_UnknownTopLevelKey(t *testing.T) {
+	ws := t.TempDir()
+	writeConfig(t, ws, `{"redact": {}}`)
+
+	_, err := Load(ws)
+	if err == nil {
+		t.Fatal("expected unknown-key error")
+	}
+
+	if !strings.Contains(err.Error(), `unknown key "redact"`) {
+		t.Errorf(`expected 'unknown key "redact"' in error, got: %v`, err)
+	}
+	if strings.Contains(err.Error(), "failed to parse") {
+		t.Errorf("unknown-key error should not carry 'failed to parse' prefix, got: %v", err)
+	}
+}
+
+func TestLoad_UnknownNestedKey(t *testing.T) {
+	ws := t.TempDir()
+	writeConfig(t, ws, `{"redaction": {"unknown": true}}`)
+
+	_, err := Load(ws)
+	if err == nil {
+		t.Fatal("expected unknown-key error")
+	}
+	if !strings.Contains(err.Error(), "unknown key") {
+		t.Errorf("expected 'unknown key' in error, got: %v", err)
+	}
+}
+
+func TestLoad_TemperatureBlock_AllFields(t *testing.T) {
+	ws := t.TempDir()
+	writeConfig(t, ws, `{
+		"temperature": {
+			"decay_rate": 0.03,
+			"access_boost": 0.2,
+			"cold_threshold": 0.08,
+			"notify_threshold": 0.07,
+			"summarize_rebound": 0.6,
+			"tick_interval": "10m",
+			"cold_notify_ttl": "2h",
+			"cold_notify_limit": 100
+		}
+	}`)
+
+	cfg, err := Load(ws)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	tc := cfg.Temperature
+	if tc.DecayRate == nil || *tc.DecayRate != 0.03 {
+		t.Errorf("DecayRate = %v, want 0.03", tc.DecayRate)
+	}
+	if tc.SummarizeRebound == nil || *tc.SummarizeRebound != 0.6 {
+		t.Errorf("SummarizeRebound = %v, want 0.6", tc.SummarizeRebound)
+	}
+	if tc.TickInterval == nil || time.Duration(*tc.TickInterval) != 10*time.Minute {
+		t.Errorf("TickInterval = %v, want 10m", tc.TickInterval)
+	}
+	if tc.ColdNotifyTTL == nil || time.Duration(*tc.ColdNotifyTTL) != 2*time.Hour {
+		t.Errorf("ColdNotifyTTL = %v, want 2h", tc.ColdNotifyTTL)
+	}
+	if tc.ColdNotifyLimit == nil || *tc.ColdNotifyLimit != 100 {
+		t.Errorf("ColdNotifyLimit = %v, want 100", tc.ColdNotifyLimit)
+	}
+}
+
+func TestLoad_TemperatureBlock_PartialLeavesRestNil(t *testing.T) {
+	ws := t.TempDir()
+	writeConfig(t, ws, `{"temperature": {"decay_rate": 0.01}}`)
+
+	cfg, err := Load(ws)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	tc := cfg.Temperature
+	if tc.DecayRate == nil || *tc.DecayRate != 0.01 {
+		t.Errorf("DecayRate = %v, want 0.01", tc.DecayRate)
+	}
+
+	if tc.AccessBoost != nil || tc.TickInterval != nil || tc.ColdNotifyLimit != nil {
+		t.Error("unset fields should remain nil")
+	}
+}
+
+func TestLoad_TemperatureBlock_UnknownNestedKeyRejected(t *testing.T) {
+	ws := t.TempDir()
+	writeConfig(t, ws, `{"temperature": {"decay_rat": 0.01}}`)
+
+	_, err := Load(ws)
+	if err == nil {
+		t.Fatal("expected unknown-key error for typo'd field")
+	}
+
+	if !strings.Contains(err.Error(), `unknown key "decay_rat"`) {
+		t.Errorf(`expected 'unknown key "decay_rat"', got: %v`, err)
+	}
+}
+
+func TestLoad_TemperatureBlock_BadDuration(t *testing.T) {
+	ws := t.TempDir()
+	writeConfig(t, ws, `{"temperature": {"tick_interval": "notaduration"}}`)
+
+	_, err := Load(ws)
+	if err == nil {
+		t.Fatal("expected parse error for malformed duration")
+	}
+
+	if !strings.Contains(err.Error(), "invalid duration") {
+		t.Errorf("expected 'invalid duration' in error, got: %v", err)
+	}
+}
