@@ -40,7 +40,7 @@ mkdir -p ~/.cache/remindb
 remindb compile ~/code/my-project --db ~/.cache/remindb/my-project.db
 ```
 
-Drop a `.remindb.ignore` at the workspace root if you need to exclude noise (build outputs, vendored deps, generated files). The same file is honored by `serve`'s background rescan and the `MemoryCompile` tool.
+Drop a `.remindb/ignore` at the workspace root if you need to exclude noise (build outputs, vendored deps, generated files). The same file is honored by `serve`'s background rescan and the `MemoryCompile` tool.
 
 ### 3. Configure opencode.json
 

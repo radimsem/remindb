@@ -36,10 +36,10 @@ remindb needs a SQLite file built from a source tree before the agent can read f
 
 A natural source for Claude Code is its own per-project memory at `~/.claude/projects/<project>/memory/` — those markdown files Claude has been quietly accumulating about each repo it works in. Indexing them across all projects lets Claude query its own persistent memory through remindb instead of grepping the dot folder.
 
-`~/.claude/projects/<project>/` sits next to a few other artifacts that don't belong in long-term memory: session-log `.jsonl` files, plus `subagents/` and `tool-results/` subtrees under each session UUID directory. Drop a `.remindb.ignore` at `~/.claude/projects/` to filter them out, so the only thing the compiler ingests is `memory/*.md` per project:
+`~/.claude/projects/<project>/` sits next to a few other artifacts that don't belong in long-term memory: session-log `.jsonl` files, plus `subagents/` and `tool-results/` subtrees under each session UUID directory. Drop a `.remindb/ignore` at `~/.claude/projects/` to filter them out, so the only thing the compiler ingests is `memory/*.md` per project:
 
 ```bash
-mkdir -p ~/.cache/remindb
+mkdir -p ~/.cache/remindb ~/.claude/projects/.remindb
 printf '%s\n' \
     '# Compile only per-project memory/ markdown; skip the surrounding telemetry.' \
     '' \
@@ -49,11 +49,11 @@ printf '%s\n' \
     'subagents/' \
     '# Per-session tool outputs (any depth).' \
     'tool-results/' \
-    > ~/.claude/projects/.remindb.ignore
+    > ~/.claude/projects/.remindb/ignore
 remindb compile ~/.claude/projects --db ~/.cache/remindb/claude.db
 ```
 
-The same `.remindb.ignore` is honored by `serve`'s background rescan and the `MemoryCompile` tool — set it once, all paths agree. If Claude Code adds a new sibling-of-`memory/` artifact in some future release, append it to the file and recompile. Or point at any other workspace you want the agent to see — a docs tree, a notes repo, a project directory. Re-run `compile` whenever you want a fresh baseline; `serve` keeps the DB current after that.
+The same `.remindb/ignore` is honored by `serve`'s background rescan and the `MemoryCompile` tool — set it once, all paths agree. If Claude Code adds a new sibling-of-`memory/` artifact in some future release, append it to the file and recompile. Or point at any other workspace you want the agent to see — a docs tree, a notes repo, a project directory. Re-run `compile` whenever you want a fresh baseline; `serve` keeps the DB current after that.
 
 ### 3. Point remindb at your workspace
 
