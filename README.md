@@ -207,6 +207,11 @@ A single JSON object of feature blocks. Unknown top-level or nested keys are rej
 
 ```json
 {
+  "compile": {
+    "max_file_size": "2GB",
+    "max_parallelism": 4,
+    "wall_clock_timeout": "10m"
+  },
   "temperature": {
     "decay_rate": 0.03,
     "access_boost": 0.2,
@@ -230,7 +235,9 @@ The `temperature` block overrides the decay/boost policy engine-wide (distinct f
 
 The `redaction` block configures the secret-scrubber applied on ingest by both `compile` and `serve`. Both fields are optional. By default every built-in detector is active; `disable_builtin_kinds` mutes the kinds you list (the rest stay on — omit the key to keep all defaults; see the kind list in `internal/redaction/patterns.go`). `custom` *adds* your own `{ "kind", "pattern" }` regexes on top. An unknown kind in `disable_builtin_kinds` or an invalid custom regex fails startup with the offending name reported.
 
-Reserved for future releases, each its own issue when the feature lands: `server`, `logging`, `compile`, `snapshots`, `budgets`.
+The `compile` block bounds the ingest pipeline for both `compile` and the `serve` rescan loop (and the `MemoryCompile` tool, so a client-triggered compile behaves identically to the CLI). Every field is optional — absent → current behavior (unbounded file size, `GOMAXPROCS` parallelism, no deadline). `max_file_size` accepts a size string (`"2GB"`, `"500MB"`, or a bare byte count like `"1048576"`; units are 1024-based) — a file over the limit is **skipped with a `Warn` log naming the path**, never an error, so the rest of the tree still compiles. `max_parallelism` caps the per-file worker pool (default: `GOMAXPROCS`). `wall_clock_timeout` is a string duration (`"10m"`) that aborts a runaway compile with a clear error; because emission is transactional, a timeout commits **no partial state**. Out-of-range values (`max_file_size ≤ 0`, `max_parallelism < 1`, negative `wall_clock_timeout`) fail at startup with the offending field named.
+
+Reserved for future releases, each its own issue when the feature lands: `server`, `logging`, `snapshots`, `budgets`.
 
 #### Filtering with `.remindb/ignore`
 

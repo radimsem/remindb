@@ -264,3 +264,90 @@ func TestLoad_RedactionBlock_UnknownNestedKeyRejected(t *testing.T) {
 		t.Errorf(`expected 'unknown key "disabel_builtin_kinds"', got: %v`, err)
 	}
 }
+
+func TestParseByteSize(t *testing.T) {
+	ok := map[string]int64{
+		"1024":  1024,
+		"512B":  512,
+		"2KB":   2 << 10,
+		"1.5KB": 1536,
+		"500MB": 500 << 20,
+		"2GB":   2 << 30,
+		"1GiB":  1 << 30,
+		" 4MB ": 4 << 20,
+		"3 mb":  3 << 20,
+	}
+
+	for in, want := range ok {
+		got, err := parseByteSize(in)
+		if err != nil {
+			t.Errorf("parseByteSize(%q): unexpected error %v", in, err)
+			continue
+		}
+		if got != want {
+			t.Errorf("parseByteSize(%q) = %d, want %d", in, got, want)
+		}
+	}
+
+	for _, in := range []string{"", "abc", "-5MB", "MB"} {
+		if _, err := parseByteSize(in); err == nil {
+			t.Errorf("parseByteSize(%q): expected error, got nil", in)
+		}
+	}
+}
+
+func TestLoad_CompileBlock(t *testing.T) {
+	ws := t.TempDir()
+	writeConfig(t, ws, `{"compile": {"max_file_size": "2GB", "max_parallelism": 4, "wall_clock_timeout": "30s"}}`)
+
+	cfg, err := Load(ws)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	cc := cfg.Compile
+	if cc.MaxFileSize == nil || int64(*cc.MaxFileSize) != 2<<30 {
+		t.Errorf("max_file_size = %v, want 2GiB", cc.MaxFileSize)
+	}
+	if cc.MaxParallelism == nil || *cc.MaxParallelism != 4 {
+		t.Errorf("max_parallelism = %v, want 4", cc.MaxParallelism)
+	}
+	if cc.WallClockTimeout == nil || time.Duration(*cc.WallClockTimeout) != 30*time.Second {
+		t.Errorf("wall_clock_timeout = %v, want 30s", cc.WallClockTimeout)
+	}
+}
+
+func TestLoad_CompileBlock_AbsentLeavesZero(t *testing.T) {
+	ws := t.TempDir()
+	writeConfig(t, ws, `{"temperature": {"decay_rate": 0.01}}`)
+
+	cfg, err := Load(ws)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	if cfg.Compile != (CompileConfig{}) {
+		t.Errorf("absent compile block should leave zero value, got %+v", cfg.Compile)
+	}
+}
+
+func TestValidate_CompileBlock(t *testing.T) {
+	zero := ByteSize(0)
+	zeroPar := 0
+	negTimeout := Duration(-time.Second)
+
+	bad := []Config{
+		{Compile: CompileConfig{MaxFileSize: &zero}},
+		{Compile: CompileConfig{MaxParallelism: &zeroPar}},
+		{Compile: CompileConfig{WallClockTimeout: &negTimeout}},
+	}
+	for i, c := range bad {
+		if err := c.Validate(); err == nil {
+			t.Errorf("case %d: expected validation error, got nil", i)
+		}
+	}
+
+	if err := (Config{}).Validate(); err != nil {
+		t.Errorf("zero-value Config should validate, got %v", err)
+	}
+}

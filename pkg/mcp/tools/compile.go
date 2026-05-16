@@ -40,6 +40,7 @@ func (d *Deps) HandleCompile(ctx context.Context, _ *gomcp.CallToolRequest, inpu
 	}
 
 	opts := []compiler.Option{compiler.WithLogger(d.Logger), compiler.WithRedactor(d.Redactor)}
+	opts = append(opts, compiler.ConfigOptions(d.WorkspaceConfig.Compile)...)
 
 	var result *compiler.Result
 	if fi.IsDir() {

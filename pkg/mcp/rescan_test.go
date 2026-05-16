@@ -15,12 +15,13 @@ import (
 	"github.com/radimsem/remindb/internal/ignore"
 	"github.com/radimsem/remindb/internal/testutil"
 	"github.com/radimsem/remindb/pkg/compiler"
+	"github.com/radimsem/remindb/pkg/config"
 	"github.com/radimsem/remindb/pkg/store"
 )
 
 func mustRescan(t *testing.T, st *store.Store, dir string, interval time.Duration, logger *slog.Logger) *RescanLoop {
 	t.Helper()
-	r, err := NewRescanLoop(st, dir, interval, logger)
+	r, err := NewRescanLoop(st, dir, interval, config.CompileConfig{}, logger)
 
 	if err != nil {
 		t.Fatalf("NewRescanLoop: %v", err)
@@ -440,7 +441,7 @@ func TestNewRescanLoop_FailsOnMalformedIgnore(t *testing.T) {
 	writeFile(t, dir, ignore.Path, "a//b\n")
 
 	st := testutil.OpenTestDB(t)
-	_, err := NewRescanLoop(st, dir, time.Minute, nil)
+	_, err := NewRescanLoop(st, dir, time.Minute, config.CompileConfig{}, nil)
 	if err == nil {
 		t.Fatal("expected error for malformed ignore file")
 	}

@@ -81,6 +81,7 @@ func runCompile(cmd *cobra.Command, args []string) error {
 	}
 
 	baseOpts := []compiler.Option{compiler.WithRedactor(red)}
+	baseOpts = append(baseOpts, compiler.ConfigOptions(workspaceCfg.Compile)...)
 
 	var result *compiler.Result
 	if fi.IsDir() {

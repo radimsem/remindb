@@ -1,13 +1,16 @@
 package compiler
 
 import (
+	"bytes"
 	"context"
 	"errors"
 	"fmt"
+	"log/slog"
 	"os"
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/radimsem/remindb/internal/ignore"
 	"github.com/radimsem/remindb/internal/tempfile"
@@ -888,5 +891,121 @@ func TestCompile_WikilinkPendingResolvesOnLaterCompile(t *testing.T) {
 	}
 	if related[0].Node.SourceFile != "b.md" {
 		t.Errorf("source_file = %q, want b.md", related[0].Node.SourceFile)
+	}
+}
+
+func TestCompile_SkipsOversizeFile(t *testing.T) {
+	st := testutil.OpenTestDB(t)
+	ctx := context.Background()
+	dir := t.TempDir()
+
+	small := writeFile(t, dir, "small.md", "# Small\n\ntiny.\n")
+	big := writeFile(t, dir, "big.md", "# Big\n\n"+strings.Repeat("padding ", 2000))
+
+	var logs bytes.Buffer
+	logger := slog.New(slog.NewTextHandler(&logs, &slog.HandlerOptions{Level: slog.LevelWarn}))
+
+	result, err := Compile(ctx, st,
+		WithPaths([]string{small, big}),
+		WithMessage("initial"),
+		WithMaxFileSize(64),
+		WithLogger(logger),
+	)
+	if err != nil {
+		t.Fatalf("Compile: %v", err)
+	}
+	if result.Added == 0 {
+		t.Fatal("expected the small file to compile")
+	}
+
+	out := logs.String()
+	if !strings.Contains(out, "skipping oversize file") || !strings.Contains(out, big) {
+		t.Errorf("expected oversize warn naming %s, got: %s", big, out)
+	}
+
+	nodes, err := st.GetNodesByFiles(ctx, []string{big})
+	if err != nil {
+		t.Fatalf("GetNodesByFiles: %v", err)
+	}
+	if len(nodes) != 0 {
+		t.Errorf("oversize file produced %d nodes, want 0", len(nodes))
+	}
+}
+
+func TestCompile_WallClockTimeout(t *testing.T) {
+	st := testutil.OpenTestDB(t)
+	ctx := context.Background()
+	dir := t.TempDir()
+
+	p := writeFile(t, dir, "doc.md", "# Doc\n\nbody\n")
+
+	_, err := Compile(ctx, st,
+		WithPaths([]string{p}),
+		WithMessage("initial"),
+		WithWallClockTimeout(time.Nanosecond),
+	)
+	if err == nil {
+		t.Fatal("expected timeout error")
+	}
+	if !errors.Is(err, context.DeadlineExceeded) {
+		t.Fatalf("expected DeadlineExceeded, got %v", err)
+	}
+	if !strings.Contains(err.Error(), "wall-clock timeout") {
+		t.Errorf("expected wall-clock timeout message, got %v", err)
+	}
+
+	snaps, _ := st.ListSnapshots(ctx, 10)
+	if len(snaps) != 0 {
+		t.Errorf("snapshots = %d, want 0 (timeout must not commit partial state)", len(snaps))
+	}
+}
+
+func TestCompile_MaxParallelismOne(t *testing.T) {
+	st := testutil.OpenTestDB(t)
+	ctx := context.Background()
+	dir := t.TempDir()
+
+	paths := make([]string, 5)
+	for i := range paths {
+		name := fmt.Sprintf("doc%d.md", i)
+		paths[i] = writeFile(t, dir, name, fmt.Sprintf("# Doc %d\n\nbody %d\n", i, i))
+	}
+
+	result, err := Compile(ctx, st,
+		WithPaths(paths),
+		WithMessage("initial"),
+		WithMaxParallelism(1),
+	)
+	if err != nil {
+		t.Fatalf("Compile: %v", err)
+	}
+	if result.Added == 0 {
+		t.Error("expected nodes added with serial compile")
+	}
+}
+
+func TestConfigOptions_MapsCompileBlock(t *testing.T) {
+	mb := config.ByteSize(2 << 20)
+	par := 3
+	to := config.Duration(45 * time.Second)
+	cc := config.CompileConfig{MaxFileSize: &mb, MaxParallelism: &par, WallClockTimeout: &to}
+
+	var o options
+	for _, opt := range ConfigOptions(cc) {
+		opt(&o)
+	}
+
+	if o.maxFileSize != 2<<20 {
+		t.Errorf("maxFileSize = %d, want %d", o.maxFileSize, 2<<20)
+	}
+	if o.maxParallel != 3 {
+		t.Errorf("maxParallel = %d, want 3", o.maxParallel)
+	}
+	if o.timeout != 45*time.Second {
+		t.Errorf("timeout = %s, want 45s", o.timeout)
+	}
+
+	if got := ConfigOptions(config.CompileConfig{}); len(got) != 0 {
+		t.Errorf("empty config produced %d options, want 0", len(got))
 	}
 }
