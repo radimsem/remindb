@@ -220,7 +220,7 @@ and MemoryFetch on the top hit. Explain what you learned and which files it came
 
 ## Benchmarks
 
-Token counts are measured against the naive baseline an agent falls back to without a memory layer: list the directory, read every matching file, grep through it. Numbers come from `./scripts/bench-agents.sh` over the five plugin fixtures in `testdata/`, plus a one-off compile of a real Obsidian vault (~100 markdown files across AI concepts, market briefs, security notes, and MOCs — ~600k naive tokens end-to-end).
+Token counts are measured against the naive baseline an agent falls back to without a memory layer: list the directory, read every matching file, grep through it. Numbers come from `./scripts/bench-agents.sh` over the five plugin fixtures in `testdata/`, plus a one-off compile of a real Obsidian vault (~450 markdown files across AI concepts, market briefs, security notes, and MOCs — ~3.3M naive tokens end-to-end).
 
 The scenario suite (tree · 3 searches · fetch · delta) rolls up into three workflow categories:
 
@@ -229,7 +229,7 @@ The scenario suite (tree · 3 searches · fetch · delta) rolls up into three wo
 - **total session** — sum of both.
 
 > [!NOTE]
-> **Corpus size moves the numbers in remindb's favour.** The plugin fixtures are ~3k–20k tokens each; the vault is ~600k. As the corpus grows, the naive baseline scales linearly (more files to list, more bytes to grep, more prose to re-read), while remindb's answers stay bounded by the token budget you pass. That's why the vault's context-gathering row hits **99.3%** — every search still returns ~800 tokens, but the baseline is now 15–20× larger.
+> **Corpus size moves the numbers in remindb's favour.** The plugin fixtures are ~3k–20k tokens each; the vault is ~3.3M. As the corpus grows, the naive baseline scales linearly (more files to list, more bytes to grep, more prose to re-read), while remindb's answers stay bounded by the token budget you pass. That's why the vault's context-gathering row hits **99.8%** — every search still returns ~1k tokens, but the baseline is now ~100× larger.
 >
 > The scenario list is also intentionally short. A real 30-minute agent session does dozens of orient/search/fetch/write/re-orient cycles, and the same search often fires three or four times as the agent loops on a problem. Each of those calls compounds toward **90%+ full-session savings** on realistic corpora.
 
@@ -237,7 +237,7 @@ The scenario suite (tree · 3 searches · fetch · delta) rolls up into three wo
   <img src="assets/bench.svg" alt="remindb token savings by scenario category" width="100%" />
 </p>
 
-<sub>The `obsidian vault` row is a real vault: ~100 markdown files, ~600k naive tokens.</sub>
+<sub>The `obsidian vault` row is a real vault: ~450 markdown files, ~3.3M naive tokens.</sub>
 
 Reproduce the table yourself:
 
