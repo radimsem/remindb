@@ -169,7 +169,6 @@ func copySourceTree(src, dst string, matcher *ignore.Matcher) error {
 	})
 }
 
-// Update every source file row so the staged DB matches the staged source directory.
 func rewriteSourcePaths(ctx context.Context, dbPath, userDir, stagedDir string) error {
 	st, err := store.Open(dbPath)
 	if err != nil {
@@ -179,6 +178,9 @@ func rewriteSourcePaths(ctx context.Context, dbPath, userDir, stagedDir string) 
 
 	if err := st.ExecRewriteSourcePaths(ctx, userDir, stagedDir); err != nil {
 		return fmt.Errorf("failed to rewrite: source paths: %w", err)
+	}
+	if err := st.ExecRewriteCompileRoots(ctx, userDir, stagedDir); err != nil {
+		return fmt.Errorf("failed to rewrite: compile roots: %w", err)
 	}
 	return nil
 }
