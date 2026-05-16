@@ -4,7 +4,22 @@ import (
 	"os"
 	"path/filepath"
 	"testing"
+
+	"github.com/radimsem/remindb/pkg/config"
 )
+
+func writeTempfile(t *testing.T, dir string, data []byte) {
+	t.Helper()
+
+	stateDir := filepath.Join(dir, config.DirName)
+	if err := os.MkdirAll(stateDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+
+	if err := os.WriteFile(filepath.Join(stateDir, FileName), data, 0o644); err != nil {
+		t.Fatal(err)
+	}
+}
 
 func TestResolve(t *testing.T) {
 	dir := t.TempDir()
@@ -24,9 +39,7 @@ func TestResolve(t *testing.T) {
 			"internal": 0.4
 		}
 	}`)
-	if err := os.WriteFile(filepath.Join(dir, FileName), data, 0o644); err != nil {
-		t.Fatal(err)
-	}
+	writeTempfile(t, dir, data)
 
 	r, err := Load(dir)
 	if err != nil {
@@ -67,9 +80,7 @@ func TestResolve_NoGlob(t *testing.T) {
 	dir := t.TempDir()
 
 	data := []byte(`{"README.md": 0.9}`)
-	if err := os.WriteFile(filepath.Join(dir, FileName), data, 0o644); err != nil {
-		t.Fatal(err)
-	}
+	writeTempfile(t, dir, data)
 
 	r, err := Load(dir)
 	if err != nil {
@@ -107,9 +118,7 @@ func TestLoad_MissingFile(t *testing.T) {
 
 func TestLoad_InvalidJson(t *testing.T) {
 	dir := t.TempDir()
-	if err := os.WriteFile(filepath.Join(dir, FileName), []byte(`{not json`), 0o644); err != nil {
-		t.Fatal(err)
-	}
+	writeTempfile(t, dir, []byte(`{not json`))
 
 	_, err := Load(dir)
 	if err == nil {
@@ -119,9 +128,7 @@ func TestLoad_InvalidJson(t *testing.T) {
 
 func TestLoad_OutOfRange(t *testing.T) {
 	dir := t.TempDir()
-	if err := os.WriteFile(filepath.Join(dir, FileName), []byte(`{"x": 1.5}`), 0o644); err != nil {
-		t.Fatal(err)
-	}
+	writeTempfile(t, dir, []byte(`{"x": 1.5}`))
 
 	_, err := Load(dir)
 	if err == nil {
@@ -129,9 +136,7 @@ func TestLoad_OutOfRange(t *testing.T) {
 	}
 
 	dir2 := t.TempDir()
-	if err := os.WriteFile(filepath.Join(dir2, FileName), []byte(`{"x": -0.1}`), 0o644); err != nil {
-		t.Fatal(err)
-	}
+	writeTempfile(t, dir2, []byte(`{"x": -0.1}`))
 
 	_, err = Load(dir2)
 	if err == nil {
@@ -141,9 +146,7 @@ func TestLoad_OutOfRange(t *testing.T) {
 
 func TestLoad_InvalidType(t *testing.T) {
 	dir := t.TempDir()
-	if err := os.WriteFile(filepath.Join(dir, FileName), []byte(`{"x": "hot"}`), 0o644); err != nil {
-		t.Fatal(err)
-	}
+	writeTempfile(t, dir, []byte(`{"x": "hot"}`))
 
 	_, err := Load(dir)
 	if err == nil {
@@ -153,9 +156,7 @@ func TestLoad_InvalidType(t *testing.T) {
 
 func TestResolve_EmptyObject(t *testing.T) {
 	dir := t.TempDir()
-	if err := os.WriteFile(filepath.Join(dir, FileName), []byte(`{}`), 0o644); err != nil {
-		t.Fatal(err)
-	}
+	writeTempfile(t, dir, []byte(`{}`))
 
 	r, err := Load(dir)
 	if err != nil {
@@ -176,9 +177,7 @@ func TestResolve_FlatSlashKey(t *testing.T) {
 		"src/api/deprecated.json": 0.1,
 		"docs/architecture.md": 0.85
 	}`)
-	if err := os.WriteFile(filepath.Join(dir, FileName), data, 0o644); err != nil {
-		t.Fatal(err)
-	}
+	writeTempfile(t, dir, data)
 
 	r, err := Load(dir)
 	if err != nil {
@@ -217,9 +216,7 @@ func TestResolve_SlashKeyWithGlob(t *testing.T) {
 		"src/api/*": 0.7,
 		"src/api/routes.yaml": 0.95
 	}`)
-	if err := os.WriteFile(filepath.Join(dir, FileName), data, 0o644); err != nil {
-		t.Fatal(err)
-	}
+	writeTempfile(t, dir, data)
 
 	r, err := Load(dir)
 	if err != nil {
@@ -260,9 +257,7 @@ func TestResolve_MixedSlashAndNested(t *testing.T) {
 			"internal": 0.4
 		}
 	}`)
-	if err := os.WriteFile(filepath.Join(dir, FileName), data, 0o644); err != nil {
-		t.Fatal(err)
-	}
+	writeTempfile(t, dir, data)
 
 	r, err := Load(dir)
 	if err != nil {
@@ -317,9 +312,7 @@ func TestLoad_ConflictingTemps(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			dir := t.TempDir()
-			if err := os.WriteFile(filepath.Join(dir, FileName), []byte(tt.json), 0o644); err != nil {
-				t.Fatal(err)
-			}
+			writeTempfile(t, dir, []byte(tt.json))
 			if _, err := Load(dir); err == nil {
 				t.Fatal("expected error for conflicting temperatures")
 			}
@@ -335,9 +328,7 @@ func TestResolve_NormalizedKeys(t *testing.T) {
 		"src/api/": 0.7,
 		"docs/": 0.4
 	}`)
-	if err := os.WriteFile(filepath.Join(dir, FileName), data, 0o644); err != nil {
-		t.Fatal(err)
-	}
+	writeTempfile(t, dir, data)
 
 	r, err := Load(dir)
 	if err != nil {
@@ -381,9 +372,7 @@ func TestLoad_InvalidSegment(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			dir := t.TempDir()
-			if err := os.WriteFile(filepath.Join(dir, FileName), []byte(tt.json), 0o644); err != nil {
-				t.Fatal(err)
-			}
+			writeTempfile(t, dir, []byte(tt.json))
 			if _, err := Load(dir); err == nil {
 				t.Fatal("expected error for invalid segment")
 			}

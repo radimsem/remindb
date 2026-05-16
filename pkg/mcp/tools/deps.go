@@ -7,6 +7,7 @@ import (
 	"unicode/utf8"
 
 	"github.com/radimsem/remindb/internal/redaction"
+	"github.com/radimsem/remindb/pkg/config"
 	"github.com/radimsem/remindb/pkg/diff"
 	"github.com/radimsem/remindb/pkg/emitter"
 	"github.com/radimsem/remindb/pkg/parser"
@@ -24,6 +25,7 @@ type Deps struct {
 	Redactor         *redaction.Redactor
 	Logger           *slog.Logger
 	SourceDir        string
+	WorkspaceConfig  config.Config
 	SummarizeRebound float64
 }
 

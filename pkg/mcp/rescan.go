@@ -13,6 +13,7 @@ import (
 	"github.com/radimsem/remindb/internal/fileext"
 	"github.com/radimsem/remindb/internal/ignore"
 	"github.com/radimsem/remindb/pkg/compiler"
+	"github.com/radimsem/remindb/pkg/config"
 	"github.com/radimsem/remindb/pkg/diff"
 	"github.com/radimsem/remindb/pkg/emitter"
 	"github.com/radimsem/remindb/pkg/parser"
@@ -46,7 +47,7 @@ func NewRescanLoop(st *store.Store, dir string, interval time.Duration, logger *
 
 	matcher, err := ignore.Load(dir)
 	if err != nil {
-		return nil, fmt.Errorf("failed to load: %s: %w", ignore.FileName, err)
+		return nil, fmt.Errorf("failed to load: %s: %w", ignore.Path, err)
 	}
 
 	return &RescanLoop{
@@ -95,18 +96,17 @@ func (r *RescanLoop) scan(ctx context.Context) {
 		rel = filepath.ToSlash(rel)
 
 		if d.IsDir() {
-			if path != r.dir && fileext.ShouldSkipDir(d.Name()) {
+			name := d.Name()
+			if path != r.dir && (fileext.ShouldSkipDir(name) || name == config.DirName) {
 				return filepath.SkipDir
 			}
+
 			if r.ignore.Match(rel, true) {
 				return filepath.SkipDir
 			}
 			return nil
 		}
 
-		if rel == ignore.FileName {
-			return nil
-		}
 		if !fileext.Supported(path) {
 			return nil
 		}

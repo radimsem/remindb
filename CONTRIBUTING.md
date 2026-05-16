@@ -211,7 +211,7 @@ If you want to start small, these are good entry points that don't require deep 
 - A new test fixture under `testdata/` covering a parser edge case.
 - An improvement to a skill description in `.claude/skills/*/SKILL.md` for clarity or trigger reliability.
 - A new bench scenario in [`internal/bench/scenarios.go`](./internal/bench/scenarios.go) using the `add-bench-scenario` skill.
-- A new `.remindb.ignore` test case.
+- A new `.remindb/ignore` test case.
 - Fixing an error message that wasn't actionable.
 
 For larger first contributions, open an issue first and we can scope something together.

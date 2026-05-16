@@ -180,21 +180,56 @@ One-shot ingestion of a file or directory. Creates a new snapshot and records di
 remindb compile ./notes # → ./notes.db
 remindb compile ./notes --db memory.db -m "add Q2 notes"
 remindb compile ./docs/architecture.md --db project.db
-remindb compile ./notes --reseed-temperatures # force .temp.json values onto unchanged nodes
+remindb compile ./notes --reseed-temperatures # force .remindb/temperatures.json values onto unchanged nodes
 ```
 
 | Flag | Purpose |
 |------|---------|
 | `--db PATH` | Target database. Default: derived from the source directory name, else `memory.db`. |
 | `-m, --message` | Snapshot message (defaults to `compile:<path>`). |
-| `--reseed-temperatures` | Push `.temp.json` values through to nodes whose source files didn't change on disk. Directory compiles only; no new snapshot. See [Pre-seeding temperatures with `.temp.json`](#pre-seeding-temperatures-with-tempjson). |
+| `--reseed-temperatures` | Push `.remindb/temperatures.json` values through to nodes whose source files didn't change on disk. Directory compiles only; no new snapshot. See [Pre-seeding temperatures with `.remindb/temperatures.json`](#pre-seeding-temperatures-with-remindbtemperaturesjson). |
 
-#### Filtering with `.remindb.ignore`
+#### Workspace state under `.remindb/`
 
-Drop a `.remindb.ignore` at the source root to exclude paths from `compile`, the `serve` rescan loop, the `MemoryCompile` tool, and `bench`. Gitignore-style subset — patterns, comments, blank lines.
+remindb keeps its workspace-level state in a `.remindb/` directory at the source root. Three files live there today:
+
+| File | Purpose |
+|------|---------|
+| `.remindb/config.json` | Runtime configuration (knobs and feature blocks). |
+| `.remindb/ignore` | Gitignore-style exclude patterns. |
+| `.remindb/temperatures.json` | Per-path initial-temperature overrides. |
+
+All three are optional; missing → defaults. The whole directory is skipped during source walks so its contents never end up as memory nodes.
+
+#### Runtime config: `.remindb/config.json`
+
+A single JSON object of feature blocks. Unknown top-level or nested keys are rejected at startup (catches typos like `"redact"` vs `"redaction"` before they silently no-op). Missing file or empty `{}` → all defaults.
+
+```json
+{
+  "temperature": {
+    "decay_rate": 0.03,
+    "access_boost": 0.2,
+    "cold_threshold": 0.08,
+    "notify_threshold": 0.07,
+    "summarize_rebound": 0.6,
+    "tick_interval": "10m",
+    "cold_notify_ttl": "2h",
+    "cold_notify_limit": 100
+  }
+}
+```
+
+The `temperature` block overrides the decay/boost policy engine-wide (distinct from `.remindb/temperatures.json`, which sets *per-path initial* temperatures). Every field is optional — only the keys you specify override the default; the rest keep the engine baseline. Durations are strings (`"10m"`, `"2h"`). Out-of-range values (e.g. a `decay_rate` below 0, a threshold outside `[0, 1]`) fail `serve` at startup with the offending field named. Read by `serve`; `compile` validates the file but does not apply temperature policy (it has no running tracker).
+
+Reserved for future releases, each its own issue when the feature lands: `redaction`, `server`, `logging`, `compile`, `snapshots`, `budgets`.
+
+#### Filtering with `.remindb/ignore`
+
+Drop a `.remindb/ignore` at the source root to exclude paths from `compile`, the `serve` rescan loop, the `MemoryCompile` tool, and `bench`. Gitignore-style subset — patterns, comments, blank lines.
 
 ```
-# .remindb.ignore
+# .remindb/ignore
 *.jsonl              # session logs are large and unhelpful
 sessions/            # any directory called sessions, at any depth
 **/cache/**          # nested cache trees
@@ -206,9 +241,9 @@ file[abc].md         # [abc] matches one char from the set
 \!literal.md         # backslash escapes a leading ! or #
 ```
 
-#### Pre-seeding temperatures with `.temp.json`
+#### Pre-seeding temperatures with `.remindb/temperatures.json`
 
-Drop a `.temp.json` at the source root to set initial temperatures for files at compile time. JSON object, values are floats in `[0, 1]`. Read on `compile`, the `serve` rescan loop, and the `MemoryCompile` tool.
+Drop a `.remindb/temperatures.json` at the source root to set initial temperatures for files at compile time. JSON object, values are floats in `[0, 1]`. Read on `compile`, the `serve` rescan loop, and the `MemoryCompile` tool.
 
 ```json
 {
@@ -232,7 +267,7 @@ Two keys that resolve to the same leaf with disagreeing values fail at load time
 
 Supported: numbers in `[0, 1]`, nested objects, slash-keys, `*` glob at any level, leading `./` and trailing `/` (both normalized). Anything else — out-of-range numbers, string values, leading `/`, `..` segments, empty segments from `//` — fails the command at startup with the offending key named.
 
-By default, edits to `.temp.json` reach only the nodes whose source files also changed in the same compile — agent activity (`MemoryFetch` boosts, the decay tick) shouldn't be wiped silently every time the workspace is recompiled. Pass `remindb compile <dir> --reseed-temperatures` when you mean it: the flag overrides stored temperatures for every node whose source file is keyed in `.temp.json`, regardless of whether its content changed. The reseed pass is a temperature update, not a content change, so it does not create a new snapshot. The flag only applies to directory compiles (`compile <dir>`); single-file compiles ignore it, and the `MemoryCompile` MCP tool does not expose it (agents cannot use it to overwrite their own temperature signal).
+By default, edits to `.remindb/temperatures.json` reach only the nodes whose source files also changed in the same compile — agent activity (`MemoryFetch` boosts, the decay tick) shouldn't be wiped silently every time the workspace is recompiled. Pass `remindb compile <dir> --reseed-temperatures` when you mean it: the flag overrides stored temperatures for every node whose source file is keyed in `.remindb/temperatures.json`, regardless of whether its content changed. The reseed pass is a temperature update, not a content change, so it does not create a new snapshot. The flag only applies to directory compiles (`compile <dir>`); single-file compiles ignore it, and the `MemoryCompile` MCP tool does not expose it (agents cannot use it to overwrite their own temperature signal).
 
 ### `serve`
 

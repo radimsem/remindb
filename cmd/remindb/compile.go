@@ -4,10 +4,12 @@ import (
 	"context"
 	"fmt"
 	"os"
+	"path/filepath"
 	"slices"
 
 	"github.com/radimsem/remindb/internal/redaction"
 	"github.com/radimsem/remindb/pkg/compiler"
+	"github.com/radimsem/remindb/pkg/config"
 	"github.com/radimsem/remindb/pkg/store"
 	"github.com/spf13/cobra"
 )
@@ -26,7 +28,7 @@ var compileCmd = &cobra.Command{
 
 func init() {
 	compileCmd.Flags().StringVarP(&compileMsg, "message", "m", "", "Snapshot message")
-	compileCmd.Flags().BoolVar(&compileReseedTemps, "reseed-temperatures", false, "Override stored temperatures with .temp.json values on unchanged nodes (directory compiles only)")
+	compileCmd.Flags().BoolVar(&compileReseedTemps, "reseed-temperatures", false, "Override stored temperatures with .remindb/temperatures.json values on unchanged nodes (directory compiles only)")
 	rootCmd.AddCommand(compileCmd)
 }
 
@@ -57,6 +59,15 @@ func runCompile(cmd *cobra.Command, args []string) error {
 	fi, err := os.Stat(path)
 	if err != nil {
 		return fmt.Errorf("failed to stat: %w", err)
+	}
+
+	workspace := path
+	if !fi.IsDir() {
+		workspace = filepath.Dir(path)
+	}
+	// Validate fail-loud; no consumer reads the loaded value yet.
+	if _, err := config.Load(workspace); err != nil {
+		return fmt.Errorf("failed to load: workspace config: %w", err)
 	}
 
 	red, err := redaction.New(redaction.DefaultConfig())

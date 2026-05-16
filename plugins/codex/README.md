@@ -41,7 +41,7 @@ mkdir -p ~/.cache/remindb
 remindb compile ~/.codex/memories --db ~/.cache/remindb/codex.db
 ```
 
-`memories/` is pure user content, so no `.remindb.ignore` is needed. Skills under `~/.codex/skills/` and slash-command prompts under `~/.codex/prompts/` are deliberately *not* indexed — Codex already loads them as live instructions, so re-indexing them in remindb would double-count. Or point at any other workspace you want the agent to see — a docs tree, a notes repo, a project directory.
+`memories/` is pure user content, so no `.remindb/ignore` is needed. Skills under `~/.codex/skills/` and slash-command prompts under `~/.codex/prompts/` are deliberately *not* indexed — Codex already loads them as live instructions, so re-indexing them in remindb would double-count. Or point at any other workspace you want the agent to see — a docs tree, a notes repo, a project directory.
 
 ### 3. Point remindb at your workspace
 
