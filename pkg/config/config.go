@@ -8,6 +8,7 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"time"
 )
@@ -19,8 +20,15 @@ const (
 )
 
 type Config struct {
+	Compile     CompileConfig     `json:"compile"`
 	Redaction   RedactionConfig   `json:"redaction"`
 	Temperature TemperatureConfig `json:"temperature"`
+}
+
+type CompileConfig struct {
+	MaxFileSize      *ByteSize `json:"max_file_size,omitempty"`
+	MaxParallelism   *int      `json:"max_parallelism,omitempty"`
+	WallClockTimeout *Duration `json:"wall_clock_timeout,omitempty"`
 }
 
 type RedactionConfig struct {
@@ -62,6 +70,70 @@ func (d *Duration) UnmarshalJSON(b []byte) error {
 	return nil
 }
 
+type ByteSize int64
+
+// Unit suffixes, longest-first so "2GB" matches "GB" before "B".
+var byteUnits = []struct {
+	suffix string
+	mult   int64
+}{
+	{"KIB", 1 << 10},
+	{"MIB", 1 << 20},
+	{"GIB", 1 << 30},
+	{"TIB", 1 << 40},
+	{"KB", 1 << 10},
+	{"MB", 1 << 20},
+	{"GB", 1 << 30},
+	{"TB", 1 << 40},
+	{"K", 1 << 10},
+	{"M", 1 << 20},
+	{"G", 1 << 30},
+	{"T", 1 << 40},
+	{"B", 1},
+}
+
+func (s *ByteSize) UnmarshalJSON(b []byte) error {
+	var str string
+	if err := json.Unmarshal(b, &str); err != nil {
+		return err
+	}
+
+	n, err := parseByteSize(str)
+	if err != nil {
+		return fmt.Errorf("invalid size %q: %w", str, err)
+	}
+
+	*s = ByteSize(n)
+	return nil
+}
+
+func parseByteSize(s string) (int64, error) {
+	t := strings.ToUpper(strings.TrimSpace(s))
+	if t == "" {
+		return 0, errors.New("empty size")
+	}
+
+	num, mult := t, int64(1)
+	for _, u := range byteUnits {
+		if strings.HasSuffix(t, u.suffix) {
+			num = strings.TrimSpace(t[:len(t)-len(u.suffix)])
+			mult = u.mult
+
+			break
+		}
+	}
+
+	f, err := strconv.ParseFloat(num, 64)
+	if err != nil {
+		return 0, errors.New("not a number")
+	}
+	if f < 0 {
+		return 0, errors.New("must not be negative")
+	}
+
+	return int64(f * float64(mult)), nil
+}
+
 // Read <workspace>/.remindb/config.json. Missing or empty → zero-value Config.
 func Load(workspace string) (Config, error) {
 	f, err := os.Open(filepath.Join(workspace, DirName, FileName))
@@ -95,6 +167,18 @@ func Load(workspace string) (Config, error) {
 }
 
 func (c Config) Validate() error {
+	cc := c.Compile
+
+	if cc.MaxFileSize != nil && *cc.MaxFileSize <= 0 {
+		return errors.New("compile.max_file_size must be positive")
+	}
+	if cc.MaxParallelism != nil && *cc.MaxParallelism < 1 {
+		return errors.New("compile.max_parallelism must be >= 1")
+	}
+	if cc.WallClockTimeout != nil && *cc.WallClockTimeout < 0 {
+		return errors.New("compile.wall_clock_timeout must not be negative")
+	}
+
 	return nil
 }
 

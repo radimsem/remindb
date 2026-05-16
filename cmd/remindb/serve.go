@@ -131,7 +131,7 @@ func runServe(cmd *cobra.Command, _ []string) error {
 	})
 
 	if sourceDir != "" {
-		rescan, err := remindb.NewRescanLoop(st, sourceDir, rescanInterval, logger)
+		rescan, err := remindb.NewRescanLoop(st, sourceDir, rescanInterval, workspaceCfg.Compile, logger)
 		if err != nil {
 			return err
 		}

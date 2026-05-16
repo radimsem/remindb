@@ -26,18 +26,19 @@ const (
 )
 
 type RescanLoop struct {
-	store    *store.Store
-	dir      string
-	interval time.Duration
-	settle   time.Duration
-	now      func() time.Time
-	walkFn   func(root string, fn fs.WalkDirFunc) error
-	modTimes map[string]time.Time
-	logger   *slog.Logger
-	ignore   *ignore.Matcher
+	store       *store.Store
+	dir         string
+	interval    time.Duration
+	settle      time.Duration
+	now         func() time.Time
+	walkFn      func(root string, fn fs.WalkDirFunc) error
+	modTimes    map[string]time.Time
+	logger      *slog.Logger
+	ignore      *ignore.Matcher
+	compileOpts []compiler.Option
 }
 
-func NewRescanLoop(st *store.Store, dir string, interval time.Duration, logger *slog.Logger) (*RescanLoop, error) {
+func NewRescanLoop(st *store.Store, dir string, interval time.Duration, cc config.CompileConfig, logger *slog.Logger) (*RescanLoop, error) {
 	if interval <= 0 {
 		interval = defaultRescanInterval
 	}
@@ -51,15 +52,16 @@ func NewRescanLoop(st *store.Store, dir string, interval time.Duration, logger *
 	}
 
 	return &RescanLoop{
-		store:    st,
-		dir:      dir,
-		interval: interval,
-		settle:   defaultSettleTime,
-		now:      time.Now,
-		walkFn:   filepath.WalkDir,
-		modTimes: make(map[string]time.Time),
-		logger:   logger,
-		ignore:   matcher,
+		store:       st,
+		dir:         dir,
+		interval:    interval,
+		settle:      defaultSettleTime,
+		now:         time.Now,
+		walkFn:      filepath.WalkDir,
+		modTimes:    make(map[string]time.Time),
+		logger:      logger,
+		ignore:      matcher,
+		compileOpts: compiler.ConfigOptions(cc),
 	}, nil
 }
 
@@ -167,12 +169,14 @@ func (r *RescanLoop) scan(ctx context.Context) {
 		return
 	}
 
-	result, err := compiler.Compile(ctx, r.store,
+	copts := append([]compiler.Option{
 		compiler.WithPaths(changed),
 		compiler.WithMessage("rescan"),
 		compiler.WithCompileRoot(r.dir),
 		compiler.WithLogger(r.logger),
-	)
+	}, r.compileOpts...)
+
+	result, err := compiler.Compile(ctx, r.store, copts...)
 	if err != nil {
 		r.logger.Error("rescan: compile failed", "err", err)
 		return
