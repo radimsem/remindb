@@ -66,7 +66,7 @@ curl -fsSL https://raw.githubusercontent.com/radimsem/remindb/main/install.sh | 
 By default the binary lands at `~/.local/bin/remindb`. Pick a different prefix:
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/radimsem/remindb/main/install.sh | bash -s -- --prefix ~/.cargo
+curl -fsSL https://raw.githubusercontent.com/radimsem/remindb/main/install.sh | bash -s -- --prefix /usr/local
 ```
 
 **Windows (PowerShell 5.1+):**
