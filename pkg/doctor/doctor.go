@@ -61,6 +61,20 @@ func (r Report) HasFailures() bool {
 	return false
 }
 
+// Worst-wins overall status across every check.
+func (r Report) Status() Status {
+	worst := Pass
+	for _, c := range r.Checks {
+		switch c.Status {
+		case Fail.String():
+			return Fail
+		case Warn.String():
+			worst = Warn
+		}
+	}
+	return worst
+}
+
 // Run every check, read-only.
 func Run(ctx context.Context, st *store.Store) Report {
 	return iterate(ctx, st, false)
