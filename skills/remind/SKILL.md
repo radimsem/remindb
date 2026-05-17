@@ -193,13 +193,13 @@ Sanity-check the DB (fresh session, suspicious results, before a `MemoryCompile`
 remindb__MemoryStats()
 ```
 
-Plain-text block: DB path + size, node count + per-`node_type` breakdown, total tokens, snapshot count + latest id/age/cursor, temperature spread (avg/median/hot/cold/pinned), relation count + per-`origin` breakdown (`parsed`/`manual`/`pending` when non-zero), FTS5 row count. Per-category counts hang off the total root:
+Plain-text block: DB path + size, node count + per-`node_type` breakdown, total tokens, snapshot count + latest id/age/cursor, temperature spread (avg/median/hot/cold/pinned), relation count + per-`origin` breakdown (`parsed`/`manual`/`pending` when non-zero), FTS5 row count. Per-category counts hang off the total root, and the `Relations:` header is always the sum of every sub-branch (all origins + `pending:`) — it reconciles to the breakdown below it:
 
 ```
 Nodes:             42 (1280 tokens)
     ├─ heading:    17
     └─ text:       13
-Relations:         8
+Relations:         3
     ├─ manual:     2
     └─ pending:    1
 ```

@@ -217,7 +217,7 @@ func renderTrieNode(w io.Writer, t *fileTrie, prefix string) {
 		}
 
 		if child.summary != nil {
-			stats := paint(ansiDim, fmt.Sprintf("(%d nodes, %d tok)", child.summary.NodeCount, child.summary.TokenCount))
+			stats := paint(ansiDim, fmt.Sprintf("(%d nodes, %s tok)", child.summary.NodeCount, abbrevTokens(int64(child.summary.TokenCount))))
 			_, _ = fmt.Fprintf(w, "%s%s%s %s\n", prefix, branch, paint(ansiBrightWhite, k), stats)
 		} else {
 			_, _ = fmt.Fprintf(w, "%s%s%s\n", prefix, branch, paint(ansiYellow, k+"/"))
@@ -234,7 +234,17 @@ type ttyBranch struct {
 
 func num(n int) string { return paint(ansiBrightWhite, fmt.Sprintf("%d", n)) }
 
-func num64(n int64) string { return paint(ansiBrightWhite, fmt.Sprintf("%d", n)) }
+// Abbreviate a token count.
+func abbrevTokens(n int64) string {
+	switch {
+	case n < 1000:
+		return fmt.Sprintf("%d", n)
+	case n < 1_000_000:
+		return fmt.Sprintf("%.1fk", float64(n)/1000)
+	default:
+		return fmt.Sprintf("%.1fM", float64(n)/1_000_000)
+	}
+}
 
 func printStats(w io.Writer, s *inspect.Stats) {
 	header := "=== Database: " + s.DBPath
@@ -245,7 +255,7 @@ func printStats(w io.Writer, s *inspect.Stats) {
 	header += " ==="
 	_, _ = fmt.Fprintln(w, paint(ansiBold+ansiCyan, header))
 
-	nodesValue := fmt.Sprintf("%s (%s tokens)", num(s.NodeCount), num64(s.TokenCountTotal))
+	nodesValue := fmt.Sprintf("%s (%s tokens)", num(s.NodeCount), paint(ansiBrightWhite, abbrevTokens(s.TokenCountTotal)))
 	ttyRow(w, "Nodes:", nodesValue)
 	ttyBranches(w, mapTTYBranches(s.NodeCountsByType))
 
@@ -346,7 +356,7 @@ func printTree(w io.Writer, children map[string][]*store.Node, n *store.Node, pa
 
 	_, _ = fmt.Fprintf(w, " %s %s)\n",
 		"temp="+tempPaint(n.Temperature),
-		paint(ansiDim, fmt.Sprintf("tok=%d", n.TokenCount)),
+		paint(ansiDim, fmt.Sprintf("tok=%s", abbrevTokens(int64(n.TokenCount)))),
 	)
 
 	if depth >= maxDepth {

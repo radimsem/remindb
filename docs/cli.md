@@ -73,7 +73,7 @@ remindb inspect --db ./notes.db --files
 | `--files` | Render compiled source files grouped by compile root. |
 | `--depth N` | Maximum depth when rendering. Default: `10`. Requires `--tree`. |
 
-`NO_COLOR=1` disables the ANSI palette. (`MemoryStats` returns the same data over MCP — same numbers, no terminal.)
+`NO_COLOR=1` disables the ANSI palette. (`MemoryStats` returns the same stats over MCP as exact integers; the CLI abbreviates large token counts for readability.)
 
 ## `bench`
 
