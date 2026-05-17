@@ -988,6 +988,109 @@ func TestMcp_OverviewResource(t *testing.T) {
 	}
 }
 
+func TestMcp_FilesResource(t *testing.T) {
+	env := mcptest.NewEnv(t)
+	ctx := context.Background()
+
+	// A compiled dir → files grouped under a non-empty compile root.
+	dir, _ := filepath.Abs("testdata/openclaw")
+	compileResult := env.CallTool(t, "MemoryCompile", map[string]any{
+		"path":    dir,
+		"message": "files-resource-init",
+	})
+	if !strings.Contains(env.TextContent(t, compileResult), "compiled") {
+		t.Fatalf("seed compile failed: %s", env.TextContent(t, compileResult))
+	}
+
+	// A freeform write → a file with no compile root (ungrouped bucket).
+	writeResult := env.CallTool(t, "MemoryWrite", map[string]any{
+		"payload": "Files resource ungrouped smoke content.",
+	})
+	if !strings.Contains(env.TextContent(t, writeResult), "wrote node") {
+		t.Fatalf("seed write failed: %s", env.TextContent(t, writeResult))
+	}
+
+	listed, err := env.Session.ListResources(ctx, &gomcp.ListResourcesParams{})
+	if err != nil {
+		t.Fatalf("ListResources: %v", err)
+	}
+
+	var files *gomcp.Resource
+	for _, r := range listed.Resources {
+		if r.URI == "remindb://files" {
+			files = r
+		}
+	}
+	if files == nil {
+		t.Fatalf("resources/list missing remindb://files, got %d resources", len(listed.Resources))
+	}
+	if files.MIMEType != "application/json" {
+		t.Errorf("files MIME type = %q, want application/json", files.MIMEType)
+	}
+
+	read, err := env.Session.ReadResource(ctx, &gomcp.ReadResourceParams{URI: "remindb://files"})
+	if err != nil {
+		t.Fatalf("ReadResource: %v", err)
+	}
+	if len(read.Contents) != 1 {
+		t.Fatalf("ReadResource returned %d contents, want 1", len(read.Contents))
+	}
+
+	content := read.Contents[0]
+	if content.MIMEType != "application/json" {
+		t.Errorf("content MIME type = %q, want application/json", content.MIMEType)
+	}
+	if content.URI != "remindb://files" {
+		t.Errorf("content URI = %q, want remindb://files", content.URI)
+	}
+
+	var env2 struct {
+		Roots []struct {
+			Root  string `json:"root"`
+			Files []struct {
+				Path   string `json:"path"`
+				Nodes  int    `json:"nodes"`
+				Tokens int    `json:"tokens"`
+			} `json:"files"`
+		} `json:"roots"`
+	}
+	if err := json.Unmarshal([]byte(content.Text), &env2); err != nil {
+		t.Fatalf("files JSON not parseable: %v\nbody: %s", err, content.Text)
+	}
+
+	if len(env2.Roots) < 2 {
+		t.Fatalf("roots = %d, want >= 2 (one compiled root + ungrouped)", len(env2.Roots))
+	}
+
+	// Roots sort ascending; the empty-string ("ungrouped") root sorts last.
+	if got := env2.Roots[len(env2.Roots)-1].Root; got != "" {
+		t.Errorf("last root = %q, want %q (ungrouped sorts last)", got, "")
+	}
+	for i := 1; i < len(env2.Roots)-1; i++ {
+		if env2.Roots[i-1].Root > env2.Roots[i].Root {
+			t.Errorf("roots not sorted ascending: %q before %q", env2.Roots[i-1].Root, env2.Roots[i].Root)
+		}
+	}
+
+	sawCompiled := false
+	for _, rg := range env2.Roots {
+		for _, f := range rg.Files {
+			if f.Path == "" {
+				t.Errorf("file with empty path in root %q", rg.Root)
+			}
+			if f.Nodes < 1 || f.Tokens < 1 {
+				t.Errorf("file %q: nodes=%d tokens=%d, want both >= 1", f.Path, f.Nodes, f.Tokens)
+			}
+		}
+		if rg.Root == dir && len(rg.Files) > 0 {
+			sawCompiled = true
+		}
+	}
+	if !sawCompiled {
+		t.Errorf("no file group under compiled root %q; roots=%+v", dir, env2.Roots)
+	}
+}
+
 // Pulls every "id=XXXXXXXXXXX" occurrence out of a Format/FormatCompact output.
 func extractAllNodeIDs(s string) []string {
 	var out []string

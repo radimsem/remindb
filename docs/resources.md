@@ -22,10 +22,11 @@ This is the inverse of the read-tool discipline in [`.claude/rules/mcp-tool-conv
 
 ## URI scheme
 
-Resources are addressed under the `remindb://` scheme. The first one is **static** (a fixed URI, no parameters):
+Resources are addressed under the `remindb://` scheme. Both current resources are **static** (a fixed URI, no parameters):
 
 ```
 remindb://overview   →   application/json
+remindb://files      →   application/json
 ```
 
 Static resources answer "what is the state of the whole database". Future per-node or per-snapshot views, if added, would be **templated** resources (`remindb://node/{id}`) registered via `AddResourceTemplate` — a deliberately separate mechanism so the static/templated split mirrors the resources/tools split: predictable surface first, parameterised surface only when a concrete need appears.
@@ -49,6 +50,29 @@ The shape is **locked** — clients depend on these keys. Notes on two fields th
 
 - `snapshots` is all zero-valued when the database has no snapshots yet (`head_id: 0`, `cursor_hash: ""`); it never omits keys.
 - `relations.total` is the sum of `by_origin` (parsed + manual edges). `pending` is reported as its own sibling and is **not** folded into `total` — the envelope keeps resolved and pending relations distinct so a client can show both.
+
+## The `files` envelope
+
+`remindb://files` exposes the compiled source files grouped by compile root, with per-file node and token counts — the JSON twin of `remindb inspect --files`. Both project the same `store.ListFileSummaries()` query: one source of truth, two presentations, zero duplicate query logic.
+
+```json
+{
+  "roots": [
+    {
+      "root": "/repo/docs",
+      "files": [
+        { "path": "docs/architecture.md", "nodes": 12, "tokens": 840 }
+      ]
+    }
+  ]
+}
+```
+
+The shape is **locked** — clients depend on these keys. Notes:
+
+- `roots` is sorted by compile root; the empty-string root (files not attributed to a compile root — "ungrouped") always sorts **last**. The envelope reports the bare `""` root, not a `(ungrouped)` label — the client owns the display string.
+- Within each root, file order is whatever `ListFileSummaries` returns; only the cross-root grouping is added here.
+- Empty database → `{ "roots": [] }`; the key is never omitted.
 
 ## What stays out
 
