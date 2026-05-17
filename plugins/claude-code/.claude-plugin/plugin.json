@@ -1,7 +1,7 @@
 {
     "name": "remindb",
     "description": "Token-efficient agentic memory database. Mounts remindb as an MCP server, exposing the Memory* tool suite over a compiled SQLite view of the workspace.",
-    "version": "0.3.2",
+    "version": "0.3.3",
     "author": {
         "name": "radimsem"
     },
