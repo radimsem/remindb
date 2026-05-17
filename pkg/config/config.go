@@ -2,6 +2,7 @@
 package config
 
 import (
+	"bytes"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -23,6 +24,7 @@ type Config struct {
 	Budgets     BudgetsConfig     `json:"budgets"`
 	Compile     CompileConfig     `json:"compile"`
 	Redaction   RedactionConfig   `json:"redaction"`
+	Rescan      RescanConfig      `json:"rescan"`
 	Server      ServerConfig      `json:"server"`
 	Temperature TemperatureConfig `json:"temperature"`
 }
@@ -30,7 +32,7 @@ type Config struct {
 type ServerConfig struct {
 	Transport *string       `json:"transport,omitempty"`
 	Listen    *string       `json:"listen,omitempty"`
-	Logging   LoggingConfig `json:"logging,omitempty"`
+	Logging   LoggingConfig `json:"logging"`
 }
 
 type LoggingConfig struct {
@@ -60,6 +62,12 @@ type RedactionConfig struct {
 type RedactionPattern struct {
 	Kind    string `json:"kind"`
 	Pattern string `json:"pattern"`
+}
+
+type RescanConfig struct {
+	Enabled  *bool     `json:"enabled,omitempty"`
+	Interval *Duration `json:"interval,omitempty"`
+	Settle   *Duration `json:"settle,omitempty"`
 }
 
 type TemperatureConfig struct {
@@ -157,17 +165,22 @@ func parseByteSize(s string) (int64, error) {
 
 // Read <workspace>/.remindb/config.json. Missing or empty → zero-value Config.
 func Load(workspace string) (Config, error) {
-	f, err := os.Open(filepath.Join(workspace, DirName, FileName))
+	data, err := os.ReadFile(filepath.Join(workspace, DirName, FileName))
 	if err != nil {
 		if errors.Is(err, os.ErrNotExist) {
 			return Config{}, nil
 		}
+
 		return Config{}, fmt.Errorf("failed to read: %s: %w", Path, err)
 	}
-	defer func() { _ = f.Close() }()
 
+	return Parse(data)
+}
+
+// Decode and validate raw config.json bytes. Empty → zero-value Config.
+func Parse(data []byte) (Config, error) {
 	var cfg Config
-	dec := json.NewDecoder(f)
+	dec := json.NewDecoder(bytes.NewReader(data))
 	dec.DisallowUnknownFields()
 
 	if err := dec.Decode(&cfg); err != nil {
@@ -213,6 +226,15 @@ func (c Config) Validate() error {
 	}
 	if bc.Related != nil && *bc.Related <= 0 {
 		return errors.New("budgets.related must be positive")
+	}
+
+	rc := c.Rescan
+
+	if rc.Interval != nil && *rc.Interval <= 0 {
+		return errors.New("rescan.interval must be positive")
+	}
+	if rc.Settle != nil && *rc.Settle < 0 {
+		return errors.New("rescan.settle must not be negative")
 	}
 
 	sc := c.Server

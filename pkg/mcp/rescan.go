@@ -2,6 +2,7 @@ package mcp
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"io/fs"
 	"log/slog"
@@ -10,6 +11,7 @@ import (
 	"path/filepath"
 	"time"
 
+	"github.com/radimsem/remindb/internal/contentid"
 	"github.com/radimsem/remindb/internal/fileext"
 	"github.com/radimsem/remindb/internal/ignore"
 	"github.com/radimsem/remindb/pkg/compiler"
@@ -26,16 +28,19 @@ const (
 )
 
 type RescanLoop struct {
-	store       *store.Store
-	dir         string
-	interval    time.Duration
-	settle      time.Duration
-	now         func() time.Time
-	walkFn      func(root string, fn fs.WalkDirFunc) error
-	modTimes    map[string]time.Time
-	logger      *slog.Logger
-	ignore      *ignore.Matcher
-	compileOpts []compiler.Option
+	store             *store.Store
+	dir               string
+	bootstrapInterval time.Duration
+	interval          time.Duration
+	settle            time.Duration
+	enabled           bool
+	configHash        string
+	now               func() time.Time
+	walkFn            func(root string, fn fs.WalkDirFunc) error
+	modTimes          map[string]time.Time
+	logger            *slog.Logger
+	ignore            *ignore.Matcher
+	compileOpts       []compiler.Option
 }
 
 func NewRescanLoop(st *store.Store, dir string, interval time.Duration, cc config.CompileConfig, logger *slog.Logger) (*RescanLoop, error) {
@@ -52,22 +57,28 @@ func NewRescanLoop(st *store.Store, dir string, interval time.Duration, cc confi
 	}
 
 	return &RescanLoop{
-		store:       st,
-		dir:         dir,
-		interval:    interval,
-		settle:      defaultSettleTime,
-		now:         time.Now,
-		walkFn:      filepath.WalkDir,
-		modTimes:    make(map[string]time.Time),
-		logger:      logger,
-		ignore:      matcher,
-		compileOpts: compiler.ConfigOptions(cc),
+		store:             st,
+		dir:               dir,
+		bootstrapInterval: interval,
+		interval:          interval,
+		settle:            defaultSettleTime,
+		enabled:           true,
+		now:               time.Now,
+		walkFn:            filepath.WalkDir,
+		modTimes:          make(map[string]time.Time),
+		logger:            logger,
+		ignore:            matcher,
+		compileOpts:       compiler.ConfigOptions(cc),
 	}, nil
 }
 
 func (r *RescanLoop) Run(ctx context.Context) {
+	r.reloadConfig()
+
 	// Startup reconcile catches edits made between the last compile and now.
-	r.scan(ctx)
+	if r.enabled {
+		r.scan(ctx)
+	}
 
 	ticker := time.NewTicker(r.interval)
 	defer ticker.Stop()
@@ -77,9 +88,62 @@ func (r *RescanLoop) Run(ctx context.Context) {
 		case <-ctx.Done():
 			return
 		case <-ticker.C:
+			if r.reloadConfig() {
+				ticker.Reset(r.interval)
+			}
+
+			if !r.enabled {
+				r.logger.Debug("rescan: disabled; skipping tick")
+				continue
+			}
 			r.scan(ctx)
 		}
 	}
+}
+
+// Re-source the rescan block from config.json.
+func (r *RescanLoop) reloadConfig() (intervalChanged bool) {
+	path := filepath.Join(r.dir, config.DirName, config.FileName)
+
+	data, err := os.ReadFile(path)
+	if err != nil {
+		if !errors.Is(err, os.ErrNotExist) {
+			r.logger.Warn("rescan: failed to read config; keeping last-good", "path", config.Path, "err", err)
+			return false
+		}
+		data = nil
+	}
+
+	hash := contentid.ContentHash(string(data))
+	if hash == r.configHash {
+		return false
+	}
+
+	cfg, err := config.Parse(data)
+	if err != nil {
+		r.logger.Warn("rescan: invalid config; keeping last-good settings", "path", config.Path, "err", err)
+		return false
+	}
+	r.configHash = hash
+
+	enabled := true
+	interval := r.bootstrapInterval
+	settle := defaultSettleTime
+
+	rc := cfg.Rescan
+	if rc.Enabled != nil {
+		enabled = *rc.Enabled
+	}
+	if rc.Interval != nil {
+		interval = time.Duration(*rc.Interval)
+	}
+	if rc.Settle != nil {
+		settle = time.Duration(*rc.Settle)
+	}
+
+	intervalChanged = interval != r.interval
+	r.enabled, r.interval, r.settle = enabled, interval, settle
+	return intervalChanged
 }
 
 func (r *RescanLoop) scan(ctx context.Context) {

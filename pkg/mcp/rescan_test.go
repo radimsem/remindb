@@ -9,6 +9,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -502,6 +503,123 @@ func TestMaybeInitialCompile_NonEmptyDB(t *testing.T) {
 	if len(after) != len(before) {
 		t.Errorf("root count changed: before=%d after=%d (MaybeInitialCompile ran on non-empty DB)", len(before), len(after))
 	}
+}
+
+func TestRescanLoop_ReloadDefaultsWhenConfigAbsent(t *testing.T) {
+	dir := t.TempDir()
+	st := testutil.OpenTestDB(t)
+	r := mustRescan(t, st, dir, 42*time.Second, nil)
+
+	if changed := r.reloadConfig(); changed {
+		t.Error("interval should not change vs bootstrap when no config block present")
+	}
+	if !r.enabled {
+		t.Error("enabled should default to true when block absent")
+	}
+
+	if r.interval != 42*time.Second {
+		t.Errorf("interval = %v, want bootstrap 42s", r.interval)
+	}
+	if r.settle != defaultSettleTime {
+		t.Errorf("settle = %v, want default %v", r.settle, defaultSettleTime)
+	}
+}
+
+func TestRescanLoop_ReloadAppliesBlock(t *testing.T) {
+	dir := t.TempDir()
+	writeFile(t, dir, config.Path, `{"rescan":{"enabled":false,"interval":"5s","settle":"1s"}}`)
+
+	st := testutil.OpenTestDB(t)
+	r := mustRescan(t, st, dir, 30*time.Second, nil)
+
+	if !r.reloadConfig() {
+		t.Error("interval changed 30s→5s, want intervalChanged=true")
+	}
+	if r.enabled {
+		t.Error("enabled should be false from config")
+	}
+
+	if r.interval != 5*time.Second {
+		t.Errorf("interval = %v, want 5s", r.interval)
+	}
+	if r.settle != time.Second {
+		t.Errorf("settle = %v, want 1s", r.settle)
+	}
+
+	if r.reloadConfig() {
+		t.Error("re-reading identical config must report no interval change")
+	}
+}
+
+func TestRescanLoop_InvalidReloadKeepsLastGood(t *testing.T) {
+	dir := t.TempDir()
+	writeFile(t, dir, config.Path, `{"rescan":{"enabled":false,"interval":"5s"}}`)
+
+	st := testutil.OpenTestDB(t)
+	var buf bytes.Buffer
+	logger := slog.New(slog.NewTextHandler(&buf, &slog.HandlerOptions{Level: slog.LevelWarn}))
+	r := mustRescan(t, st, dir, 30*time.Second, logger)
+
+	r.reloadConfig()
+	if r.enabled || r.interval != 5*time.Second {
+		t.Fatalf("precondition: good config not applied (enabled=%v interval=%v)", r.enabled, r.interval)
+	}
+
+	// interval <= 0 fails Config.Validate inside config.Parse.
+	writeFile(t, dir, config.Path, `{"rescan":{"interval":"-3s"}}`)
+	if r.reloadConfig() {
+		t.Error("invalid reload must not report an interval change")
+	}
+	if r.enabled || r.interval != 5*time.Second {
+		t.Errorf("last-good not retained: enabled=%v interval=%v", r.enabled, r.interval)
+	}
+	if !strings.Contains(buf.String(), "level=WARN") {
+		t.Errorf("expected WARN on invalid reload, got %q", buf.String())
+	}
+
+	// Hash was not advanced on failure, so the next valid write is picked up.
+	writeFile(t, dir, config.Path, `{"rescan":{"interval":"7s"}}`)
+	r.reloadConfig()
+	if r.interval != 7*time.Second {
+		t.Errorf("recovery after invalid reload: interval = %v, want 7s", r.interval)
+	}
+}
+
+func TestRescanLoop_DisabledTickIsNoopThenResumes(t *testing.T) {
+	dir := t.TempDir()
+	st := testutil.OpenTestDB(t)
+	r := mustRescan(t, st, dir, 30*time.Second, nil)
+
+	var walks atomic.Int32
+	r.walkFn = func(root string, fn fs.WalkDirFunc) error {
+		walks.Add(1)
+		return nil
+	}
+
+	writeFile(t, dir, config.Path, `{"rescan":{"enabled":false,"interval":"20ms"}}`)
+
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	done := make(chan struct{})
+	go func() {
+		r.Run(ctx)
+		close(done)
+	}()
+
+	time.Sleep(150 * time.Millisecond) // many 20ms ticks while disabled
+	if n := walks.Load(); n != 0 {
+		t.Fatalf("disabled loop performed %d walks, want 0", n)
+	}
+
+	writeFile(t, dir, config.Path, `{"rescan":{"enabled":true,"interval":"20ms"}}`)
+	time.Sleep(150 * time.Millisecond) // a later tick reloads → enabled → scans
+
+	if walks.Load() == 0 {
+		t.Error("re-enabling did not resume scanning on a subsequent tick (no restart expected)")
+	}
+
+	cancel()
+	<-done
 }
 
 func writeFile(t *testing.T, dir, name, content string) {
