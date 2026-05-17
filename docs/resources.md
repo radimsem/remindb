@@ -29,6 +29,7 @@ remindb://overview              →   application/json   (static)
 remindb://files                 →   application/json   (static)
 remindb://tree                  →   application/json   (static — full hierarchy)
 remindb://tree/{rootId}{?depth} →   application/json   (templated — bounded subtree)
+remindb://graph                 →   application/json   (static — relations graph)
 ```
 
 Static resources answer "what is the state of the whole database". The templated `remindb://tree/{rootId}{?depth}` (registered via `AddResourceTemplate`, RFC 6570 form so the matcher spans the optional `?depth=N` query) answers "the subtree under this node". The static/templated split is a deliberately separate mechanism mirroring the resources/tools split: predictable surface first, parameterised surface only where a concrete need appeared.
@@ -105,6 +106,34 @@ The shape is **locked** — clients depend on these keys. Notes:
 - `roots` is always present: an empty database → `{ "roots": [] }`; the static read returns the whole forest, the templated read returns exactly one element (the requested root).
 - Every node carries all eight keys including `children` (`[]` at a leaf, never omitted). `source` is the node's source path made relative to the latest compile root, matching `MemoryTree`; `depth` is the node's own depth in the full tree, unaffected by `?depth` bounding.
 - An unknown `rootId` is an **error**, not an empty body — the client gets a failed read, distinguishing "no such node" from "node with no children".
+
+## The `graph` envelope
+
+`remindb://graph` exposes the relations knowledge graph — the "brain" view — as stable JSON for a UI that draws it. It is pure exposure: resolved edges come straight from `store.GetAllRelations()`, pending/unresolved edges from `store.GetAllPendingRelations()`, and the node set from `store.GetAllNodes()` — no traversal logic, the same flat queries the rest of the store uses.
+
+```json
+{
+  "nodes": [
+    { "id": "aB3",   "label": "Architecture", "type": "heading", "temperature": 0.42 },
+    { "id": "aB3-1", "label": "Overview",     "type": "text",    "temperature": 0.31 }
+  ],
+  "edges": [
+    { "source": "aB3", "target": "aB3-1", "weight": 4.2, "origin": "parsed" },
+    { "source": "aB3", "target": "aB3-1", "weight": 1.0, "origin": "manual" }
+  ],
+  "pending": [
+    { "source": "aB3", "target_label": "Roadmap", "target_source": "docs/roadmap.md",
+      "target_id_hint": "", "weight": 1.0, "origin": "parsed" }
+  ]
+}
+```
+
+The shape is **locked** — clients depend on these keys. Notes:
+
+- `nodes` is the **referenced set only**: a node appears iff it is the source or target of a resolved edge, or the source of a pending edge. Orphan nodes (no relations) are not in the graph — use `remindb://tree` for the full node hierarchy.
+- `edges` are resolved relations (both endpoints exist). `origin` is `parsed` (from the weight wiki-link syntax) or `manual` (from `MemoryRelate`); `weight` defaults to `1.0`. Each edge is directed `source → target`.
+- `pending` are unresolved edges: the `source` node exists but the target was never resolved to a node, so it is described by `target_label` / `target_source` / `target_id_hint` (any may be empty) instead of a `target` id. Pending edges are kept a distinct array — never folded into `edges` — so a client can render them differently (dashed, greyed).
+- All three keys are always present; an empty database → `{"nodes":[],"edges":[],"pending":[]}`, never `null`.
 
 ## What stays out
 

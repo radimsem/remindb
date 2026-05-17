@@ -224,6 +224,8 @@ const (
 
 // relations & pending_relations
 const (
+	relationColumns = `id, source_node_id, target_node_id, weight, origin, created_at`
+
 	pendingColumns = `id, source_node_id, target_label, target_source, target_id_hint,
 	weight, origin, created_at`
 
@@ -242,6 +244,8 @@ const (
 	qDeleteParsedPendingForSource = `
 		DELETE FROM pending_relations
 		WHERE source_node_id = ? AND origin = 'parsed'`
+
+	qSelectAllRelations = `SELECT ` + relationColumns + ` FROM relations ORDER BY id`
 
 	qSelectAllPendingRelations = `SELECT ` + pendingColumns + ` FROM pending_relations ORDER BY id`
 
