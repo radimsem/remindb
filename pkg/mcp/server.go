@@ -9,6 +9,7 @@ import (
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 	"github.com/radimsem/remindb/internal/redaction"
 	"github.com/radimsem/remindb/pkg/config"
+	"github.com/radimsem/remindb/pkg/mcp/resources"
 	"github.com/radimsem/remindb/pkg/mcp/tools"
 	"github.com/radimsem/remindb/pkg/query"
 	"github.com/radimsem/remindb/pkg/relations"
@@ -129,6 +130,7 @@ func NewServer(st *store.Store, tracker *temperature.Tracker, cfg temperature.Co
 	}
 
 	registerTools(s.mcp, deps)
+	resources.Register(s.mcp, &resources.Deps{Store: st})
 	return s, nil
 }
 

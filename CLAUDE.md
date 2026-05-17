@@ -33,7 +33,7 @@ Pipeline: `parser → transformer → emitter → store`. Read side: `query → 
 |---|---|
 | End-to-end product story, benchmarks, feature pitch | `README.md` |
 | Architecture, CLI, `.remindb/` config (reference) | `docs/architecture.md` · `docs/cli.md` · `docs/configuration.md` |
-| Feature deep-dive — node tree · temperature · versioning · search · TOON · MathML→LaTeX · knowledge graph | the matching `docs/<topic>.md` |
+| Feature deep-dive — node tree · temperature · versioning · search · TOON · MathML→LaTeX · knowledge graph · resources | the matching `docs/<topic>.md` |
 | How clients call the MCP read tools (the contract) | `skills/remind/SKILL.md` |
 | How clients author content for MCP write tools (the contract) | `skills/memoize/SKILL.md` |
 | Go style, naming, error/log/concurrency idioms | `.claude/rules/go-concise.md` |
