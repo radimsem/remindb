@@ -35,6 +35,13 @@ func Register(srv *gomcp.Server, d *Deps) {
 		Description: "Full parent/child node hierarchy as nested JSON — the structured twin of `MemoryTree`'s text. Passive read: does not boost temperature or create a snapshot.",
 	}, d.HandleTree)
 
+	srv.AddResource(&gomcp.Resource{
+		Name:        "graph",
+		URI:         GraphURI,
+		MIMEType:    mimeJSON,
+		Description: "Relations knowledge graph — resolved edges, pending/unresolved edges, and the referenced node set as stable JSON, for a UI drawing the brain graph. Passive read: does not boost temperature or create a snapshot.",
+	}, d.HandleGraph)
+
 	srv.AddResourceTemplate(&gomcp.ResourceTemplate{
 		Name:        "tree-by-root",
 		URITemplate: TreeByRootTemplate,

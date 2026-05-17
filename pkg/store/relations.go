@@ -121,6 +121,16 @@ func (s *Store) FindHeadingByLabelInFile(ctx context.Context, sourceFile, label 
 	return id, err
 }
 
+func (s *Store) GetAllRelations(ctx context.Context) ([]*Relation, error) {
+	rows, err := s.db.QueryContext(ctx, qSelectAllRelations)
+	if err != nil {
+		return nil, err
+	}
+	defer func() { _ = rows.Close() }()
+
+	return collectRelationRows(rows)
+}
+
 func (s *Store) GetAllPendingRelations(ctx context.Context) ([]*PendingRelation, error) {
 	rows, err := s.db.QueryContext(ctx, qSelectAllPendingRelations)
 	if err != nil {
@@ -203,6 +213,33 @@ func scanRelatedNode(r RowScanner) (*RelatedNode, error) {
 
 	n.ParentID = parentID.String
 	return &RelatedNode{Node: &n, Weight: weight, Hop: hop}, nil
+}
+
+func scanRelation(r RowScanner) (*Relation, error) {
+	var rel Relation
+
+	err := r.Scan(
+		&rel.ID, &rel.SourceNodeID, &rel.TargetNodeID,
+		&rel.Weight, &rel.Origin, &rel.CreatedAt,
+	)
+	if err != nil {
+		return nil, err
+	}
+
+	return &rel, nil
+}
+
+func collectRelationRows(rows *sql.Rows) ([]*Relation, error) {
+	var out []*Relation
+	for rows.Next() {
+		rel, err := scanRelation(rows)
+		if err != nil {
+			return nil, err
+		}
+
+		out = append(out, rel)
+	}
+	return out, rows.Err()
 }
 
 func scanPending(r RowScanner) (*PendingRelation, error) {

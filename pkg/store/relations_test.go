@@ -104,6 +104,40 @@ func TestUpsertRelation_ParsedAndManualCoexist(t *testing.T) {
 	}
 }
 
+func TestGetAllRelations(t *testing.T) {
+	st := openTestDB(t)
+	ctx := context.Background()
+
+	mustNode(t, st, "aaaaaaaaaa1", "")
+	mustNode(t, st, "bbbbbbbbbb1", "")
+	mustNode(t, st, "cccccccccc1", "")
+
+	must(t, st.UpsertRelation(ctx, &Relation{SourceNodeID: "aaaaaaaaaa1", TargetNodeID: "bbbbbbbbbb1", Weight: 1.5, Origin: OriginParsed}))
+	must(t, st.UpsertRelation(ctx, &Relation{SourceNodeID: "bbbbbbbbbb1", TargetNodeID: "cccccccccc1", Weight: 4.2, Origin: OriginManual}))
+
+	all, err := st.GetAllRelations(ctx)
+	if err != nil {
+		t.Fatalf("GetAllRelations: %v", err)
+	}
+
+	if len(all) != 2 {
+		t.Fatalf("got %d relations, want 2", len(all))
+	}
+
+	// ORDER BY id: insertion order.
+	first := all[0]
+	if first.SourceNodeID != "aaaaaaaaaa1" || first.TargetNodeID != "bbbbbbbbbb1" {
+		t.Errorf("relation[0] = %s→%s, want aaaaaaaaaa1→bbbbbbbbbb1", first.SourceNodeID, first.TargetNodeID)
+	}
+
+	if first.Weight != 1.5 || first.Origin != OriginParsed {
+		t.Errorf("relation[0] weight=%f origin=%s, want 1.5 parsed", first.Weight, first.Origin)
+	}
+	if all[1].Origin != OriginManual || all[1].Weight != 4.2 {
+		t.Errorf("relation[1] weight=%f origin=%s, want 4.2 manual", all[1].Weight, all[1].Origin)
+	}
+}
+
 func TestInsertPendingRelation(t *testing.T) {
 	st := openTestDB(t)
 	ctx := context.Background()

@@ -1,13 +1,13 @@
 ---
 name: remind
-description: Read memory from a remindb MCP server — orient, search, fetch (single or batched), resync, traverse the relations graph, inspect DB health, read passive resources (`remindb://overview`, `remindb://files`, `remindb://tree`). Covers the node/snapshot/temperature/relations model and FTS5 query syntax. Pair with `memoize` for writes.
+description: Read memory from a remindb MCP server — orient, search, fetch (single or batched), resync, traverse the relations graph, inspect DB health, read passive resources (`remindb://overview`, `remindb://files`, `remindb://tree`, `remindb://graph`). Covers the node/snapshot/temperature/relations model and FTS5 query syntax. Pair with `memoize` for writes.
 ---
 
 # Remind — read from remindb so you don't re-grep
 
 remindb is a compiled SQLite view of a workspace, served over MCP as the `Memory*` tool suite. It's long-term memory for your session — call it instead of re-reading files or grepping.
 
-Read path (this skill): `MemoryTree`, `MemorySearch`, `MemoryFetch`, `MemoryFetchBatch`, `MemoryDelta`, `MemoryDiff`, `MemoryHistory`, `MemoryRelated`, `MemoryStats`, plus read-only **resources** (`remindb://overview`, `remindb://files`, `remindb://tree`). Write path (pair with **`memoize`**): `MemoryWrite`, `MemoryForget`, `MemorySummarize`, `MemoryCompile`, `MemoryRelate`, `MemoryPin`, `MemoryUnpin`, `MemoryRollback`.
+Read path (this skill): `MemoryTree`, `MemorySearch`, `MemoryFetch`, `MemoryFetchBatch`, `MemoryDelta`, `MemoryDiff`, `MemoryHistory`, `MemoryRelated`, `MemoryStats`, plus read-only **resources** (`remindb://overview`, `remindb://files`, `remindb://tree`, `remindb://graph`). Write path (pair with **`memoize`**): `MemoryWrite`, `MemoryForget`, `MemorySummarize`, `MemoryCompile`, `MemoryRelate`, `MemoryPin`, `MemoryUnpin`, `MemoryRollback`.
 
 ## Use-case playbook
 
@@ -210,13 +210,14 @@ Read-only — no `OpMu`, no boost, no payload in the call log. Use freely; one c
 
 ## Resources: passive read-only views
 
-Beyond the `Memory*` tools, the server exposes MCP **resources** — URIs you read instead of call. `resources/list` enumerates them; `resources/read` returns the body. Three resources today:
+Beyond the `Memory*` tools, the server exposes MCP **resources** — URIs you read instead of call. `resources/list` enumerates them; `resources/read` returns the body. The resources today:
 
 ```
 remindb://overview          →   application/json
 remindb://files             →   application/json
 remindb://tree              →   application/json   (full node hierarchy)
 remindb://tree/{rootId}?depth=N →   application/json   (bounded subtree; templated)
+remindb://graph             →   application/json   (relations graph)
 ```
 
 `remindb://overview` — same data as `MemoryStats`, but as the locked JSON envelope (`db_path`, `db_bytes`, `nodes{total,by_type,tokens}`, `snapshots{count,head_id,cursor_hash,latest_message,latest_age_s}`, `temperature{avg,median,hot,cold,pinned}`, `relations{total,by_origin,pending}`, `fts_rows`) — for programmatic consumers (a UI rendering the database), not for reasoning in prose.
@@ -250,6 +251,19 @@ Roots sort ascending; the empty-string root (files with no compile root) sorts l
 ```
 
 `roots` is always present (`[]` on an empty DB); an unknown `rootId` is an error, not an empty body. Use `MemoryTree` when you want the access to warm the nodes — this resource is for rendering only.
+
+`remindb://graph` — the relations knowledge graph (the "brain" view) as locked JSON, for a UI that draws it. `nodes` is the referenced set only (anything that is an endpoint of a resolved edge or the source of a pending one — orphans are excluded; use `remindb://tree` for the full hierarchy), `edges` are resolved relations (`source→target`, with `weight` and `origin` = `parsed`|`manual`), `pending` are unresolved edges kept as a distinct array (the `source` exists but the target is only a `target_label`/`target_source`/`target_id_hint`, never a resolved id):
+
+```json
+{
+  "nodes":   [ { "id": "aB3", "label": "Architecture", "type": "heading", "temperature": 0.42 } ],
+  "edges":   [ { "source": "aB3", "target": "aB3-1", "weight": 4.2, "origin": "parsed" } ],
+  "pending": [ { "source": "aB3", "target_label": "Roadmap", "target_source": "",
+                 "target_id_hint": "", "weight": 1.0, "origin": "parsed" } ]
+}
+```
+
+All three keys are always present (`{"nodes":[],"edges":[],"pending":[]}` on an empty DB). It mirrors `MemoryRelated`'s data without the traversal — `MemoryRelated` walks the graph from an anchor and warms what it touches; this resource is the whole static graph for rendering, and warms nothing.
 
 The key difference from a read *tool*: a resource read is **passive observation**. It does **not** boost temperature. Reach for `MemorySearch`/`MemoryFetch` when you want the node to count as accessed (and warm up); read the resource only when you explicitly must *not* perturb the heatmap. For ordinary "what's the DB state" curiosity in a session, `MemoryStats` is still the call — the resource exists for external renderers.
 
