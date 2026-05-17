@@ -1,6 +1,6 @@
 ---
 name: remind
-description: Read memory from a remindb MCP server — orient, search, fetch (single or batched), resync, traverse the relations graph, inspect DB health, read passive resources (`remindb://overview`, `remindb://files`, `remindb://tree`, `remindb://graph`). Covers the node/snapshot/temperature/relations model and FTS5 query syntax. Pair with `memoize` for writes.
+description: Read memory from a remindb MCP server — orient, search, fetch (single or batched), resync, traverse the relations graph, inspect DB health, read passive resources (`remindb://overview`, `remindb://files`, `remindb://tree`, `remindb://graph`, `remindb://snapshots`). Covers the node/snapshot/temperature/relations model and FTS5 query syntax. Pair with `memoize` for writes.
 ---
 
 # Remind — read from remindb so you don't re-grep
@@ -218,6 +218,9 @@ remindb://files             →   application/json
 remindb://tree              →   application/json   (full node hierarchy)
 remindb://tree/{rootId}?depth=N →   application/json   (bounded subtree; templated)
 remindb://graph             →   application/json   (relations graph)
+remindb://snapshots         →   application/json   (full version history)
+remindb://snapshots?limit=N →   application/json   (newest N; templated)
+remindb://snapshots/{id}/diffs →   application/json   (per-snapshot diffs; templated)
 ```
 
 `remindb://overview` — same data as `MemoryStats`, but as the locked JSON envelope (`db_path`, `db_bytes`, `nodes{total,by_type,tokens}`, `snapshots{count,head_id,cursor_hash,latest_message,latest_age_s}`, `temperature{avg,median,hot,cold,pinned}`, `relations{total,by_origin,pending}`, `fts_rows`) — for programmatic consumers (a UI rendering the database), not for reasoning in prose.
@@ -264,6 +267,17 @@ Roots sort ascending; the empty-string root (files with no compile root) sorts l
 ```
 
 All three keys are always present (`{"nodes":[],"edges":[],"pending":[]}` on an empty DB). It mirrors `MemoryRelated`'s data without the traversal — `MemoryRelated` walks the graph from an anchor and warms what it touches; this resource is the whole static graph for rendering, and warms nothing.
+
+`remindb://snapshots` — the version history behind `MemoryHistory`, every snapshot newest-first with the parent links that reconstruct branch topology, for an interactive timeline UI. `remindb://snapshots?limit=N` bounds it to the newest N (omit for full history); `remindb://snapshots/{id}/diffs` returns one snapshot's diff records (`op, node_id, old_hash, new_hash, old_content, new_content`), the data behind `MemoryDelta`:
+
+```json
+{ "snapshots": [
+  { "id": 3, "parent_id": 2, "message": "write:aB3", "compile_root": "/repo", "created_at": 1737072000, "is_head": true },
+  { "id": 1, "parent_id": null, "message": "compile", "compile_root": "/repo", "created_at": 1737070000, "is_head": false }
+] }
+```
+
+`parent_id` is `null` for a root snapshot (never `0`); at most one snapshot is `is_head`. `snapshots`/`diffs` are always present (`[]` on an empty DB); a bad `{id}` or non-positive `?limit` is an error, not an empty body. It mirrors `MemoryHistory`/`MemoryDelta` for rendering — use those tools when you want the access to warm nodes.
 
 The key difference from a read *tool*: a resource read is **passive observation**. It does **not** boost temperature. Reach for `MemorySearch`/`MemoryFetch` when you want the node to count as accessed (and warm up); read the resource only when you explicitly must *not* perturb the heatmap. For ordinary "what's the DB state" curiosity in a session, `MemoryStats` is still the call — the resource exists for external renderers.
 

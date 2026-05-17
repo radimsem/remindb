@@ -48,4 +48,25 @@ func Register(srv *gomcp.Server, d *Deps) {
 		MIMEType:    mimeJSON,
 		Description: "Node hierarchy rooted at {rootId}, optionally depth-bounded via ?depth=N (omitted = full subtree). Passive read: does not boost temperature or create a snapshot.",
 	}, d.HandleTreeByRoot)
+
+	srv.AddResource(&gomcp.Resource{
+		Name:        "snapshots",
+		URI:         SnapshotsURI,
+		MIMEType:    mimeJSON,
+		Description: "Version history — every snapshot newest-first with parent links, compile root, and the HEAD marker, as stable JSON for an interactive timeline. Mirrors MemoryHistory. Passive read: does not boost temperature or create a snapshot.",
+	}, d.HandleSnapshots)
+
+	srv.AddResourceTemplate(&gomcp.ResourceTemplate{
+		Name:        "snapshots-limited",
+		URITemplate: SnapshotsLimitTemplate,
+		MIMEType:    mimeJSON,
+		Description: "Version history bounded to the newest ?limit=N snapshots (omitted = full history). Passive read: does not boost temperature or create a snapshot.",
+	}, d.HandleSnapshotsLimited)
+
+	srv.AddResourceTemplate(&gomcp.ResourceTemplate{
+		Name:        "snapshot-diffs",
+		URITemplate: SnapshotDiffsTemplate,
+		MIMEType:    mimeJSON,
+		Description: "Per-snapshot diff records for snapshot {id} (op, node_id, old/new hash + content), the data behind MemoryDelta. Passive read: does not boost temperature or create a snapshot.",
+	}, d.HandleSnapshotDiffs)
 }
