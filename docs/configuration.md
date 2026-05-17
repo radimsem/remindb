@@ -47,6 +47,11 @@ A single JSON object of feature blocks. Unknown top-level or nested keys are rej
       { "kind": "internal_token", "pattern": "INT-[0-9a-f]{32}" }
     ]
   },
+  "rescan": {
+    "enabled": true,
+    "interval": "30s",
+    "settle": "500ms"
+  },
   "server": {
     "transport": "http",
     "listen": "127.0.0.1:7474",
@@ -66,6 +71,8 @@ Every field in every block is optional — only the keys you set override the de
 **`redaction`** configures the secret-scrubber applied on ingest by both `compile` and `serve`. By default every built-in detector is active; `disable_builtin_kinds` mutes the kinds you list (the rest stay on — see the kind list in `internal/redaction/patterns.go`). `custom` *adds* your own `{ "kind", "pattern" }` regexes on top. An unknown kind or an invalid regex fails startup with the offending name reported.
 
 **`compile`** bounds the ingest pipeline for `compile`, the `serve` rescan loop, and the `MemoryCompile` tool — so a client-triggered compile behaves identically to the CLI. Absent → current behavior (unbounded file size, `GOMAXPROCS` parallelism, no deadline). `max_file_size` takes a size string (`"2GB"`, `"500MB"`, or a bare 1024-based byte count) — a file over the limit is **skipped with a `Warn` naming the path**, never an error, so the rest of the tree still compiles. `max_parallelism` caps the per-file worker pool. `wall_clock_timeout` aborts a runaway compile with a clear error; because emission is transactional, a timeout commits **no partial state**.
+
+**`rescan`** tunes the `serve` background rescan loop and is the one block that is **live-reloaded**: at the top of every tick the loop content-hashes `config.json` and, if it changed, re-sources this block — no restart. Absent → defaults (`enabled: true`, `interval: "30s"`, `settle: "500ms"`). `interval` is how often the workspace is walked; `settle` ignores files modified within that window (debounces mid-save writes). `enabled: false` makes each tick a **no-op** (no walk, no compile) while the loop keeps ticking and keeps re-reading config — flip it back to `true` and scanning resumes on the very next tick, no restart, no re-enable trap. An invalid edit (bad JSON, `interval <= 0`, negative `settle`) is logged `Warn` and the last-good settings are kept; the server never crashes on a bad reload. Because this block is re-sourced at runtime, once `serve` is running it is authoritative over the `--rescan-interval` flag and `REMINDB_RESCAN_INTERVAL`, which only seed the interval until the first config read and when no `rescan` block is present.
 
 **`budgets`** sets the default token budget for the four read tools that take one — `MemorySearch`, `MemoryFetch`, `MemoryFetchBatch`, `MemoryRelated`. Resolution is per-tool and local: an explicit positive `budget` on the call always wins; otherwise the configured default; otherwise the built-in. `MemoryRelated`'s built-in is 1000; the other three treat an unset budget as **unlimited** (no trimming). Write tools are unaffected.
 
