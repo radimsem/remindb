@@ -378,17 +378,6 @@ func (s *Store) ListFileSummaries(ctx context.Context) ([]FileSummary, error) {
 	return out, rows.Err()
 }
 
-// Replace every source file prefix matching oldPrefix with newPrefix.
-func (s *Store) ExecRewriteSourcePaths(ctx context.Context, oldPrefix, newPrefix string) error {
-	_, err := s.db.ExecContext(ctx, qRewriteSourcePaths, newPrefix, oldPrefix, oldPrefix)
-	return err
-}
-
-func (s *Store) ExecRewriteCompileRoots(ctx context.Context, oldPrefix, newPrefix string) error {
-	_, err := s.db.ExecContext(ctx, qRewriteCompileRoots, newPrefix, oldPrefix, oldPrefix)
-	return err
-}
-
 func BuildTree(nodes []*Node) (roots []*Node, children map[string][]*Node) {
 	children = make(map[string][]*Node, len(nodes))
 

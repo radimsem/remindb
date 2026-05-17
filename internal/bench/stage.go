@@ -9,6 +9,7 @@ import (
 
 	"github.com/radimsem/remindb/internal/fileext"
 	"github.com/radimsem/remindb/internal/ignore"
+	"github.com/radimsem/remindb/pkg/compiler"
 	"github.com/radimsem/remindb/pkg/config"
 	"github.com/radimsem/remindb/pkg/store"
 )
@@ -16,7 +17,6 @@ import (
 type benchStage struct {
 	dbPath  string
 	srcDir  string
-	userDir string
 	tmpRoot string
 }
 
@@ -27,11 +27,11 @@ func (s *benchStage) cleanup() {
 	_ = os.RemoveAll(s.tmpRoot)
 }
 
-// Copy the live DB and source directory into /tmp and rewrite the source file paths
-func stageBench(ctx context.Context, userDBPath, overrideDir string) (*benchStage, error) {
-	userDir, err := resolveSourceDir(ctx, userDBPath, overrideDir)
+// Copy the source tree into /tmp and fresh-compile it into an ephemeral DB so the baseline always matches the staged source.
+func stageBench(ctx context.Context, sourceDir string) (*benchStage, error) {
+	userDir, err := filepath.Abs(sourceDir)
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("failed to resolve: %s: %w", sourceDir, err)
 	}
 
 	matcher, err := ignore.Load(userDir)
@@ -45,14 +45,8 @@ func stageBench(ctx context.Context, userDBPath, overrideDir string) (*benchStag
 	}
 	stage := &benchStage{
 		tmpRoot: tmpRoot,
-		userDir: userDir,
 		dbPath:  filepath.Join(tmpRoot, "memory.db"),
 		srcDir:  filepath.Join(tmpRoot, "src"),
-	}
-
-	if err := copyDBFiles(userDBPath, stage.dbPath); err != nil {
-		stage.cleanup()
-		return nil, err
 	}
 
 	if err := copySourceTree(userDir, stage.srcDir, matcher); err != nil {
@@ -60,7 +54,7 @@ func stageBench(ctx context.Context, userDBPath, overrideDir string) (*benchStag
 		return nil, err
 	}
 
-	if err := rewriteSourcePaths(ctx, stage.dbPath, userDir, stage.srcDir); err != nil {
+	if err := compileBaseline(ctx, stage.dbPath, stage.srcDir); err != nil {
 		stage.cleanup()
 		return nil, err
 	}
@@ -68,46 +62,19 @@ func stageBench(ctx context.Context, userDBPath, overrideDir string) (*benchStag
 	return stage, nil
 }
 
-// Pick the source directory to bench against.
-func resolveSourceDir(ctx context.Context, userDBPath, override string) (string, error) {
-	if override != "" {
-		abs, err := filepath.Abs(override)
-		if err != nil {
-			return "", fmt.Errorf("failed to resolve: %s: %w", override, err)
-		}
-		return abs, nil
-	}
-
-	st, err := store.Open(userDBPath)
+// Compile with default options to match the bench MCP server (no --source → default config, no redactor) so the synthetic-change recompile diffs cleanly.
+func compileBaseline(ctx context.Context, dbPath, srcDir string) error {
+	st, err := store.Open(dbPath)
 	if err != nil {
-		return "", fmt.Errorf("failed to open: %s: %w", userDBPath, err)
+		return fmt.Errorf("failed to open: %s: %w", dbPath, err)
 	}
 	defer func() { _ = st.Close() }()
 
-	root, err := st.GetLatestCompileRoot(ctx)
-	if err != nil {
-		return "", fmt.Errorf("failed to read: compile_root: %w", err)
+	if err := st.Migrate(ctx); err != nil {
+		return fmt.Errorf("failed to migrate: %w", err)
 	}
-	if root == "" {
-		return "", fmt.Errorf("no compile_root recorded in db (pre-migration snapshot or write-only history); pass --dir")
-	}
-	return root, nil
-}
-
-// Copy the main DB file plus any adjacent WAL/SHM companions.
-func copyDBFiles(src, dst string) error {
-	if err := copyFile(src, dst); err != nil {
-		return fmt.Errorf("failed to copy: %s: %w", src, err)
-	}
-
-	for _, suffix := range []string{"-wal", "-shm"} {
-		from := src + suffix
-		if _, err := os.Stat(from); err != nil {
-			continue
-		}
-		if err := copyFile(from, dst+suffix); err != nil {
-			return fmt.Errorf("failed to copy: %s: %w", from, err)
-		}
+	if _, err := compiler.CompileDir(ctx, st, srcDir, "bench-baseline"); err != nil {
+		return fmt.Errorf("failed to compile: baseline: %w", err)
 	}
 	return nil
 }
@@ -167,20 +134,4 @@ func copySourceTree(src, dst string, matcher *ignore.Matcher) error {
 
 		return copyFile(path, target)
 	})
-}
-
-func rewriteSourcePaths(ctx context.Context, dbPath, userDir, stagedDir string) error {
-	st, err := store.Open(dbPath)
-	if err != nil {
-		return fmt.Errorf("failed to open: %s: %w", dbPath, err)
-	}
-	defer func() { _ = st.Close() }()
-
-	if err := st.ExecRewriteSourcePaths(ctx, userDir, stagedDir); err != nil {
-		return fmt.Errorf("failed to rewrite: source paths: %w", err)
-	}
-	if err := st.ExecRewriteCompileRoots(ctx, userDir, stagedDir); err != nil {
-		return fmt.Errorf("failed to rewrite: compile roots: %w", err)
-	}
-	return nil
 }
