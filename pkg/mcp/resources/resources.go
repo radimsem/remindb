@@ -27,4 +27,18 @@ func Register(srv *gomcp.Server, d *Deps) {
 		MIMEType:    mimeJSON,
 		Description: "Compiled source files grouped by compile root, with per-file node and token counts as stable JSON — the JSON twin of `remindb inspect --files`. Passive read: does not boost temperature or create a snapshot.",
 	}, d.HandleFiles)
+
+	srv.AddResource(&gomcp.Resource{
+		Name:        "tree",
+		URI:         TreeURI,
+		MIMEType:    mimeJSON,
+		Description: "Full parent/child node hierarchy as nested JSON — the structured twin of `MemoryTree`'s text. Passive read: does not boost temperature or create a snapshot.",
+	}, d.HandleTree)
+
+	srv.AddResourceTemplate(&gomcp.ResourceTemplate{
+		Name:        "tree-by-root",
+		URITemplate: TreeByRootTemplate,
+		MIMEType:    mimeJSON,
+		Description: "Node hierarchy rooted at {rootId}, optionally depth-bounded via ?depth=N (omitted = full subtree). Passive read: does not boost temperature or create a snapshot.",
+	}, d.HandleTreeByRoot)
 }

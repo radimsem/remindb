@@ -1091,6 +1091,139 @@ func TestMcp_FilesResource(t *testing.T) {
 	}
 }
 
+type treeNodeJSON struct {
+	ID          string          `json:"id"`
+	Type        string          `json:"type"`
+	Label       string          `json:"label"`
+	Depth       int             `json:"depth"`
+	Tokens      int             `json:"tokens"`
+	Temperature float64         `json:"temperature"`
+	Source      string          `json:"source"`
+	Children    []*treeNodeJSON `json:"children"`
+}
+
+type treeEnvJSON struct {
+	Roots []*treeNodeJSON `json:"roots"`
+}
+
+func TestMcp_TreeResource(t *testing.T) {
+	env := mcptest.NewEnv(t)
+	ctx := context.Background()
+
+	dir, _ := filepath.Abs("testdata/openclaw")
+	compileResult := env.CallTool(t, "MemoryCompile", map[string]any{
+		"path":    dir,
+		"message": "tree-resource-init",
+	})
+	if !strings.Contains(env.TextContent(t, compileResult), "compiled") {
+		t.Fatalf("seed compile failed: %s", env.TextContent(t, compileResult))
+	}
+
+	listed, err := env.Session.ListResources(ctx, &gomcp.ListResourcesParams{})
+	if err != nil {
+		t.Fatalf("ListResources: %v", err)
+	}
+	var tree *gomcp.Resource
+	for _, r := range listed.Resources {
+		if r.URI == "remindb://tree" {
+			tree = r
+		}
+	}
+	if tree == nil {
+		t.Fatalf("resources/list missing remindb://tree, got %d resources", len(listed.Resources))
+	}
+	if tree.MIMEType != "application/json" {
+		t.Errorf("tree MIME type = %q, want application/json", tree.MIMEType)
+	}
+
+	read, err := env.Session.ReadResource(ctx, &gomcp.ReadResourceParams{URI: "remindb://tree"})
+	if err != nil {
+		t.Fatalf("ReadResource(tree): %v", err)
+	}
+	if len(read.Contents) != 1 {
+		t.Fatalf("ReadResource returned %d contents, want 1", len(read.Contents))
+	}
+	if read.Contents[0].URI != "remindb://tree" {
+		t.Errorf("content URI = %q, want remindb://tree", read.Contents[0].URI)
+	}
+
+	var full treeEnvJSON
+	if err := json.Unmarshal([]byte(read.Contents[0].Text), &full); err != nil {
+		t.Fatalf("tree JSON not parseable: %v\nbody: %s", err, read.Contents[0].Text)
+	}
+	if len(full.Roots) == 0 {
+		t.Fatalf("full tree has no roots")
+	}
+
+	// Find a node two levels deep so depth-bounding is observable: it must have a child that itself has children.
+	var pivot *treeNodeJSON
+	var find func(n *treeNodeJSON)
+
+	find = func(n *treeNodeJSON) {
+		if pivot != nil {
+			return
+		}
+
+		for _, c := range n.Children {
+			if len(c.Children) > 0 {
+				pivot = n
+				return
+			}
+		}
+
+		for _, c := range n.Children {
+			find(c)
+		}
+	}
+	for _, r := range full.Roots {
+		find(r)
+	}
+	if pivot == nil {
+		t.Fatalf("no node with a grandchild found; cannot assert depth bounding")
+	}
+
+	// Shape: every node carries the full field set.
+	if pivot.ID == "" || pivot.Type == "" || pivot.Source == "" {
+		t.Errorf("pivot missing required fields: %+v", pivot)
+	}
+
+	uri := "remindb://tree/" + pivot.ID + "?depth=1"
+	bounded, err := env.Session.ReadResource(ctx, &gomcp.ReadResourceParams{URI: uri})
+	if err != nil {
+		t.Fatalf("ReadResource(%s): %v", uri, err)
+	}
+	if bounded.Contents[0].URI != uri {
+		t.Errorf("content URI = %q, want %q", bounded.Contents[0].URI, uri)
+	}
+
+	var sub treeEnvJSON
+	if err := json.Unmarshal([]byte(bounded.Contents[0].Text), &sub); err != nil {
+		t.Fatalf("bounded tree JSON not parseable: %v\nbody: %s", err, bounded.Contents[0].Text)
+	}
+	if len(sub.Roots) != 1 {
+		t.Fatalf("bounded read roots = %d, want 1", len(sub.Roots))
+	}
+
+	root := sub.Roots[0]
+	if root.ID != pivot.ID {
+		t.Errorf("bounded root id = %q, want %q", root.ID, pivot.ID)
+	}
+	if len(root.Children) == 0 {
+		t.Fatalf("depth=1 should include the first child level; got none")
+	}
+
+	for _, c := range root.Children {
+		if len(c.Children) != 0 {
+			t.Errorf("depth=1 not bounded: child %q has %d grandchildren", c.ID, len(c.Children))
+		}
+	}
+
+	// Unknown root → error.
+	if _, err := env.Session.ReadResource(ctx, &gomcp.ReadResourceParams{URI: "remindb://tree/does-not-exist"}); err == nil {
+		t.Errorf("ReadResource for unknown root: want error, got nil")
+	}
+}
+
 // Pulls every "id=XXXXXXXXXXX" occurrence out of a Format/FormatCompact output.
 func extractAllNodeIDs(s string) []string {
 	var out []string
