@@ -2,7 +2,7 @@
 
 > Two phases, one SQLite file in between.
 
-[← back to README](../README.md) · related: [node tree](./node-tree.md) · [versioning](./versioning.md) · [search](./search.md) · [temperature](./temperature.md)
+[← back to README](../README.md) · related: [node tree](./node-tree.md) · [versioning](./versioning.md) · [search](./search.md) · [temperature](./temperature.md) · [resources](./resources.md)
 
 <p align="center">
   <img src="../assets/arch.svg" alt="remindb architecture — compiler phase, SQLite, MCP runtime" width="100%" />
@@ -21,7 +21,7 @@ Here's what each layer is responsible for:
 | **Store** | SQLite with WAL mode. Tables: `nodes`, `snapshots`, `diffs`, `cursors`, `relations`, `pending_relations`, plus the `nodes_fts` virtual table. |
 | **Query Engine** | Token-budgeted context assembly. Walks ancestors and descendants via `parent_id`, ranks by relevance weighted by temperature, formats output. |
 | **Temperature** | Boosts on read, decays on a tick. Cold nodes get flagged for summarization. |
-| **MCP Server** | `modelcontextprotocol/go-sdk` over stdio or streamable HTTP. Registers the `Memory*` tool suite, dispatches to the query engine, and notifies clients when nodes go cold. |
+| **MCP Server** | `modelcontextprotocol/go-sdk` over stdio or streamable HTTP. Registers the `Memory*` tool suite plus read-only [resources](./resources.md) (`remindb://overview`), dispatches to the query engine, and notifies clients when nodes go cold. |
 | **Rescan Loop** | Optional background goroutine that polls the source directory and triggers incremental recompilation without bringing the server down. |
 
 The pipeline is `parser → transformer → emitter → store` on the way in, and `query → mcp/tools` on the way out. Each layer has its own deep-dive: the tree the parser and transformer produce is [the node tree](./node-tree.md); the diff engine and emitter back [versioning](./versioning.md); the query engine is [search](./search.md); the [temperature](./temperature.md) tracker is the only thing that mutates state in the background.

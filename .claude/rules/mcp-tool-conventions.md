@@ -280,6 +280,42 @@ Tool exists in code but invisible to its public skill = invisible to future Clau
 
 ---
 
+## 11. Resources Are Passive — The Inverse of a Read Tool ★
+
+MCP **resources** (`pkg/mcp/resources/`, registered via `srv.AddResource` / `srv.AddResourceTemplate`) are not tools and do not follow §5–7. A resource read is *passive observation* by a renderer (desktop client, dashboard), not the agent attending to memory. The contract is the inverse of a read tool:
+
+| | Read tool (`MemorySearch`, `MemoryFetch`, …) | Resource (`remindb://overview`) |
+|---|---|---|
+| Boost temperature | **Yes** — `boostResultNodes` | **Never** |
+| Take `Store.OpMu` | No | **Never** |
+| Emit a snapshot | No | **Never** |
+
+```go
+// Bad — resource handler boosting; the heatmap would measure its own rendering
+func (d *Deps) HandleOverview(ctx context.Context, _ *gomcp.ReadResourceRequest) (*gomcp.ReadResourceResult, error) {
+    stats, _ := inspect.Collect(ctx, d.Store)
+    d.Tracker.RecordAccess(ctx, ids)   // never — resources don't warm nodes
+    ...
+}
+
+// Bad — resource Deps carrying a Tracker/emitter at all; the invariant must be structural
+type Deps struct {
+    Store   *store.Store
+    Tracker *temperature.Tracker   // remove — a resource has nothing to boost
+}
+
+// Good — resource Deps has only what a pure read needs
+type Deps struct {
+    Store *store.Store
+}
+```
+
+Keep the no-boost/no-lock/no-snapshot guarantee structural: `resources.Deps` carries no `Tracker` and no emitter, so the invariant can't be broken by forgetting a convention. Resource handlers wrap errors per §8 (`failed to <verb>:` + `%w`) and return JSON via a typed envelope marshalled with `encoding/json` — never inline string-building, never a duplicate of a stat/query the tool layer already computes (`overview` is a pure projection of `inspect.Collect`, the same source `MemoryStats` formats as text).
+
+Adding, renaming, or reshaping a resource updates **`skills/remind/SKILL.md`** (resources are a read-surface concept) and **`docs/resources.md`** (the locked URI scheme + envelope) in the same commit, exactly as §10 requires for tools.
+
+---
+
 ## Anti-Patterns — Do Not
 
 - Tool name without `Memory` prefix.
@@ -294,6 +330,8 @@ Tool exists in code but invisible to its public skill = invisible to future Clau
 - Wrapping the error with `%s` instead of `%w`.
 - Adding/renaming/removing a tool without updating its public skill (`skills/remind/SKILL.md` for read tools, `skills/memoize/SKILL.md` for write tools, both when the change crosses the read/write boundary).
 - Wrapping `Store.OpMu` in helper methods like `LockOp` / `UnlockOp` (memory: "no wrapper methods around sync primitives").
+- A resource that boosts temperature, takes `Store.OpMu`, emits a snapshot, or carries a `Tracker`/emitter in its `Deps` (§11).
+- Adding/renaming/reshaping a resource without updating `skills/remind/SKILL.md` and `docs/resources.md` in the same commit.
 
 ---
 

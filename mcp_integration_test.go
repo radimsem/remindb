@@ -2,6 +2,7 @@ package remindb_test
 
 import (
 	"context"
+	"encoding/json"
 	"os"
 	"path/filepath"
 	"strings"
@@ -906,6 +907,84 @@ func TestMcp_ToolDiscovery(t *testing.T) {
 		if !found {
 			t.Errorf("tool %q not found in ListTools response", name)
 		}
+	}
+}
+
+func TestMcp_OverviewResource(t *testing.T) {
+	env := mcptest.NewEnv(t)
+	ctx := context.Background()
+
+	// Seed a node + snapshot so the envelope carries non-zero counts.
+	writeResult := env.CallTool(t, "MemoryWrite", map[string]any{
+		"payload": "Overview resource smoke content.",
+	})
+	if !strings.Contains(env.TextContent(t, writeResult), "wrote node") {
+		t.Fatalf("seed write failed: %s", env.TextContent(t, writeResult))
+	}
+
+	listed, err := env.Session.ListResources(ctx, &gomcp.ListResourcesParams{})
+	if err != nil {
+		t.Fatalf("ListResources: %v", err)
+	}
+
+	var overview *gomcp.Resource
+	for _, r := range listed.Resources {
+		if r.URI == "remindb://overview" {
+			overview = r
+		}
+	}
+	if overview == nil {
+		t.Fatalf("resources/list missing remindb://overview, got %d resources", len(listed.Resources))
+	}
+	if overview.MIMEType != "application/json" {
+		t.Errorf("overview MIME type = %q, want application/json", overview.MIMEType)
+	}
+
+	read, err := env.Session.ReadResource(ctx, &gomcp.ReadResourceParams{URI: "remindb://overview"})
+	if err != nil {
+		t.Fatalf("ReadResource: %v", err)
+	}
+	if len(read.Contents) != 1 {
+		t.Fatalf("ReadResource returned %d contents, want 1", len(read.Contents))
+	}
+
+	content := read.Contents[0]
+	if content.MIMEType != "application/json" {
+		t.Errorf("content MIME type = %q, want application/json", content.MIMEType)
+	}
+	if content.URI != "remindb://overview" {
+		t.Errorf("content URI = %q, want remindb://overview", content.URI)
+	}
+
+	var env2 struct {
+		DBPath string `json:"db_path"`
+		Nodes  struct {
+			Total  int            `json:"total"`
+			ByType map[string]int `json:"by_type"`
+			Tokens int64          `json:"tokens"`
+		} `json:"nodes"`
+		Snapshots struct {
+			Count  int   `json:"count"`
+			HeadID int64 `json:"head_id"`
+		} `json:"snapshots"`
+		Temperature struct {
+			Avg float64 `json:"avg"`
+		} `json:"temperature"`
+		Relations struct {
+			ByOrigin map[string]int `json:"by_origin"`
+			Pending  int            `json:"pending"`
+		} `json:"relations"`
+		FTSRows int `json:"fts_rows"`
+	}
+	if err := json.Unmarshal([]byte(content.Text), &env2); err != nil {
+		t.Fatalf("overview JSON not parseable: %v\nbody: %s", err, content.Text)
+	}
+
+	if env2.Nodes.Total < 1 {
+		t.Errorf("nodes.total = %d, want >= 1 after a seeded write", env2.Nodes.Total)
+	}
+	if env2.Snapshots.Count < 1 || env2.Snapshots.HeadID < 1 {
+		t.Errorf("snapshots = %+v, want count>=1 and head_id>=1", env2.Snapshots)
 	}
 }
 
