@@ -20,7 +20,7 @@ func newTestServer(t *testing.T, notify, cold float64) *Server {
 	cfg.NotifyThreshold = notify
 	cfg.TickInterval = time.Minute
 
-	tracker, err := temperature.NewTracker(st, cfg, nil)
+	tracker, err := temperature.NewTracker(st, "", cfg, nil)
 	if err != nil {
 		t.Fatalf("NewTracker: %v", err)
 	}

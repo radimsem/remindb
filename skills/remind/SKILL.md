@@ -78,6 +78,8 @@ After each tick the server pushes a cold-node nudge to every client session that
 
 Dedup with hysteresis: a node is notified once when it drops below `NotifyThreshold`, suppressed until it warms above and re-cools. Treat it as a direct cue to `MemorySummarize` the listed `id`s — `memoize` owns that workflow (`MemoryFetch` then `MemorySummarize`).
 
+The whole stream can be **frozen at runtime**: setting `temperature.enabled: false` in `.remindb/config.json` makes the ticker perform no decay and push no notifications (live-reloaded at the next tick, no restart). Silence here may mean the brain is frozen, not that nothing is cold — it resumes on the next tick after `enabled` flips back to `true`.
+
 ### Budgets
 
 Every read tool takes a `budget` (int, tokens); the engine fills to it and stops. Guidance: `500` scoped fact · `1000` topic exploration · `1500` broad sweep.

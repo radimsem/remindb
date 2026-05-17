@@ -1,12 +1,19 @@
 package temperature
 
 import (
+	"bytes"
 	"context"
+	"log/slog"
 	"math"
+	"os"
+	"path/filepath"
+	"strings"
+	"sync/atomic"
 	"testing"
 	"time"
 
 	"github.com/radimsem/remindb/internal/testutil"
+	"github.com/radimsem/remindb/pkg/config"
 	"github.com/radimsem/remindb/pkg/store"
 )
 
@@ -28,11 +35,167 @@ func seedNode(t *testing.T, st *store.Store, id string, temp float64) {
 
 func mustNewTracker(t *testing.T, st NodeStore, cfg Config) *Tracker {
 	t.Helper()
-	tr, err := NewTracker(st, cfg, nil)
+	tr, err := NewTracker(st, "", cfg, nil)
 	if err != nil {
 		t.Fatalf("NewTracker: %v", err)
 	}
 	return tr
+}
+
+func writeConfig(t *testing.T, dir, content string) {
+	t.Helper()
+	p := filepath.Join(dir, config.Path)
+
+	if err := os.MkdirAll(filepath.Dir(p), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(p, []byte(content), 0o644); err != nil {
+		t.Fatal(err)
+	}
+}
+
+// countingStore satisfies NodeStore and tallies decay/cold-query calls so a disabled tick can be proven a no-op.
+type countingStore struct {
+	decays atomic.Int32
+	colds  atomic.Int32
+}
+
+func (c *countingStore) BoostTemperatureBatch(context.Context, []string, float64) error {
+	return nil
+}
+
+func (c *countingStore) DecayTemperatures(context.Context, float64) (int64, error) {
+	c.decays.Add(1)
+	return 0, nil
+}
+
+func (c *countingStore) GetColdNodes(context.Context, float64, int) ([]*store.Node, error) {
+	c.colds.Add(1)
+	return nil, nil
+}
+
+func TestTracker_ReloadDefaultsWhenConfigAbsent(t *testing.T) {
+	dir := t.TempDir()
+
+	bootstrap := DefaultConfig()
+	bootstrap.TickInterval = 42 * time.Minute
+
+	tr, err := NewTracker(&countingStore{}, dir, bootstrap, nil)
+	if err != nil {
+		t.Fatalf("NewTracker: %v", err)
+	}
+
+	if changed := tr.reloadConfig(); changed {
+		t.Error("interval should not change vs bootstrap when no config block present")
+	}
+
+	cfg, enabled := tr.snapshot()
+	if !enabled {
+		t.Error("enabled should default to true when block absent")
+	}
+	if cfg != bootstrap {
+		t.Errorf("cfg = %+v, want bootstrap %+v", cfg, bootstrap)
+	}
+}
+
+func TestTracker_ReloadAppliesBlock(t *testing.T) {
+	dir := t.TempDir()
+	writeConfig(t, dir, `{"temperature":{"enabled":false,"tick_interval":"5s"}}`)
+
+	tr, err := NewTracker(&countingStore{}, dir, DefaultConfig(), nil)
+	if err != nil {
+		t.Fatalf("NewTracker: %v", err)
+	}
+
+	if !tr.reloadConfig() {
+		t.Error("interval changed 5m→5s, want intervalChanged=true")
+	}
+
+	cfg, enabled := tr.snapshot()
+	if enabled {
+		t.Error("enabled should be false from config")
+	}
+	if cfg.TickInterval != 5*time.Second {
+		t.Errorf("TickInterval = %v, want 5s", cfg.TickInterval)
+	}
+
+	if tr.reloadConfig() {
+		t.Error("re-reading identical config must report no interval change")
+	}
+}
+
+func TestTracker_InvalidReloadKeepsLastGood(t *testing.T) {
+	dir := t.TempDir()
+	writeConfig(t, dir, `{"temperature":{"enabled":false,"tick_interval":"5s"}}`)
+
+	var buf bytes.Buffer
+	logger := slog.New(slog.NewTextHandler(&buf, &slog.HandlerOptions{Level: slog.LevelWarn}))
+
+	tr, err := NewTracker(&countingStore{}, dir, DefaultConfig(), logger)
+	if err != nil {
+		t.Fatalf("NewTracker: %v", err)
+	}
+
+	tr.reloadConfig()
+	if cfg, enabled := tr.snapshot(); enabled || cfg.TickInterval != 5*time.Second {
+		t.Fatalf("precondition: good config not applied (enabled=%v interval=%v)", enabled, cfg.TickInterval)
+	}
+
+	// AccessBoost > 1 fails temperature.Config.Validate after the override.
+	writeConfig(t, dir, `{"temperature":{"access_boost":2.0}}`)
+	if tr.reloadConfig() {
+		t.Error("invalid reload must not report an interval change")
+	}
+
+	if cfg, enabled := tr.snapshot(); enabled || cfg.TickInterval != 5*time.Second {
+		t.Errorf("last-good not retained: enabled=%v interval=%v", enabled, cfg.TickInterval)
+	}
+	if !strings.Contains(buf.String(), "level=WARN") {
+		t.Errorf("expected WARN on invalid reload, got %q", buf.String())
+	}
+
+	// Hash was not advanced on failure, so the next valid write is picked up.
+	writeConfig(t, dir, `{"temperature":{"tick_interval":"7s"}}`)
+	tr.reloadConfig()
+	if cfg, _ := tr.snapshot(); cfg.TickInterval != 7*time.Second {
+		t.Errorf("recovery after invalid reload: TickInterval = %v, want 7s", cfg.TickInterval)
+	}
+}
+
+func TestTracker_DisabledTickIsNoopThenResumes(t *testing.T) {
+	dir := t.TempDir()
+	cs := &countingStore{}
+
+	tr, err := NewTracker(cs, dir, DefaultConfig(), nil)
+	if err != nil {
+		t.Fatalf("NewTracker: %v", err)
+	}
+
+	writeConfig(t, dir, `{"temperature":{"enabled":false,"tick_interval":"20ms"}}`)
+
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	done := make(chan struct{})
+	go func() {
+		tr.Run(ctx, nil)
+		close(done)
+	}()
+
+	time.Sleep(150 * time.Millisecond) // many 20ms ticks while disabled
+	if d, c := cs.decays.Load(), cs.colds.Load(); d != 0 || c != 0 {
+		t.Fatalf("disabled loop decayed %d / queried cold %d times, want 0/0", d, c)
+	}
+
+	writeConfig(t, dir, `{"temperature":{"enabled":true,"tick_interval":"20ms"}}`)
+	time.Sleep(150 * time.Millisecond) // a later tick reloads → enabled → decays
+
+	if cs.decays.Load() == 0 {
+		t.Error("re-enabling did not resume decay on a subsequent tick (no restart expected)")
+	}
+
+	cancel()
+	<-done
 }
 
 func TestRecordAccess(t *testing.T) {

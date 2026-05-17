@@ -71,6 +71,7 @@ type RescanConfig struct {
 }
 
 type TemperatureConfig struct {
+	Enabled          *bool     `json:"enabled,omitempty"`
 	DecayRate        *float64  `json:"decay_rate,omitempty"`
 	AccessBoost      *float64  `json:"access_boost,omitempty"`
 	ColdThreshold    *float64  `json:"cold_threshold,omitempty"`

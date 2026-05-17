@@ -82,8 +82,8 @@ func runServe(cmd *cobra.Command, _ []string) error {
 		defer func() { _ = logFile.Close() }()
 	}
 
-	cfg := applyTemperatureOverrides(temperature.DefaultConfig(), workspaceCfg.Temperature)
-	if err := cfg.Validate(); err != nil {
+	startCfg := temperature.DefaultConfig().WithOverrides(workspaceCfg.Temperature)
+	if err := startCfg.Validate(); err != nil {
 		return fmt.Errorf("invalid temperature config in %s: %w", config.Path, err)
 	}
 
@@ -97,12 +97,12 @@ func runServe(cmd *cobra.Command, _ []string) error {
 		return fmt.Errorf("failed to build: redactor: %w", err)
 	}
 
-	tracker, err := temperature.NewTracker(st, cfg, logger)
+	tracker, err := temperature.NewTracker(st, sourceDir, temperature.DefaultConfig(), logger)
 	if err != nil {
 		return err
 	}
 
-	srv, err := remindb.NewServer(st, tracker, cfg,
+	srv, err := remindb.NewServer(st, tracker, startCfg,
 		remindb.WithSourceDir(sourceDir),
 		remindb.WithLogger(logger),
 		remindb.WithTransport(transport),
@@ -114,7 +114,7 @@ func runServe(cmd *cobra.Command, _ []string) error {
 		return fmt.Errorf("failed to build: server: %w", err)
 	}
 
-	logger.Info("serve: starting", startupAttrs(cfg.TickInterval)...)
+	logger.Info("serve: starting", startupAttrs(startCfg.TickInterval)...)
 
 	go checkLatestVersion(ctx, version.Get(), logger)
 
@@ -159,34 +159,6 @@ func runServe(cmd *cobra.Command, _ []string) error {
 	logger.Info("serve: stopped")
 
 	return nil
-}
-
-func applyTemperatureOverrides(base temperature.Config, o config.TemperatureConfig) temperature.Config {
-	if o.DecayRate != nil {
-		base.DecayRate = *o.DecayRate
-	}
-	if o.AccessBoost != nil {
-		base.AccessBoost = *o.AccessBoost
-	}
-	if o.ColdThreshold != nil {
-		base.ColdThreshold = *o.ColdThreshold
-	}
-	if o.NotifyThreshold != nil {
-		base.NotifyThreshold = *o.NotifyThreshold
-	}
-	if o.SummarizeRebound != nil {
-		base.SummarizeRebound = *o.SummarizeRebound
-	}
-	if o.TickInterval != nil {
-		base.TickInterval = time.Duration(*o.TickInterval)
-	}
-	if o.ColdNotifyTTL != nil {
-		base.ColdNotifyTTL = time.Duration(*o.ColdNotifyTTL)
-	}
-	if o.ColdNotifyLimit != nil {
-		base.ColdNotifyLimit = *o.ColdNotifyLimit
-	}
-	return base
 }
 
 func applyRedactionOverrides(base redaction.Config, o config.RedactionConfig) (redaction.Config, error) {

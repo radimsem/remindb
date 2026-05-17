@@ -22,7 +22,7 @@ func NewEnv(t *testing.T) *Env {
 
 	st := testutil.OpenTestDB(t)
 	cfg := temperature.DefaultConfig()
-	tracker, err := temperature.NewTracker(st, cfg, nil)
+	tracker, err := temperature.NewTracker(st, "", cfg, nil)
 	if err != nil {
 		t.Fatalf("NewTracker: %v", err)
 	}
@@ -57,7 +57,7 @@ func NewHttpEnv(t *testing.T) *Env {
 	st := testutil.OpenTestDB(t)
 	cfg := temperature.DefaultConfig()
 
-	tracker, err := temperature.NewTracker(st, cfg, nil)
+	tracker, err := temperature.NewTracker(st, "", cfg, nil)
 	if err != nil {
 		t.Fatalf("NewTracker: %v", err)
 	}

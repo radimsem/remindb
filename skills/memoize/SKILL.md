@@ -227,7 +227,7 @@ remindb__MemorySummarize(node_id="<id>", summary="…", temperature=0.7) # overr
 
 `MemorySummarize`: replaces content, recomputes `token_count`, rewrites label to `"Summary: <first line>"` (≤70 chars incl. prefix); **preserves `node_type`, `parent_id`, source**; **bumps temperature to `SummarizeRebound` (default 0.5)** so it leaves the cold set immediately (optional `temperature` ∈ `[0,1]` overrides); snapshots (prior wording recoverable via `MemoryHistory`).
 
-Same shape rules apply to the `summary` — give it headings/a list; a dense paragraph is what you're compacting *away from*. The summary should index *better* than the original, not just be shorter. Notifications dedup per `ColdNotifyTTL` (default 1 hour); the next reminder only arrives if the node decays back below `ColdThreshold`.
+Same shape rules apply to the `summary` — give it headings/a list; a dense paragraph is what you're compacting *away from*. The summary should index *better* than the original, not just be shorter. Notifications dedup per `ColdNotifyTTL` (default 1 hour); the next reminder only arrives if the node decays back below `ColdThreshold`. When a deployment sets `temperature.enabled: false` the ticker is frozen — no cold notifications fire, so this handoff simply never triggers until temperature is re-enabled (you can still summarize a node proactively).
 
 ## Recompile when the source drifts
 

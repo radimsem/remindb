@@ -33,7 +33,7 @@ func setup(t *testing.T) (*Deps, *store.Store) {
 	}
 	t.Cleanup(func() { _ = st.Close() })
 
-	tracker, err := temperature.NewTracker(st, temperature.DefaultConfig(), nil)
+	tracker, err := temperature.NewTracker(st, "", temperature.DefaultConfig(), nil)
 	if err != nil {
 		t.Fatalf("NewTracker: %v", err)
 	}
