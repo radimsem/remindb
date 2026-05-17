@@ -10,7 +10,9 @@ import (
 type ColdHandler func(ctx context.Context, nodes []*store.Node)
 
 func (t *Tracker) Run(ctx context.Context, handler ColdHandler) {
-	ticker := time.NewTicker(t.cfg.TickInterval)
+	t.reloadConfig()
+
+	ticker := time.NewTicker(t.tickInterval())
 	defer ticker.Stop()
 
 	for {
@@ -18,7 +20,17 @@ func (t *Tracker) Run(ctx context.Context, handler ColdHandler) {
 		case <-ctx.Done():
 			return
 		case <-ticker.C:
-			result, err := t.Tick(ctx, t.cfg.TickInterval)
+			if t.reloadConfig() {
+				ticker.Reset(t.tickInterval())
+			}
+
+			cfg, enabled := t.snapshot()
+			if !enabled {
+				t.logger.Debug("temperature: disabled; skipping tick")
+				continue
+			}
+
+			result, err := t.Tick(ctx, cfg.TickInterval)
 			if err != nil {
 				t.logger.Error("temperature tick failed", "err", err)
 				continue
@@ -34,4 +46,16 @@ func (t *Tracker) Run(ctx context.Context, handler ColdHandler) {
 			}
 		}
 	}
+}
+
+// Resolve the ticker period, falling back to the bootstrap default when a disabled config left it non-positive.
+func (t *Tracker) tickInterval() time.Duration {
+	t.mu.Lock()
+	d := t.cfg.TickInterval
+	t.mu.Unlock()
+
+	if d <= 0 {
+		return t.bootstrap.TickInterval
+	}
+	return d
 }
