@@ -112,6 +112,68 @@ func TestCollect_PopulatesAllFields(t *testing.T) {
 	}
 }
 
+func TestCollect_RelationCountIncludesPending(t *testing.T) {
+	st := openTestStore(t)
+	ctx := context.Background()
+
+	for _, n := range []*store.Node{
+		testNode("aaaaaaaa", "", "heading"),
+		testNode("bbbbbbbb", "", "list"),
+	} {
+		if err := st.UpsertNode(ctx, n); err != nil {
+			t.Fatalf("UpsertNode: %v", err)
+		}
+	}
+
+	if err := st.UpsertRelation(ctx, &store.Relation{
+		SourceNodeID: "aaaaaaaa", TargetNodeID: "bbbbbbbb",
+		Weight: 1.0, Origin: store.OriginParsed,
+	}); err != nil {
+		t.Fatalf("UpsertRelation: %v", err)
+	}
+	for range 3 {
+		if err := st.InsertPendingRelation(ctx, &store.PendingRelation{
+			SourceNodeID: "aaaaaaaa", TargetLabel: "missing",
+			Weight: 1.0, Origin: store.OriginParsed,
+		}); err != nil {
+			t.Fatalf("InsertPendingRelation: %v", err)
+		}
+	}
+
+	s, err := inspect.Collect(ctx, st)
+	if err != nil {
+		t.Fatalf("Collect: %v", err)
+	}
+
+	originSum := 0
+	for _, v := range s.RelationsByOrigin {
+		originSum += v
+	}
+
+	want := originSum + s.PendingRelationCount
+	if s.RelationCount != want {
+		t.Errorf("RelationCount = %d, want Σorigins(%d) + pending(%d) = %d",
+			s.RelationCount, originSum, s.PendingRelationCount, want)
+	}
+	if s.PendingRelationCount != 3 {
+		t.Errorf("PendingRelationCount = %d, want 3", s.PendingRelationCount)
+	}
+}
+
+// MemoryStats stays lossless: large token totals render as exact integers.
+func TestFormat_TokenCountExact(t *testing.T) {
+	s := &inspect.Stats{
+		DBPath:          ":memory:",
+		NodeCount:       7,
+		TokenCountTotal: 359297,
+	}
+
+	out := inspect.Format(s)
+	if !strings.Contains(out, "359297 tokens") {
+		t.Errorf("Format must emit exact token count, got:\n%s", out)
+	}
+}
+
 func TestFormat_TreeBranches(t *testing.T) {
 	s := &inspect.Stats{
 		DBPath:        ":memory:",

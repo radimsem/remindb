@@ -71,7 +71,7 @@ func Collect(ctx context.Context, st *store.Store) (*Stats, error) {
 		TokenCountTotal:      core.TokenCountTotal,
 		FTSRowCount:          core.FTSRowCount,
 		NodeCountsByType:     byType,
-		RelationCount:        relTotal,
+		RelationCount:        relTotal + core.PendingRelationCount,
 		RelationsByOrigin:    byOrigin,
 		PendingRelationCount: core.PendingRelationCount,
 	}
