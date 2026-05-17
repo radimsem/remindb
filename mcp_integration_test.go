@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"testing"
 
@@ -1221,6 +1222,171 @@ func TestMcp_TreeResource(t *testing.T) {
 	// Unknown root → error.
 	if _, err := env.Session.ReadResource(ctx, &gomcp.ReadResourceParams{URI: "remindb://tree/does-not-exist"}); err == nil {
 		t.Errorf("ReadResource for unknown root: want error, got nil")
+	}
+}
+
+type snapshotEntryJSON struct {
+	ID          int64  `json:"id"`
+	ParentID    *int64 `json:"parent_id"`
+	Message     string `json:"message"`
+	CompileRoot string `json:"compile_root"`
+	CreatedAt   int64  `json:"created_at"`
+	IsHead      bool   `json:"is_head"`
+}
+
+type snapshotsEnvJSON struct {
+	Snapshots []snapshotEntryJSON `json:"snapshots"`
+}
+
+type snapshotDiffsEnvJSON struct {
+	SnapshotID int64 `json:"snapshot_id"`
+	Diffs      []struct {
+		Op         string `json:"op"`
+		NodeID     string `json:"node_id"`
+		OldHash    string `json:"old_hash"`
+		NewHash    string `json:"new_hash"`
+		OldContent string `json:"old_content"`
+		NewContent string `json:"new_content"`
+	} `json:"diffs"`
+}
+
+func TestMcp_SnapshotsResource(t *testing.T) {
+	env := mcptest.NewEnv(t)
+	ctx := context.Background()
+
+	// Seed a chain: compile (snap1) → write (snap2) → write (snap3, HEAD).
+	dir, _ := filepath.Abs("testdata/openclaw")
+	compileResult := env.CallTool(t, "MemoryCompile", map[string]any{
+		"path":    dir,
+		"message": "snapshots-resource-init",
+	})
+	if !strings.Contains(env.TextContent(t, compileResult), "compiled") {
+		t.Fatalf("seed compile failed: %s", env.TextContent(t, compileResult))
+	}
+
+	env.CallTool(t, "MemoryWrite", map[string]any{"payload": "Snapshots resource note one."})
+	env.CallTool(t, "MemoryWrite", map[string]any{"payload": "Snapshots resource note two."})
+
+	listed, err := env.Session.ListResources(ctx, &gomcp.ListResourcesParams{})
+	if err != nil {
+		t.Fatalf("ListResources: %v", err)
+	}
+
+	var snapshots *gomcp.Resource
+	for _, r := range listed.Resources {
+		if r.URI == "remindb://snapshots" {
+			snapshots = r
+		}
+	}
+	if snapshots == nil {
+		t.Fatalf("resources/list missing remindb://snapshots, got %d resources", len(listed.Resources))
+	}
+	if snapshots.MIMEType != "application/json" {
+		t.Errorf("snapshots MIME type = %q, want application/json", snapshots.MIMEType)
+	}
+
+	// Full history: ordered newest-first, parent chain intact, exactly one HEAD.
+	read, err := env.Session.ReadResource(ctx, &gomcp.ReadResourceParams{URI: "remindb://snapshots"})
+	if err != nil {
+		t.Fatalf("ReadResource(snapshots): %v", err)
+	}
+	if len(read.Contents) != 1 {
+		t.Fatalf("ReadResource returned %d contents, want 1", len(read.Contents))
+	}
+	if read.Contents[0].URI != "remindb://snapshots" {
+		t.Errorf("content URI = %q, want remindb://snapshots", read.Contents[0].URI)
+	}
+
+	var full snapshotsEnvJSON
+	if err := json.Unmarshal([]byte(read.Contents[0].Text), &full); err != nil {
+		t.Fatalf("snapshots JSON not parseable: %v\nbody: %s", err, read.Contents[0].Text)
+	}
+	if len(full.Snapshots) < 3 {
+		t.Fatalf("snapshots = %d, want >= 3 (compile + 2 writes)", len(full.Snapshots))
+	}
+
+	for i := 1; i < len(full.Snapshots); i++ {
+		if full.Snapshots[i-1].ID <= full.Snapshots[i].ID {
+			t.Errorf("snapshots not newest-first: id %d before %d", full.Snapshots[i-1].ID, full.Snapshots[i].ID)
+		}
+	}
+
+	oldest := full.Snapshots[len(full.Snapshots)-1]
+	if oldest.ParentID != nil {
+		t.Errorf("oldest snapshot parent_id = %d, want null (root has no parent)", *oldest.ParentID)
+	}
+
+	for i := 0; i < len(full.Snapshots)-1; i++ {
+		s := full.Snapshots[i]
+		if s.ParentID == nil || *s.ParentID != full.Snapshots[i+1].ID {
+			t.Errorf("snapshot %d parent_id = %v, want %d (chains to previous)", s.ID, s.ParentID, full.Snapshots[i+1].ID)
+		}
+	}
+
+	headCount := 0
+	for _, s := range full.Snapshots {
+		if s.IsHead {
+			headCount++
+		}
+	}
+	if headCount != 1 {
+		t.Errorf("is_head count = %d, want exactly 1", headCount)
+	}
+	if !full.Snapshots[0].IsHead {
+		t.Errorf("newest snapshot %d is_head=false, want true (HEAD is the latest write)", full.Snapshots[0].ID)
+	}
+
+	// Templated ?limit bounds to the newest N.
+	limited, err := env.Session.ReadResource(ctx, &gomcp.ReadResourceParams{URI: "remindb://snapshots?limit=1"})
+	if err != nil {
+		t.Fatalf("ReadResource(snapshots?limit=1): %v", err)
+	}
+	if limited.Contents[0].URI != "remindb://snapshots?limit=1" {
+		t.Errorf("content URI = %q, want remindb://snapshots?limit=1", limited.Contents[0].URI)
+	}
+
+	var bounded snapshotsEnvJSON
+	if err := json.Unmarshal([]byte(limited.Contents[0].Text), &bounded); err != nil {
+		t.Fatalf("bounded snapshots JSON not parseable: %v\nbody: %s", err, limited.Contents[0].Text)
+	}
+	if len(bounded.Snapshots) != 1 {
+		t.Fatalf("limit=1 returned %d snapshots, want 1", len(bounded.Snapshots))
+	}
+	if bounded.Snapshots[0].ID != full.Snapshots[0].ID || !bounded.Snapshots[0].IsHead {
+		t.Errorf("limit=1 snapshot = %+v, want the HEAD (%d)", bounded.Snapshots[0], full.Snapshots[0].ID)
+	}
+
+	// Templated per-snapshot diffs for the HEAD write.
+	headID := full.Snapshots[0].ID
+	diffURI := "remindb://snapshots/" + strconv.FormatInt(headID, 10) + "/diffs"
+	diffRead, err := env.Session.ReadResource(ctx, &gomcp.ReadResourceParams{URI: diffURI})
+	if err != nil {
+		t.Fatalf("ReadResource(%s): %v", diffURI, err)
+	}
+	if diffRead.Contents[0].URI != diffURI {
+		t.Errorf("content URI = %q, want %q", diffRead.Contents[0].URI, diffURI)
+	}
+
+	var diffs snapshotDiffsEnvJSON
+	if err := json.Unmarshal([]byte(diffRead.Contents[0].Text), &diffs); err != nil {
+		t.Fatalf("snapshot diffs JSON not parseable: %v\nbody: %s", err, diffRead.Contents[0].Text)
+	}
+
+	if diffs.SnapshotID != headID {
+		t.Errorf("snapshot_id = %d, want %d", diffs.SnapshotID, headID)
+	}
+	if len(diffs.Diffs) == 0 {
+		t.Fatalf("HEAD write produced no diff records")
+	}
+	for _, d := range diffs.Diffs {
+		if d.Op == "" || d.NodeID == "" {
+			t.Errorf("diff missing op/node_id: %+v", d)
+		}
+	}
+
+	// A non-numeric snapshot id is an error, not an empty body.
+	if _, err := env.Session.ReadResource(ctx, &gomcp.ReadResourceParams{URI: "remindb://snapshots/not-an-int/diffs"}); err == nil {
+		t.Errorf("ReadResource for bad snapshot id: want error, got nil")
 	}
 }
 

@@ -22,17 +22,20 @@ This is the inverse of the read-tool discipline in [`.claude/rules/mcp-tool-conv
 
 ## URI scheme
 
-Resources are addressed under the `remindb://` scheme. Most are **static** (a fixed URI, no parameters); one is **templated** (a URI pattern with a variable):
+Resources are addressed under the `remindb://` scheme. Most are **static** (a fixed URI, no parameters); some are **templated** (a URI pattern with a variable):
 
 ```
-remindb://overview              →   application/json   (static)
-remindb://files                 →   application/json   (static)
-remindb://tree                  →   application/json   (static — full hierarchy)
-remindb://tree/{rootId}{?depth} →   application/json   (templated — bounded subtree)
-remindb://graph                 →   application/json   (static — relations graph)
+remindb://overview                →   application/json   (static)
+remindb://files                   →   application/json   (static)
+remindb://tree                    →   application/json   (static — full hierarchy)
+remindb://tree/{rootId}{?depth}   →   application/json   (templated — bounded subtree)
+remindb://graph                   →   application/json   (static — relations graph)
+remindb://snapshots               →   application/json   (static — full history)
+remindb://snapshots{?limit}       →   application/json   (templated — newest N)
+remindb://snapshots/{id}/diffs    →   application/json   (templated — per-snapshot diffs)
 ```
 
-Static resources answer "what is the state of the whole database". The templated `remindb://tree/{rootId}{?depth}` (registered via `AddResourceTemplate`, RFC 6570 form so the matcher spans the optional `?depth=N` query) answers "the subtree under this node". The static/templated split is a deliberately separate mechanism mirroring the resources/tools split: predictable surface first, parameterised surface only where a concrete need appeared.
+Static resources answer "what is the state of the whole database". The templated forms (registered via `AddResourceTemplate`, RFC 6570 so the matcher spans the optional query / path variable) answer a narrower question: `remindb://tree/{rootId}{?depth}` the subtree under a node, `remindb://snapshots{?limit}` the newest N snapshots, `remindb://snapshots/{id}/diffs` the diffs of one snapshot. The static/templated split is a deliberately separate mechanism mirroring the resources/tools split: predictable surface first, parameterised surface only where a concrete need appeared.
 
 ## The `overview` envelope
 
@@ -40,12 +43,12 @@ Static resources answer "what is the state of the whole database". The templated
 
 ```json
 {
-  "db_path": "...", "db_bytes": 0,
-  "nodes":       { "total": 0, "by_type": { "heading": 0 }, "tokens": 0 },
-  "snapshots":   { "count": 0, "head_id": 0, "cursor_hash": "", "latest_message": "", "latest_age_s": 0 },
-  "temperature": { "avg": 0.0, "median": 0.0, "hot": 0, "cold": 0, "pinned": 0 },
-  "relations":   { "total": 0, "by_origin": { "parsed": 0, "manual": 0 }, "pending": 0 },
-  "fts_rows": 0
+  "db_path": "/repo/.remindb/memory.db", "db_bytes": 196608,
+  "nodes":       { "total": 142, "by_type": { "heading": 38, "text": 96, "code": 8 }, "tokens": 18450 },
+  "snapshots":   { "count": 7, "head_id": 7, "cursor_hash": "9f3c1a7e", "latest_message": "write:aB3", "latest_age_s": 42 },
+  "temperature": { "avg": 0.37, "median": 0.31, "hot": 12, "cold": 48, "pinned": 3 },
+  "relations":   { "total": 27, "by_origin": { "parsed": 22, "manual": 5 }, "pending": 4 },
+  "fts_rows": 142
 }
 ```
 
@@ -134,6 +137,35 @@ The shape is **locked** — clients depend on these keys. Notes:
 - `edges` are resolved relations (both endpoints exist). `origin` is `parsed` (from the weight wiki-link syntax) or `manual` (from `MemoryRelate`); `weight` defaults to `1.0`. Each edge is directed `source → target`.
 - `pending` are unresolved edges: the `source` node exists but the target was never resolved to a node, so it is described by `target_label` / `target_source` / `target_id_hint` (any may be empty) instead of a `target` id. Pending edges are kept a distinct array — never folded into `edges` — so a client can render them differently (dashed, greyed).
 - All three keys are always present; an empty database → `{"nodes":[],"edges":[],"pending":[]}`, never `null`.
+
+## The `snapshots` envelope
+
+`remindb://snapshots` exposes the version history behind `MemoryHistory` — every snapshot, newest-first, with the parent links that reconstruct branch topology. It is pure exposure: rows come straight from `store.ListSnapshots`, the HEAD marker from `store.GetHeadSnapshotID` — no new diff logic. `remindb://snapshots{?limit}` returns just the newest `?limit=N` (omit for full history). `remindb://snapshots/{id}/diffs` returns the per-snapshot diff records (`store.GetDiffsBySnapshot`), the data behind `MemoryDelta`.
+
+```json
+{
+  "snapshots": [
+    { "id": 3, "parent_id": 2, "message": "write:aB3", "compile_root": "/repo", "created_at": 1737072000, "is_head": true },
+    { "id": 1, "parent_id": null, "message": "compile", "compile_root": "/repo", "created_at": 1737070000, "is_head": false }
+  ]
+}
+```
+
+```json
+{
+  "snapshot_id": 3,
+  "diffs": [
+    { "op": "mod", "node_id": "aB3", "old_hash": "h1", "new_hash": "h2", "old_content": "before", "new_content": "after" }
+  ]
+}
+```
+
+The shape is **locked** — clients depend on these keys. Notes:
+
+- Snapshots preserve store order (newest `id` first); the timeline UI reverses for display. `parent_id` is JSON `null` for a root snapshot, never `0` — that distinction is what lets a client draw branches.
+- `is_head` marks the snapshot at the cursor. At most one is `true`; if no snapshot has been recorded, none is.
+- `snapshots` and `diffs` are always present; an empty database / a snapshot with no diffs → `[]`, never `null`.
+- An unparseable `{id}` or non-positive `?limit` is an **error**, not an empty body — the client gets a failed read.
 
 ## What stays out
 
