@@ -19,7 +19,7 @@ var rootCmd = &cobra.Command{
 }
 
 func init() {
-	rootCmd.PersistentFlags().StringVar(&dbPath, "db", "memory.db", "Path to the SQLite database (compile/bench derive ./<dirname>.db when given a directory and --db is unset)")
+	rootCmd.PersistentFlags().StringVar(&dbPath, "db", "memory.db", "Path to the SQLite database (compile derives ./<dirname>.db when given a directory and --db is unset)")
 }
 
 func absolutizeDBPath() error {

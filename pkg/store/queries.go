@@ -128,12 +128,6 @@ const (
 		SELECT nid FROM desc_ids ORDER BY nid`
 
 	qReparentChildren = `UPDATE nodes SET parent_id = ?, updated_at = unixepoch() WHERE parent_id = ?`
-
-	qRewriteSourcePaths = `UPDATE nodes SET source_file = ? || substr(source_file, length(?) + 1)
-		WHERE source_file LIKE ? || '%'`
-
-	qRewriteCompileRoots = `UPDATE snapshots SET compile_root = ? || substr(compile_root, length(?) + 1)
-		WHERE compile_root LIKE ? || '%'`
 )
 
 // snapshots & diffs
