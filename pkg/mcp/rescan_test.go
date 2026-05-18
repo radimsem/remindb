@@ -17,12 +17,13 @@ import (
 	"github.com/radimsem/remindb/internal/testutil"
 	"github.com/radimsem/remindb/pkg/compiler"
 	"github.com/radimsem/remindb/pkg/config"
+	"github.com/radimsem/remindb/pkg/mcp/rescanstat"
 	"github.com/radimsem/remindb/pkg/store"
 )
 
 func mustRescan(t *testing.T, st *store.Store, dir string, interval time.Duration, logger *slog.Logger) *RescanLoop {
 	t.Helper()
-	r, err := NewRescanLoop(st, dir, interval, config.CompileConfig{}, logger)
+	r, err := NewRescanLoop(st, dir, interval, config.CompileConfig{}, logger, nil)
 
 	if err != nil {
 		t.Fatalf("NewRescanLoop: %v", err)
@@ -212,6 +213,69 @@ func TestRescanLoop_ReconcilesDeletedFiles(t *testing.T) {
 	}
 	if len(kept) == 0 {
 		t.Error("keep.md nodes should remain")
+	}
+}
+
+func TestRescanLoop_PublishesStatus(t *testing.T) {
+	dir := t.TempDir()
+	writeFile(t, dir, "keep.md", "# Keep\n")
+	writeFile(t, dir, "gone.md", "# Gone\n\nBody.\n")
+
+	st := testutil.OpenTestDB(t)
+	status := rescanstat.New()
+
+	r, err := NewRescanLoop(st, dir, 90*time.Second, config.CompileConfig{}, nil, status)
+	if err != nil {
+		t.Fatalf("NewRescanLoop: %v", err)
+	}
+
+	r.now = func() time.Time { return time.Now().Add(time.Hour) }
+
+	ctx := context.Background()
+	r.scan(ctx)
+
+	iv, snap := status.Get()
+	if iv != 90 {
+		t.Errorf("interval_s = %d, want 90", iv)
+	}
+
+	if snap.RunAt == 0 {
+		t.Error("run_at should be set after a scan")
+	}
+	if snap.Error != "" {
+		t.Errorf("error = %q, want empty after a clean scan", snap.Error)
+	}
+	if snap.Added == 0 {
+		t.Errorf("added = %d, want > 0 after the initial compile", snap.Added)
+	}
+	if len(snap.PurgedFiles) != 0 {
+		t.Errorf("purged_files = %v, want none before any deletion", snap.PurgedFiles)
+	}
+
+	goneNodes, err := st.GetNodesByFile(ctx, "gone.md")
+	if err != nil {
+		t.Fatalf("GetNodesByFile: %v", err)
+	}
+	if len(goneNodes) == 0 {
+		t.Fatal("expected gone.md nodes after initial scan")
+	}
+
+	if err := os.Remove(filepath.Join(dir, "gone.md")); err != nil {
+		t.Fatal(err)
+	}
+	r.scan(ctx)
+
+	_, snap = status.Get()
+	if len(snap.PurgedFiles) != 1 {
+		t.Fatalf("purged_files = %v, want exactly one entry", snap.PurgedFiles)
+	}
+
+	pf := snap.PurgedFiles[0]
+	if pf.Path != "gone.md" {
+		t.Errorf("purged path = %q, want %q", pf.Path, "gone.md")
+	}
+	if pf.Nodes != len(goneNodes) {
+		t.Errorf("purged nodes = %d, want %d", pf.Nodes, len(goneNodes))
 	}
 }
 
@@ -442,7 +506,7 @@ func TestNewRescanLoop_FailsOnMalformedIgnore(t *testing.T) {
 	writeFile(t, dir, ignore.Path, "a//b\n")
 
 	st := testutil.OpenTestDB(t)
-	_, err := NewRescanLoop(st, dir, time.Minute, config.CompileConfig{}, nil)
+	_, err := NewRescanLoop(st, dir, time.Minute, config.CompileConfig{}, nil, nil)
 	if err == nil {
 		t.Fatal("expected error for malformed ignore file")
 	}

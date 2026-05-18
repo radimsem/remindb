@@ -4,6 +4,7 @@ package resources
 import (
 	gomcp "github.com/modelcontextprotocol/go-sdk/mcp"
 	"github.com/radimsem/remindb/pkg/logbuf"
+	"github.com/radimsem/remindb/pkg/mcp/rescanstat"
 	"github.com/radimsem/remindb/pkg/mcp/session"
 	"github.com/radimsem/remindb/pkg/store"
 )
@@ -15,6 +16,7 @@ type Deps struct {
 	ColdThreshold float64
 	LogBuffer     *logbuf.Buffer
 	Sessions      *session.Registry
+	RescanStatus  *rescanstat.Status
 }
 
 // Register every read-only resource on the server.
@@ -102,4 +104,11 @@ func Register(srv *gomcp.Server, d *Deps) {
 		MIMEType:    mimeJSON,
 		Description: "Active MCP client sessions on the bound database — db_path plus per-session id, transport, listen address (http only), connect/last-activity timestamps, and tool-call count, as stable JSON for a 'who's attached' view. Membership mirrors the SDK's live session set. Passive read: does not boost temperature or create a snapshot.",
 	}, d.HandleSessions)
+
+	srv.AddResource(&gomcp.Resource{
+		Name:        "rescan",
+		URI:         RescanURI,
+		MIMEType:    mimeJSON,
+		Description: "Latest source-rescan tick — configured interval plus last_meta: run timestamp, error, add/modify/remove counts, and the per-file purge list, as stable JSON for a live rescan-activity panel. Passive read: does not boost temperature or create a snapshot.",
+	}, d.HandleRescan)
 }
