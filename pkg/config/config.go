@@ -39,6 +39,7 @@ type LoggingConfig struct {
 	Level      *string `json:"level,omitempty"`
 	Format     *string `json:"format,omitempty"`
 	OutputPath *string `json:"output_path,omitempty"`
+	BufferSize *int    `json:"buffer_size,omitempty"`
 }
 
 type BudgetsConfig struct {
@@ -263,6 +264,9 @@ func (c Config) Validate() error {
 		default:
 			return fmt.Errorf("server.logging.format must be \"text\" or \"json\", got %q", *lg.Format)
 		}
+	}
+	if lg.BufferSize != nil && *lg.BufferSize <= 0 {
+		return errors.New("server.logging.buffer_size must be positive")
 	}
 
 	return nil

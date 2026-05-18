@@ -35,6 +35,7 @@ remindb://snapshots{?limit}       →   application/json   (templated — newest
 remindb://snapshots/{id}/diffs    →   application/json   (templated — per-snapshot diffs)
 remindb://temperature             →   application/json   (static — per-node heatmap)
 remindb://doctor                  →   application/json   (static — health-check report)
+remindb://logs                    →   application/json   (static — recent server log records)
 ```
 
 Static resources answer "what is the state of the whole database". The templated forms (registered via `AddResourceTemplate`, RFC 6570 so the matcher spans the optional query / path variable) answer a narrower question: `remindb://tree/{rootId}{?depth}` the subtree under a node, `remindb://snapshots{?limit}` the newest N snapshots, `remindb://snapshots/{id}/diffs` the diffs of one snapshot. The static/templated split is a deliberately separate mechanism mirroring the resources/tools split: predictable surface first, parameterised surface only where a concrete need appeared.
@@ -206,6 +207,26 @@ The shape is **locked**. Notes:
 - `status` is the overall **worst-wins** header (`fail` beats `warn` beats `pass`), the JSON twin of the text report's status line — added to `Report`'s JSON precisely so this resource and `doctor --json` stay identical.
 - `checks` is always present and ordered as `doctor.AllChecks()` declares them; each entry carries `name`, `status`, `detail`. `fix_applied`/`fix_error` never appear here — the resource path never heals.
 - Reading this resource does **not** boost, lock, or snapshot. Use the `doctor` CLI when you want to *repair* (`--fix`); the resource is observation only.
+
+## The `logs` envelope
+
+`remindb://logs` exposes the recent server log records for a desktop log console — the records `serve` writes to stderr/file, mirrored into a bounded in-memory ring buffer. The buffer is composed as a `slog.Handler` decorator over the existing stderr/file handler: it records what `Handle` receives, then delegates. Level filtering (`--verbose`, `server.logging.level`) happens upstream of the decorator, so the buffer is a faithful mirror of exactly what was emitted — never more. Payloads and node bodies are never logged (the logging conventions forbid it), so they never reach this resource.
+
+```json
+{
+  "records": [
+    { "time": 1737200000123, "level": "INFO", "msg": "serve: starting", "attrs": { "db": "mem.db" } }
+  ],
+  "dropped": 0
+}
+```
+
+The shape is **locked**. Notes:
+
+- `records` is always present (`[]` before anything is logged), ordered **oldest-first / newest-last**, capped at `server.logging.buffer_size` (default 1000, must be > 0).
+- `dropped` is the count of records evicted once the buffer filled past capacity — a non-zero value tells a console it is not showing the full history.
+- `time` is Unix milliseconds; `level` is the slog level string (`DEBUG`/`INFO`/`WARN`/`ERROR`); `attrs` is the flattened structured fields, always an object (group-prefixed with `.` when slog groups are used).
+- Reading this resource does **not** boost, lock, or snapshot. The buffer lives in process memory only — it is not persisted to the database and resets on restart.
 
 ## What stays out
 

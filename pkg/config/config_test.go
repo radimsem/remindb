@@ -463,11 +463,14 @@ func TestValidate_ServerBlock(t *testing.T) {
 	badTransport := "grpc"
 	badLevel := "trace"
 	badFormat := "yaml"
+	zeroBuf, negBuf := 0, -1
 
 	bad := []Config{
 		{Server: ServerConfig{Transport: &badTransport}},
 		{Server: ServerConfig{Logging: LoggingConfig{Level: &badLevel}}},
 		{Server: ServerConfig{Logging: LoggingConfig{Format: &badFormat}}},
+		{Server: ServerConfig{Logging: LoggingConfig{BufferSize: &zeroBuf}}},
+		{Server: ServerConfig{Logging: LoggingConfig{BufferSize: &negBuf}}},
 	}
 	for i, c := range bad {
 		if err := c.Validate(); err == nil {
@@ -475,8 +478,8 @@ func TestValidate_ServerBlock(t *testing.T) {
 		}
 	}
 
-	httpT, dbg, jsonF := "http", "debug", "json"
-	ok := Config{Server: ServerConfig{Transport: &httpT, Logging: LoggingConfig{Level: &dbg, Format: &jsonF}}}
+	httpT, dbg, jsonF, bufN := "http", "debug", "json", 500
+	ok := Config{Server: ServerConfig{Transport: &httpT, Logging: LoggingConfig{Level: &dbg, Format: &jsonF, BufferSize: &bufN}}}
 	if err := ok.Validate(); err != nil {
 		t.Errorf("valid server block should pass, got %v", err)
 	}

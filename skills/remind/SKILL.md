@@ -1,13 +1,13 @@
 ---
 name: remind
-description: Read memory from a remindb MCP server — orient, search, fetch (single or batched), resync, traverse the relations graph, inspect DB health, read passive resources (`remindb://overview`, `remindb://files`, `remindb://tree`, `remindb://graph`, `remindb://snapshots`, `remindb://temperature`, `remindb://doctor`). Covers the node/snapshot/temperature/relations model and FTS5 query syntax. Pair with `memoize` for writes.
+description: Read memory from a remindb MCP server — orient, search, fetch (single or batched), resync, traverse the relations graph, inspect DB health, read passive resources (`remindb://overview`, `remindb://files`, `remindb://tree`, `remindb://graph`, `remindb://snapshots`, `remindb://temperature`, `remindb://doctor`, `remindb://logs`). Covers the node/snapshot/temperature/relations model and FTS5 query syntax. Pair with `memoize` for writes.
 ---
 
 # Remind — read from remindb so you don't re-grep
 
 remindb is a compiled SQLite view of a workspace, served over MCP as the `Memory*` tool suite. It's long-term memory for your session — call it instead of re-reading files or grepping.
 
-Read path (this skill): `MemoryTree`, `MemorySearch`, `MemoryFetch`, `MemoryFetchBatch`, `MemoryDelta`, `MemoryDiff`, `MemoryHistory`, `MemoryRelated`, `MemoryStats`, plus read-only **resources** (`remindb://overview`, `remindb://files`, `remindb://tree`, `remindb://graph`, `remindb://temperature`, `remindb://doctor`). Write path (pair with **`memoize`**): `MemoryWrite`, `MemoryForget`, `MemorySummarize`, `MemoryCompile`, `MemoryRelate`, `MemoryPin`, `MemoryUnpin`, `MemoryRollback`.
+Read path (this skill): `MemoryTree`, `MemorySearch`, `MemoryFetch`, `MemoryFetchBatch`, `MemoryDelta`, `MemoryDiff`, `MemoryHistory`, `MemoryRelated`, `MemoryStats`, plus read-only **resources** (`remindb://overview`, `remindb://files`, `remindb://tree`, `remindb://graph`, `remindb://temperature`, `remindb://doctor`, `remindb://logs`). Write path (pair with **`memoize`**): `MemoryWrite`, `MemoryForget`, `MemorySummarize`, `MemoryCompile`, `MemoryRelate`, `MemoryPin`, `MemoryUnpin`, `MemoryRollback`.
 
 ## Use-case playbook
 
@@ -223,6 +223,7 @@ remindb://snapshots?limit=N →   application/json   (newest N; templated)
 remindb://snapshots/{id}/diffs →   application/json   (per-snapshot diffs; templated)
 remindb://temperature       →   application/json   (per-node heatmap + summary)
 remindb://doctor            →   application/json   (health-check report)
+remindb://logs              →   application/json   (recent server log records)
 ```
 
 `remindb://overview` — same data as `MemoryStats`, but as the locked JSON envelope (`db_path`, `db_bytes`, `nodes{total,by_type,tokens}`, `snapshots{count,head_id,cursor_hash,latest_message,latest_age_s}`, `temperature{avg,median,hot,cold,pinned}`, `relations{total,by_origin,pending}`, `fts_rows`) — for programmatic consumers (a UI rendering the database), not for reasoning in prose.
@@ -302,6 +303,15 @@ All three keys are always present (`{"nodes":[],"edges":[],"pending":[]}` on an 
 ```
 
 `status` is the worst check status across the report (`fail` beats `warn` beats `pass`); `checks` is always present and ordered. It reuses `pkg/doctor` directly — no duplicated check logic — and, like every resource, warms nothing.
+
+`remindb://logs` — the recent server log records from a bounded in-memory ring buffer, for a desktop log console. `records` is always present (`[]` before anything is logged), ordered oldest-first (**newest last**); `dropped` counts records evicted once the buffer filled past its capacity (`server.logging.buffer_size`, default 1000):
+
+```json
+{ "records": [ { "time": 1737200000123, "level": "INFO", "msg": "serve: starting", "attrs": { "db": "mem.db" } } ],
+  "dropped": 0 }
+```
+
+`time` is Unix milliseconds; `level` is the slog level string (`DEBUG`/`INFO`/`WARN`/`ERROR`); `attrs` is the flattened structured fields (always an object). It mirrors exactly what stderr/file logging emits — `--verbose`/level filtering applies upstream, so below-level records never appear here. Payloads/bodies are never logged, so they never reach this resource.
 
 The key difference from a read *tool*: a resource read is **passive observation**. It does **not** boost temperature. Reach for `MemorySearch`/`MemoryFetch` when you want the node to count as accessed (and warm up); read the resource only when you explicitly must *not* perturb the heatmap. For ordinary "what's the DB state" curiosity in a session, `MemoryStats` is still the call — the resource exists for external renderers.
 

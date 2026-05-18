@@ -3,6 +3,7 @@ package resources
 
 import (
 	gomcp "github.com/modelcontextprotocol/go-sdk/mcp"
+	"github.com/radimsem/remindb/pkg/logbuf"
 	"github.com/radimsem/remindb/pkg/store"
 )
 
@@ -11,6 +12,7 @@ const mimeJSON = "application/json"
 type Deps struct {
 	Store         *store.Store
 	ColdThreshold float64
+	LogBuffer     *logbuf.Buffer
 }
 
 // Register every read-only resource on the server.
@@ -84,4 +86,11 @@ func Register(srv *gomcp.Server, d *Deps) {
 		MIMEType:    mimeJSON,
 		Description: "Health-check report — overall worst-wins status header plus every check's name/status/detail as stable JSON, byte-equivalent to `remindb doctor --json`. Read-only (never applies `--fix`). Passive read: does not boost temperature or create a snapshot.",
 	}, d.HandleDoctor)
+
+	srv.AddResource(&gomcp.Resource{
+		Name:        "logs",
+		URI:         LogsURI,
+		MIMEType:    mimeJSON,
+		Description: "Recent server log records from the in-memory ring buffer, newest last, with an overflow count, as stable JSON for a log console. Passive read: does not boost temperature or create a snapshot.",
+	}, d.HandleLogs)
 }

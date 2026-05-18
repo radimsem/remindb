@@ -1614,6 +1614,87 @@ func TestMcp_DoctorResource(t *testing.T) {
 	}
 }
 
+func TestMcp_LogsResource(t *testing.T) {
+	env := mcptest.NewEnvWithLog(t)
+	ctx := context.Background()
+
+	writeResult := env.CallTool(t, "MemoryWrite", map[string]any{
+		"payload": "Logs resource smoke content.",
+	})
+	if !strings.Contains(env.TextContent(t, writeResult), "wrote node") {
+		t.Fatalf("seed write failed: %s", env.TextContent(t, writeResult))
+	}
+
+	listed, err := env.Session.ListResources(ctx, &gomcp.ListResourcesParams{})
+	if err != nil {
+		t.Fatalf("ListResources: %v", err)
+	}
+
+	var logs *gomcp.Resource
+	for _, r := range listed.Resources {
+		if r.URI == "remindb://logs" {
+			logs = r
+		}
+	}
+	if logs == nil {
+		t.Fatalf("resources/list missing remindb://logs, got %d resources", len(listed.Resources))
+	}
+	if logs.MIMEType != "application/json" {
+		t.Errorf("logs MIME type = %q, want application/json", logs.MIMEType)
+	}
+
+	read, err := env.Session.ReadResource(ctx, &gomcp.ReadResourceParams{URI: "remindb://logs"})
+	if err != nil {
+		t.Fatalf("ReadResource: %v", err)
+	}
+	if len(read.Contents) != 1 {
+		t.Fatalf("ReadResource returned %d contents, want 1", len(read.Contents))
+	}
+
+	content := read.Contents[0]
+	if content.MIMEType != "application/json" {
+		t.Errorf("content MIME type = %q, want application/json", content.MIMEType)
+	}
+	if content.URI != "remindb://logs" {
+		t.Errorf("content URI = %q, want remindb://logs", content.URI)
+	}
+
+	var envelope struct {
+		Records []struct {
+			Time  int64          `json:"time"`
+			Level string         `json:"level"`
+			Msg   string         `json:"msg"`
+			Attrs map[string]any `json:"attrs"`
+		} `json:"records"`
+		Dropped int64 `json:"dropped"`
+	}
+	if err := json.Unmarshal([]byte(content.Text), &envelope); err != nil {
+		t.Fatalf("logs JSON not parseable: %v\nbody: %s", err, content.Text)
+	}
+
+	if len(envelope.Records) == 0 {
+		t.Fatalf("records is empty; want the MemoryWrite tool-call trace captured")
+	}
+	if envelope.Dropped < 0 {
+		t.Errorf("dropped = %d, want >= 0", envelope.Dropped)
+	}
+
+	var sawToolCall bool
+	for _, r := range envelope.Records {
+		if r.Time <= 0 || r.Level == "" || r.Attrs == nil {
+			t.Errorf("malformed record: %+v", r)
+		}
+
+		if r.Msg == "mcp call" && r.Attrs["tool"] == "MemoryWrite" {
+			sawToolCall = true
+		}
+	}
+
+	if !sawToolCall {
+		t.Errorf("no \"mcp call\" record with tool=MemoryWrite; tool-call logs not reaching the resource")
+	}
+}
+
 func TestMcp_MemoryForget(t *testing.T) {
 	t.Run("Strict_Leaf", func(t *testing.T) {
 		env := mcptest.NewEnv(t)
