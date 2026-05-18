@@ -77,4 +77,11 @@ func Register(srv *gomcp.Server, d *Deps) {
 		MIMEType:    mimeJSON,
 		Description: "Per-snapshot diff records for snapshot {id} (op, node_id, old/new hash + content), the data behind MemoryDelta. Passive read: does not boost temperature or create a snapshot.",
 	}, d.HandleSnapshotDiffs)
+
+	srv.AddResource(&gomcp.Resource{
+		Name:        "doctor",
+		URI:         DoctorURI,
+		MIMEType:    mimeJSON,
+		Description: "Health-check report — overall worst-wins status header plus every check's name/status/detail as stable JSON, byte-equivalent to `remindb doctor --json`. Read-only (never applies `--fix`). Passive read: does not boost temperature or create a snapshot.",
+	}, d.HandleDoctor)
 }

@@ -1543,6 +1543,77 @@ func TestMcp_TemperatureResource(t *testing.T) {
 	}
 }
 
+func TestMcp_DoctorResource(t *testing.T) {
+	env := mcptest.NewEnv(t)
+	ctx := context.Background()
+
+	// A seeded write keeps the DB healthy → every check passes.
+	writeResult := env.CallTool(t, "MemoryWrite", map[string]any{
+		"payload": "Doctor resource smoke content.",
+	})
+	if !strings.Contains(env.TextContent(t, writeResult), "wrote node") {
+		t.Fatalf("seed write failed: %s", env.TextContent(t, writeResult))
+	}
+
+	listed, err := env.Session.ListResources(ctx, &gomcp.ListResourcesParams{})
+	if err != nil {
+		t.Fatalf("ListResources: %v", err)
+	}
+
+	var doctor *gomcp.Resource
+	for _, r := range listed.Resources {
+		if r.URI == "remindb://doctor" {
+			doctor = r
+		}
+	}
+	if doctor == nil {
+		t.Fatalf("resources/list missing remindb://doctor, got %d resources", len(listed.Resources))
+	}
+	if doctor.MIMEType != "application/json" {
+		t.Errorf("doctor MIME type = %q, want application/json", doctor.MIMEType)
+	}
+
+	read, err := env.Session.ReadResource(ctx, &gomcp.ReadResourceParams{URI: "remindb://doctor"})
+	if err != nil {
+		t.Fatalf("ReadResource: %v", err)
+	}
+	if len(read.Contents) != 1 {
+		t.Fatalf("ReadResource returned %d contents, want 1", len(read.Contents))
+	}
+
+	content := read.Contents[0]
+	if content.MIMEType != "application/json" {
+		t.Errorf("content MIME type = %q, want application/json", content.MIMEType)
+	}
+	if content.URI != "remindb://doctor" {
+		t.Errorf("content URI = %q, want remindb://doctor", content.URI)
+	}
+
+	var env2 struct {
+		Status string `json:"status"`
+		Checks []struct {
+			Name   string `json:"name"`
+			Status string `json:"status"`
+			Detail string `json:"detail"`
+		} `json:"checks"`
+	}
+	if err := json.Unmarshal([]byte(content.Text), &env2); err != nil {
+		t.Fatalf("doctor JSON not parseable: %v\nbody: %s", err, content.Text)
+	}
+
+	if env2.Status != "pass" {
+		t.Errorf("status = %q, want pass on a healthy seeded DB", env2.Status)
+	}
+	if len(env2.Checks) == 0 {
+		t.Fatalf("checks is empty; want the full doctor check set")
+	}
+	for _, c := range env2.Checks {
+		if c.Name == "" || c.Status == "" {
+			t.Errorf("check missing name/status: %+v", c)
+		}
+	}
+}
+
 func TestMcp_MemoryForget(t *testing.T) {
 	t.Run("Strict_Leaf", func(t *testing.T) {
 		env := mcptest.NewEnv(t)

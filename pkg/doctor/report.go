@@ -42,6 +42,17 @@ func (r Report) WriteText(w io.Writer, color bool) error {
 	return nil
 }
 
+// Emit the overall worst-wins status header alongside the per-check list.
+func (r Report) MarshalJSON() ([]byte, error) {
+	return json.Marshal(struct {
+		Status string        `json:"status"`
+		Checks []CheckReport `json:"checks"`
+	}{
+		Status: r.Status().String(),
+		Checks: r.Checks,
+	})
+}
+
 func (r Report) WriteJSON(w io.Writer) error {
 	enc := json.NewEncoder(w)
 	enc.SetIndent("", "  ")

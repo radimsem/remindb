@@ -34,6 +34,7 @@ remindb://snapshots               →   application/json   (static — full hist
 remindb://snapshots{?limit}       →   application/json   (templated — newest N)
 remindb://snapshots/{id}/diffs    →   application/json   (templated — per-snapshot diffs)
 remindb://temperature             →   application/json   (static — per-node heatmap)
+remindb://doctor                  →   application/json   (static — health-check report)
 ```
 
 Static resources answer "what is the state of the whole database". The templated forms (registered via `AddResourceTemplate`, RFC 6570 so the matcher spans the optional query / path variable) answer a narrower question: `remindb://tree/{rootId}{?depth}` the subtree under a node, `remindb://snapshots{?limit}` the newest N snapshots, `remindb://snapshots/{id}/diffs` the diffs of one snapshot. The static/templated split is a deliberately separate mechanism mirroring the resources/tools split: predictable surface first, parameterised surface only where a concrete need appeared.
@@ -185,6 +186,26 @@ The shape is **locked**. Notes:
 - `nodes` is always present (`[]` on an empty database, never `null`) and is the *whole* node set — there is no separate `cold` array; the summary's `cold`/`hot` counts and the per-node temperatures are two views of the same fetch, so they cannot disagree.
 - `summary` echoes `cold_threshold` and `hot_threshold` precisely so a client reproduces the exact classification the counts were derived from. `hot`/`cold` count pinned nodes too (same semantics as `MemoryStats`); `pinned` is the independent pinned count.
 - Reading this resource does **not** boost — a heatmap that warmed the nodes it rendered would measure its own rendering. Use `MemoryStats` when you want the access to count.
+
+## The `doctor` envelope
+
+`remindb://doctor` exposes the integrity report `remindb doctor` produces, but as stable JSON instead of the formatted text panel — so a desktop client renders the health panel without shelling out to the CLI. Both are pure projections of `pkg/doctor` (`doctor.Run`): the resource and `doctor --json` share one `Report.MarshalJSON`, so they are byte-equivalent by construction — one source of truth, no duplicated check logic. The resource runs `doctor.Run` (read-only), never `doctor.Heal`; it has no `--fix` analogue.
+
+```json
+{
+  "status": "warn",
+  "checks": [
+    { "name": "fts5_sync", "status": "pass", "detail": "FTS5 index in sync with 12 nodes" },
+    { "name": "stale_compile_root", "status": "warn", "detail": "1/2 compile roots no longer exist: [/old/repo]" }
+  ]
+}
+```
+
+The shape is **locked**. Notes:
+
+- `status` is the overall **worst-wins** header (`fail` beats `warn` beats `pass`), the JSON twin of the text report's status line — added to `Report`'s JSON precisely so this resource and `doctor --json` stay identical.
+- `checks` is always present and ordered as `doctor.AllChecks()` declares them; each entry carries `name`, `status`, `detail`. `fix_applied`/`fix_error` never appear here — the resource path never heals.
+- Reading this resource does **not** boost, lock, or snapshot. Use the `doctor` CLI when you want to *repair* (`--fix`); the resource is observation only.
 
 ## What stays out
 

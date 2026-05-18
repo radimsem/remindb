@@ -1,13 +1,13 @@
 ---
 name: remind
-description: Read memory from a remindb MCP server — orient, search, fetch (single or batched), resync, traverse the relations graph, inspect DB health, read passive resources (`remindb://overview`, `remindb://files`, `remindb://tree`, `remindb://graph`, `remindb://snapshots`, `remindb://temperature`). Covers the node/snapshot/temperature/relations model and FTS5 query syntax. Pair with `memoize` for writes.
+description: Read memory from a remindb MCP server — orient, search, fetch (single or batched), resync, traverse the relations graph, inspect DB health, read passive resources (`remindb://overview`, `remindb://files`, `remindb://tree`, `remindb://graph`, `remindb://snapshots`, `remindb://temperature`, `remindb://doctor`). Covers the node/snapshot/temperature/relations model and FTS5 query syntax. Pair with `memoize` for writes.
 ---
 
 # Remind — read from remindb so you don't re-grep
 
 remindb is a compiled SQLite view of a workspace, served over MCP as the `Memory*` tool suite. It's long-term memory for your session — call it instead of re-reading files or grepping.
 
-Read path (this skill): `MemoryTree`, `MemorySearch`, `MemoryFetch`, `MemoryFetchBatch`, `MemoryDelta`, `MemoryDiff`, `MemoryHistory`, `MemoryRelated`, `MemoryStats`, plus read-only **resources** (`remindb://overview`, `remindb://files`, `remindb://tree`, `remindb://graph`, `remindb://temperature`). Write path (pair with **`memoize`**): `MemoryWrite`, `MemoryForget`, `MemorySummarize`, `MemoryCompile`, `MemoryRelate`, `MemoryPin`, `MemoryUnpin`, `MemoryRollback`.
+Read path (this skill): `MemoryTree`, `MemorySearch`, `MemoryFetch`, `MemoryFetchBatch`, `MemoryDelta`, `MemoryDiff`, `MemoryHistory`, `MemoryRelated`, `MemoryStats`, plus read-only **resources** (`remindb://overview`, `remindb://files`, `remindb://tree`, `remindb://graph`, `remindb://temperature`, `remindb://doctor`). Write path (pair with **`memoize`**): `MemoryWrite`, `MemoryForget`, `MemorySummarize`, `MemoryCompile`, `MemoryRelate`, `MemoryPin`, `MemoryUnpin`, `MemoryRollback`.
 
 ## Use-case playbook
 
@@ -222,6 +222,7 @@ remindb://snapshots         →   application/json   (full version history)
 remindb://snapshots?limit=N →   application/json   (newest N; templated)
 remindb://snapshots/{id}/diffs →   application/json   (per-snapshot diffs; templated)
 remindb://temperature       →   application/json   (per-node heatmap + summary)
+remindb://doctor            →   application/json   (health-check report)
 ```
 
 `remindb://overview` — same data as `MemoryStats`, but as the locked JSON envelope (`db_path`, `db_bytes`, `nodes{total,by_type,tokens}`, `snapshots{count,head_id,cursor_hash,latest_message,latest_age_s}`, `temperature{avg,median,hot,cold,pinned}`, `relations{total,by_origin,pending}`, `fts_rows`) — for programmatic consumers (a UI rendering the database), not for reasoning in prose.
@@ -289,6 +290,18 @@ All three keys are always present (`{"nodes":[],"edges":[],"pending":[]}` on an 
 ```
 
 `nodes` is always present (`[]` on an empty DB) and unified — there is no separate cold list; `summary` echoes the thresholds so a renderer reproduces the exact hot/cold classification. It does **not** boost — reading the heatmap must not warm the nodes it measures.
+
+`remindb://doctor` — the health-check report, byte-equivalent to `remindb doctor --json`: an overall worst-wins `status` header (`pass`/`warn`/`fail`) plus every check's `name`/`status`/`detail`, for a desktop client rendering the health panel without shelling out to the CLI. Read-only — it runs the same checks `doctor` does but never applies `--fix`:
+
+```json
+{ "status": "warn",
+  "checks": [
+    { "name": "fts5_sync", "status": "pass", "detail": "FTS5 index in sync with 12 nodes" },
+    { "name": "stale_compile_root", "status": "warn", "detail": "1/2 compile roots no longer exist: [/old/repo]" }
+  ] }
+```
+
+`status` is the worst check status across the report (`fail` beats `warn` beats `pass`); `checks` is always present and ordered. It reuses `pkg/doctor` directly — no duplicated check logic — and, like every resource, warms nothing.
 
 The key difference from a read *tool*: a resource read is **passive observation**. It does **not** boost temperature. Reach for `MemorySearch`/`MemoryFetch` when you want the node to count as accessed (and warm up); read the resource only when you explicitly must *not* perturb the heatmap. For ordinary "what's the DB state" curiosity in a session, `MemoryStats` is still the call — the resource exists for external renderers.
 
