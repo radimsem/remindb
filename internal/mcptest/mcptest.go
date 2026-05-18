@@ -2,11 +2,14 @@ package mcptest
 
 import (
 	"context"
+	"io"
+	"log/slog"
 	"net"
 	"testing"
 
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 	"github.com/radimsem/remindb/internal/testutil"
+	"github.com/radimsem/remindb/pkg/logbuf"
 	remindb "github.com/radimsem/remindb/pkg/mcp"
 	"github.com/radimsem/remindb/pkg/store"
 	"github.com/radimsem/remindb/pkg/temperature"
@@ -28,6 +31,48 @@ func NewEnv(t *testing.T) *Env {
 	}
 
 	srv, err := remindb.NewServer(st, tracker, cfg)
+	if err != nil {
+		t.Fatalf("NewServer: %v", err)
+	}
+
+	serverTransport, clientTransport := mcp.NewInMemoryTransports()
+	ctx := context.Background()
+
+	_, err = srv.Connect(ctx, serverTransport)
+	if err != nil {
+		t.Fatalf("server connect: %v", err)
+	}
+
+	client := mcp.NewClient(&mcp.Implementation{Name: "test-agent", Version: "0.1.0"}, nil)
+	session, err := client.Connect(ctx, clientTransport, nil)
+	if err != nil {
+		t.Fatalf("client connect: %v", err)
+	}
+
+	t.Cleanup(func() { _ = session.Close() })
+
+	return &Env{Session: session, Store: st}
+}
+
+func NewEnvWithLog(t *testing.T) *Env {
+	t.Helper()
+
+	st := testutil.OpenTestDB(t)
+	cfg := temperature.DefaultConfig()
+
+	buf := logbuf.NewBuffer(64)
+	base := slog.NewTextHandler(io.Discard, &slog.HandlerOptions{Level: slog.LevelDebug})
+	logger := slog.New(logbuf.NewHandler(base, buf))
+
+	tracker, err := temperature.NewTracker(st, "", cfg, logger)
+	if err != nil {
+		t.Fatalf("NewTracker: %v", err)
+	}
+
+	srv, err := remindb.NewServer(st, tracker, cfg,
+		remindb.WithLogger(logger),
+		remindb.WithLogBuffer(buf),
+	)
 	if err != nil {
 		t.Fatalf("NewServer: %v", err)
 	}

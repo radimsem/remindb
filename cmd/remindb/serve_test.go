@@ -105,7 +105,7 @@ func TestResolveServerConfig_UnsupportedTransport(t *testing.T) {
 }
 
 func TestNewServeLogger_ConfigLevel(t *testing.T) {
-	lg, file, err := newServeLogger(false, config.LoggingConfig{Level: ptr("warn")})
+	lg, file, _, err := newServeLogger(false, config.LoggingConfig{Level: ptr("warn")})
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -123,7 +123,7 @@ func TestNewServeLogger_ConfigLevel(t *testing.T) {
 }
 
 func TestNewServeLogger_VerboseBeatsConfig(t *testing.T) {
-	lg, _, err := newServeLogger(true, config.LoggingConfig{Level: ptr("error")})
+	lg, _, _, err := newServeLogger(true, config.LoggingConfig{Level: ptr("error")})
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -136,7 +136,7 @@ func TestNewServeLogger_VerboseBeatsConfig(t *testing.T) {
 func TestNewServeLogger_JsonFileOutput(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "r.log")
 
-	lg, file, err := newServeLogger(false, config.LoggingConfig{Format: ptr("json"), OutputPath: ptr(path)})
+	lg, file, _, err := newServeLogger(false, config.LoggingConfig{Format: ptr("json"), OutputPath: ptr(path)})
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -159,12 +159,34 @@ func TestNewServeLogger_JsonFileOutput(t *testing.T) {
 func TestNewServeLogger_OutputOpenFailsLoud(t *testing.T) {
 	bad := filepath.Join(t.TempDir(), "no-such-dir", "r.log")
 
-	_, _, err := newServeLogger(false, config.LoggingConfig{OutputPath: ptr(bad)})
+	_, _, _, err := newServeLogger(false, config.LoggingConfig{OutputPath: ptr(bad)})
 	if err == nil {
 		t.Fatal("expected loud failure when output_path cannot be opened")
 	}
 	if !strings.Contains(err.Error(), bad) {
 		t.Errorf("error should name the unopenable path, got: %v", err)
+	}
+}
+
+func TestNewServeLogger_ConfiguredBufferCaptures(t *testing.T) {
+	lg, _, buf, err := newServeLogger(false, config.LoggingConfig{BufferSize: ptr(2)})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if buf == nil {
+		t.Fatal("buffer should be returned for the logs resource")
+	}
+
+	lg.Info("a")
+	lg.Info("b")
+	lg.Info("c")
+
+	recs := buf.Records()
+	if len(recs) != 2 || recs[0].Msg != "b" || recs[1].Msg != "c" {
+		t.Errorf("configured size 2 not honored: got %d records %v", len(recs), recs)
+	}
+	if buf.Dropped() != 1 {
+		t.Errorf("dropped: got %d, want 1", buf.Dropped())
 	}
 }
 

@@ -11,6 +11,7 @@ import (
 
 	"github.com/radimsem/remindb/internal/redaction"
 	"github.com/radimsem/remindb/pkg/config"
+	"github.com/radimsem/remindb/pkg/logbuf"
 	remindb "github.com/radimsem/remindb/pkg/mcp"
 	"github.com/radimsem/remindb/pkg/store"
 	"github.com/radimsem/remindb/pkg/temperature"
@@ -26,6 +27,8 @@ var (
 	transport      string
 	listen         string
 )
+
+const defaultLogBufferSize = 1000
 
 var serveCmd = &cobra.Command{
 	Use:   "serve",
@@ -74,7 +77,7 @@ func runServe(cmd *cobra.Command, _ []string) error {
 		return err
 	}
 
-	logger, logFile, err := newServeLogger(verbose, workspaceCfg.Server.Logging)
+	logger, logFile, logBuf, err := newServeLogger(verbose, workspaceCfg.Server.Logging)
 	if err != nil {
 		return err
 	}
@@ -109,6 +112,7 @@ func runServe(cmd *cobra.Command, _ []string) error {
 		remindb.WithListen(listen),
 		remindb.WithWorkspaceConfig(workspaceCfg),
 		remindb.WithRedactor(red),
+		remindb.WithLogBuffer(logBuf),
 	)
 	if err != nil {
 		return fmt.Errorf("failed to build: server: %w", err)
@@ -191,8 +195,8 @@ func applyRedactionOverrides(base redaction.Config, o config.RedactionConfig) (r
 	return base, nil
 }
 
-// Build the serve logger from config; --verbose forces debug and wins.
-func newServeLogger(verbose bool, lg config.LoggingConfig) (*slog.Logger, *os.File, error) {
+// Build the serve logger from config.
+func newServeLogger(verbose bool, lg config.LoggingConfig) (*slog.Logger, *os.File, *logbuf.Buffer, error) {
 	level := slog.LevelInfo
 	if lg.Level != nil {
 		level = parseLogLevel(*lg.Level)
@@ -206,7 +210,7 @@ func newServeLogger(verbose bool, lg config.LoggingConfig) (*slog.Logger, *os.Fi
 	if lg.OutputPath != nil {
 		f, err := os.OpenFile(*lg.OutputPath, os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0o644)
 		if err != nil {
-			return nil, nil, fmt.Errorf("failed to open: log output %s: %w", *lg.OutputPath, err)
+			return nil, nil, nil, fmt.Errorf("failed to open: log output %s: %w", *lg.OutputPath, err)
 		}
 
 		out, file = f, f
@@ -218,7 +222,14 @@ func newServeLogger(verbose bool, lg config.LoggingConfig) (*slog.Logger, *os.Fi
 	if lg.Format != nil && *lg.Format == "json" {
 		h = slog.NewJSONHandler(out, opts)
 	}
-	return slog.New(h), file, nil
+
+	size := defaultLogBufferSize
+	if lg.BufferSize != nil {
+		size = *lg.BufferSize
+	}
+	buf := logbuf.NewBuffer(size)
+
+	return slog.New(logbuf.NewHandler(h, buf)), file, buf, nil
 }
 
 func parseLogLevel(s string) slog.Level {

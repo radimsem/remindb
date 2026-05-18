@@ -9,6 +9,7 @@ import (
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 	"github.com/radimsem/remindb/internal/redaction"
 	"github.com/radimsem/remindb/pkg/config"
+	"github.com/radimsem/remindb/pkg/logbuf"
 	"github.com/radimsem/remindb/pkg/mcp/resources"
 	"github.com/radimsem/remindb/pkg/mcp/tools"
 	"github.com/radimsem/remindb/pkg/query"
@@ -44,6 +45,7 @@ type options struct {
 	listener        net.Listener
 	workspaceConfig config.Config
 	redactor        *redaction.Redactor
+	logBuffer       *logbuf.Buffer
 }
 
 func WithSourceDir(dir string) Option {
@@ -72,6 +74,10 @@ func WithWorkspaceConfig(c config.Config) Option {
 
 func WithRedactor(r *redaction.Redactor) Option {
 	return func(o *options) { o.redactor = r }
+}
+
+func WithLogBuffer(b *logbuf.Buffer) Option {
+	return func(o *options) { o.logBuffer = b }
 }
 
 func NewServer(st *store.Store, tracker *temperature.Tracker, cfg temperature.Config, opts ...Option) (*Server, error) {
@@ -130,7 +136,7 @@ func NewServer(st *store.Store, tracker *temperature.Tracker, cfg temperature.Co
 	}
 
 	registerTools(s.mcp, deps)
-	resources.Register(s.mcp, &resources.Deps{Store: st, ColdThreshold: cfg.ColdThreshold})
+	resources.Register(s.mcp, &resources.Deps{Store: st, ColdThreshold: cfg.ColdThreshold, LogBuffer: o.logBuffer})
 	return s, nil
 }
 
