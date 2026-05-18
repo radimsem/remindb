@@ -1455,6 +1455,94 @@ func extractFirstParenID(tree string) string {
 	return ""
 }
 
+func TestMcp_TemperatureResource(t *testing.T) {
+	env := mcptest.NewEnv(t)
+	ctx := context.Background()
+
+	// Seed nodes so the heatmap carries a non-empty unified array.
+	writeResult := env.CallTool(t, "MemoryWrite", map[string]any{
+		"payload": "Temperature resource smoke content.",
+	})
+	if !strings.Contains(env.TextContent(t, writeResult), "wrote node") {
+		t.Fatalf("seed write failed: %s", env.TextContent(t, writeResult))
+	}
+
+	listed, err := env.Session.ListResources(ctx, &gomcp.ListResourcesParams{})
+	if err != nil {
+		t.Fatalf("ListResources: %v", err)
+	}
+
+	var heat *gomcp.Resource
+	for _, r := range listed.Resources {
+		if r.URI == "remindb://temperature" {
+			heat = r
+		}
+	}
+	if heat == nil {
+		t.Fatalf("resources/list missing remindb://temperature, got %d resources", len(listed.Resources))
+	}
+	if heat.MIMEType != "application/json" {
+		t.Errorf("temperature MIME type = %q, want application/json", heat.MIMEType)
+	}
+
+	read, err := env.Session.ReadResource(ctx, &gomcp.ReadResourceParams{URI: "remindb://temperature"})
+	if err != nil {
+		t.Fatalf("ReadResource: %v", err)
+	}
+	if len(read.Contents) != 1 {
+		t.Fatalf("ReadResource returned %d contents, want 1", len(read.Contents))
+	}
+
+	content := read.Contents[0]
+	if content.URI != "remindb://temperature" {
+		t.Errorf("content URI = %q, want remindb://temperature", content.URI)
+	}
+
+	var env2 struct {
+		Summary struct {
+			Hot           int     `json:"hot"`
+			Cold          int     `json:"cold"`
+			Pinned        int     `json:"pinned"`
+			ColdThreshold float64 `json:"cold_threshold"`
+			HotThreshold  float64 `json:"hot_threshold"`
+		} `json:"summary"`
+		Nodes []struct {
+			ID          string  `json:"id"`
+			Temperature float64 `json:"temperature"`
+			Pinned      bool    `json:"pinned"`
+		} `json:"nodes"`
+	}
+	if err := json.Unmarshal([]byte(content.Text), &env2); err != nil {
+		t.Fatalf("temperature JSON not parseable: %v\nbody: %s", err, content.Text)
+	}
+
+	if len(env2.Nodes) < 1 {
+		t.Fatalf("nodes = %d, want >= 1 after a seeded write (unified array)", len(env2.Nodes))
+	}
+	// Default config (mcptest) → cold 0.1, fixed hot 0.5; both echoed.
+	if env2.Summary.ColdThreshold != 0.1 || env2.Summary.HotThreshold != 0.5 {
+		t.Errorf("thresholds = cold %v hot %v, want 0.1 / 0.5", env2.Summary.ColdThreshold, env2.Summary.HotThreshold)
+	}
+
+	// Summary must be derivable from the same nodes array — one fetch, no drift.
+	var wantHot, wantCold, wantPinned int
+	for _, n := range env2.Nodes {
+		if n.Temperature >= env2.Summary.HotThreshold {
+			wantHot++
+		}
+		if n.Temperature < env2.Summary.ColdThreshold {
+			wantCold++
+		}
+		if n.Pinned {
+			wantPinned++
+		}
+	}
+	if env2.Summary.Hot != wantHot || env2.Summary.Cold != wantCold || env2.Summary.Pinned != wantPinned {
+		t.Errorf("summary {hot:%d cold:%d pinned:%d} disagrees with nodes {hot:%d cold:%d pinned:%d}",
+			env2.Summary.Hot, env2.Summary.Cold, env2.Summary.Pinned, wantHot, wantCold, wantPinned)
+	}
+}
+
 func TestMcp_MemoryForget(t *testing.T) {
 	t.Run("Strict_Leaf", func(t *testing.T) {
 		env := mcptest.NewEnv(t)

@@ -130,7 +130,7 @@ func NewServer(st *store.Store, tracker *temperature.Tracker, cfg temperature.Co
 	}
 
 	registerTools(s.mcp, deps)
-	resources.Register(s.mcp, &resources.Deps{Store: st})
+	resources.Register(s.mcp, &resources.Deps{Store: st, ColdThreshold: cfg.ColdThreshold})
 	return s, nil
 }
 
