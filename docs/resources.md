@@ -36,6 +36,7 @@ remindb://snapshots/{id}/diffs    →   application/json   (templated — per-sn
 remindb://temperature             →   application/json   (static — per-node heatmap)
 remindb://doctor                  →   application/json   (static — health-check report)
 remindb://logs                    →   application/json   (static — recent server log records)
+remindb://sessions                →   application/json   (static — active MCP client sessions)
 ```
 
 Static resources answer "what is the state of the whole database". The templated forms (registered via `AddResourceTemplate`, RFC 6570 so the matcher spans the optional query / path variable) answer a narrower question: `remindb://tree/{rootId}{?depth}` the subtree under a node, `remindb://snapshots{?limit}` the newest N snapshots, `remindb://snapshots/{id}/diffs` the diffs of one snapshot. The static/templated split is a deliberately separate mechanism mirroring the resources/tools split: predictable surface first, parameterised surface only where a concrete need appeared.
@@ -227,6 +228,35 @@ The shape is **locked**. Notes:
 - `dropped` is the count of records evicted once the buffer filled past capacity — a non-zero value tells a console it is not showing the full history.
 - `time` is Unix milliseconds; `level` is the slog level string (`DEBUG`/`INFO`/`WARN`/`ERROR`); `attrs` is the flattened structured fields, always an object (group-prefixed with `.` when slog groups are used).
 - Reading this resource does **not** boost, lock, or snapshot. The buffer lives in process memory only — it is not persisted to the database and resets on restart.
+
+## The `sessions` envelope
+
+`remindb://sessions` exposes the MCP client sessions currently attached to *this* `serve` process — the one bound to `db_path`. It answers "who's attached to this brain" for a desktop client. The registry is an enrichment side-table over the SDK's live session set: a single receiving-middleware stamps `connected_at` on first-seen, bumps `last_activity` on every inbound request except `ping`, and increments `count_tool_calls` on `tools/call`. Disconnect is not observed — it is inferred at read time by reconciling against the SDK's live set, so the count can never disagree with the SDK.
+
+```json
+{
+  "db_path": "/repo/.remindb/memory.db",
+  "sessions": [
+    { "id": "k7f3…",
+      "client_meta": { "name": "claude-code", "title": "Claude Code", "version": "1.2.0", "protocol": "2025-06-18" },
+      "transport": "stdio",
+      "connected_at": 1737200000, "last_activity": 1737200042, "count_tool_calls": 9 },
+    { "id": "9a2c…",
+      "client_meta": { "name": "openclaw", "version": "0.4.0", "protocol": "2025-06-18" },
+      "transport": "http", "listen": "127.0.0.1:7474",
+      "connected_at": 1737200010, "last_activity": 1737200050, "count_tool_calls": 3 }
+  ]
+}
+```
+
+The shape is **locked**. Notes:
+
+- `sessions` is always present (`[]` when no client is attached), ordered oldest-connected first.
+- `id` is the SDK session id; for the lone stdio session the SDK assigns none, so a stable hash (`internal/contentid`, the same primitive the persistent ledger will key on) is synthesized instead.
+- `client_meta` is always present; its `name` / `version` / `protocol` come from the client's `initialize` handshake, and `title` (human display name) is **omitted** when the client sends none. These are **client self-reported and unauthenticated** — display them, don't trust them as identity (this is exactly why the persistent ledger keys identity on a hash, not on `client_meta.name`).
+- `transport` is the process's transport (constant — one `serve` = one transport). `listen` is the HTTP bind address and is **omitted entirely** for stdio sessions.
+- `connected_at` / `last_activity` are Unix **seconds**; `count_tool_calls` counts `tools/call` only — resource reads and pings are activity but not tool calls.
+- Reading this resource does **not** boost, lock, or snapshot. The registry is in-process memory only; it is not persisted and resets on restart.
 
 ## What stays out
 

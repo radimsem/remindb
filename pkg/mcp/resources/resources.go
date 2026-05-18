@@ -4,6 +4,7 @@ package resources
 import (
 	gomcp "github.com/modelcontextprotocol/go-sdk/mcp"
 	"github.com/radimsem/remindb/pkg/logbuf"
+	"github.com/radimsem/remindb/pkg/mcp/session"
 	"github.com/radimsem/remindb/pkg/store"
 )
 
@@ -13,6 +14,7 @@ type Deps struct {
 	Store         *store.Store
 	ColdThreshold float64
 	LogBuffer     *logbuf.Buffer
+	Sessions      *session.Registry
 }
 
 // Register every read-only resource on the server.
@@ -93,4 +95,11 @@ func Register(srv *gomcp.Server, d *Deps) {
 		MIMEType:    mimeJSON,
 		Description: "Recent server log records from the in-memory ring buffer, newest last, with an overflow count, as stable JSON for a log console. Passive read: does not boost temperature or create a snapshot.",
 	}, d.HandleLogs)
+
+	srv.AddResource(&gomcp.Resource{
+		Name:        "sessions",
+		URI:         SessionsURI,
+		MIMEType:    mimeJSON,
+		Description: "Active MCP client sessions on the bound database — db_path plus per-session id, transport, listen address (http only), connect/last-activity timestamps, and tool-call count, as stable JSON for a 'who's attached' view. Membership mirrors the SDK's live session set. Passive read: does not boost temperature or create a snapshot.",
+	}, d.HandleSessions)
 }

@@ -174,6 +174,20 @@ func (e *Env) CallTool(t *testing.T, name string, args map[string]any) *mcp.Call
 	return result
 }
 
+func (e *Env) ReadResource(t *testing.T, uri string) string {
+	t.Helper()
+
+	res, err := e.Session.ReadResource(context.Background(), &mcp.ReadResourceParams{URI: uri})
+	if err != nil {
+		t.Fatalf("ReadResource %s: %v", uri, err)
+	}
+
+	if len(res.Contents) != 1 {
+		t.Fatalf("ReadResource %s: contents=%d, want 1", uri, len(res.Contents))
+	}
+	return res.Contents[0].Text
+}
+
 func (e *Env) TextContent(t *testing.T, result *mcp.CallToolResult) string {
 	t.Helper()
 	if len(result.Content) == 0 {
