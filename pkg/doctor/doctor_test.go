@@ -126,10 +126,16 @@ func TestReportJSONShape(t *testing.T) {
 	}
 
 	var decoded struct {
+		Status string           `json:"status"`
 		Checks []map[string]any `json:"checks"`
 	}
+
 	if err := json.Unmarshal(buf.Bytes(), &decoded); err != nil {
 		t.Fatalf("unmarshal: %v", err)
+	}
+
+	if decoded.Status != report.Status().String() {
+		t.Errorf("status header: got %q, want %q", decoded.Status, report.Status().String())
 	}
 	if len(decoded.Checks) != len(report.Checks) {
 		t.Fatalf("round-trip count: got %d, want %d", len(decoded.Checks), len(report.Checks))
