@@ -34,6 +34,11 @@ type ServerConfig struct {
 	Listen    *string         `json:"listen,omitempty"`
 	Logging   LoggingConfig   `json:"logging"`
 	Resources ResourcesConfig `json:"resources"`
+	Sessions  SessionsConfig  `json:"sessions"`
+}
+
+type SessionsConfig struct {
+	FlushInterval *Duration `json:"flush_interval,omitempty"`
 }
 
 type ResourcesConfig struct {
@@ -287,6 +292,10 @@ func (c Config) Validate() error {
 		if *d < 0 {
 			return fmt.Errorf("server.resources.overrides[%q] must not be negative", name)
 		}
+	}
+
+	if fi := sc.Sessions.FlushInterval; fi != nil && *fi <= 0 {
+		return errors.New("server.sessions.flush_interval must be positive")
 	}
 
 	return nil

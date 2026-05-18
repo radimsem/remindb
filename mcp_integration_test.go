@@ -2213,3 +2213,96 @@ func TestMcp_ResourceSubscription_CoalescesToOneNotification(t *testing.T) {
 		t.Fatalf("got %d graph notifications, want exactly 1 (coalesced)", n)
 	}
 }
+
+func TestMcp_SessionLedger(t *testing.T) {
+	env := mcptest.NewEnvWithSessionLedger(t)
+	dir, _ := filepath.Abs("testdata/openclaw")
+
+	// 1. Agent works: two tool calls accrue against its session.
+	env.CallTool(t, "MemoryCompile", map[string]any{"path": dir, "message": "ledger-init"})
+	env.CallTool(t, "MemorySearch", map[string]any{"query": "identity", "budget": 1000})
+
+	// 2. Flush checkpoints the still-open session.
+	env.FlushSessions()
+
+	type clientLedger struct {
+		Hash   string `json:"hash"`
+		Client struct {
+			Name string `json:"name"`
+		} `json:"client"`
+		Sessions        int   `json:"sessions"`
+		LifetimeSeconds int64 `json:"lifetime_seconds"`
+		ToolCalls       int64 `json:"tool_calls"`
+	}
+
+	var hist struct {
+		Clients []clientLedger `json:"clients"`
+	}
+	if err := json.Unmarshal([]byte(env.ReadResource(t, "remindb://sessions/history")), &hist); err != nil {
+		t.Fatalf("unmarshal history: %v", err)
+	}
+
+	if len(hist.Clients) != 1 {
+		t.Fatalf("clients: got %d, want 1", len(hist.Clients))
+	}
+	c := hist.Clients[0]
+
+	if c.Client.Name != "claude-code" {
+		t.Errorf("client name: got %q, want claude-code", c.Client.Name)
+	}
+	if c.Sessions != 1 {
+		t.Errorf("sessions: got %d, want 1", c.Sessions)
+	}
+	if c.ToolCalls < 2 {
+		t.Errorf("tool_calls: got %d, want >= 2 (compile + search)", c.ToolCalls)
+	}
+	if c.Hash == "" || c.LifetimeSeconds < 0 {
+		t.Errorf("bad ledger entry: %+v", c)
+	}
+
+	// 3. The by-hash resource resolves the same client.
+	var one clientLedger
+	if err := json.Unmarshal([]byte(env.ReadResource(t, "remindb://sessions/history/"+c.Hash)), &one); err != nil {
+		t.Fatalf("unmarshal by-hash: %v", err)
+	}
+	if one.Hash != c.Hash || one.ToolCalls != c.ToolCalls {
+		t.Errorf("by-hash mismatch: %+v vs %+v", one, c)
+	}
+
+	// 4. The on-disk file is named <client>-<hash>.jsonl under .remindb/sessions/.
+	glob := filepath.Join(env.WorkspaceDir, ".remindb", "sessions", "claude-code-*.jsonl")
+	files, err := filepath.Glob(glob)
+	if err != nil || len(files) != 1 {
+		t.Fatalf("ledger file glob %q: files=%v err=%v", glob, files, err)
+	}
+
+	// 5. Disconnect, then flush finalizes the session with a disconnect time.
+	_ = env.Session.Close()
+
+	var finalized bool
+	for i := 0; i < 30 && !finalized; i++ {
+		env.FlushSessions()
+
+		data, err := os.ReadFile(files[0])
+		if err != nil {
+			t.Fatalf("read ledger: %v", err)
+		}
+
+		for _, line := range strings.Split(strings.TrimSpace(string(data)), "\n") {
+			var rec struct {
+				DisconnectedAt int64 `json:"disconnected_at"`
+			}
+
+			if json.Unmarshal([]byte(line), &rec) == nil && rec.DisconnectedAt > 0 {
+				finalized = true
+				break
+			}
+		}
+		if !finalized {
+			time.Sleep(50 * time.Millisecond)
+		}
+	}
+	if !finalized {
+		t.Fatal("disconnected session was never finalized in the ledger")
+	}
+}

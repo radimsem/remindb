@@ -43,7 +43,7 @@ func TestHandleSessions_NilDepsSafe(t *testing.T) {
 
 func TestHandleSessions_EmptyRegistry(t *testing.T) {
 	srv := gomcp.NewServer(&gomcp.Implementation{Name: "t", Version: "0"}, nil)
-	reg := session.NewRegistry(srv, "stdio", "")
+	reg := session.NewRegistry(srv, "stdio", "", nil, nil)
 
 	_, env := readSessions(t, &Deps{Sessions: reg})
 

@@ -37,6 +37,8 @@ remindb://temperature             →   application/json   (static — per-node 
 remindb://doctor                  →   application/json   (static — health-check report)
 remindb://logs                    →   application/json   (static — recent server log records)
 remindb://sessions                →   application/json   (static — active MCP client sessions)
+remindb://sessions/history        →   application/json   (static — durable per-client session ledger)
+remindb://sessions/history/{hash} →   application/json   (templated — one client's ledger)
 remindb://rescan                  →   application/json   (static — latest source-rescan tick)
 ```
 
@@ -258,6 +260,31 @@ The shape is **locked**. Notes:
 - `transport` is the process's transport (constant — one `serve` = one transport). `listen` is the HTTP bind address and is **omitted entirely** for stdio sessions.
 - `connected_at` / `last_activity` are Unix **seconds**; `count_tool_calls` counts `tools/call` only — resource reads and pings are activity but not tool calls.
 - Reading this resource does **not** boost, lock, or snapshot. The registry is in-process memory only; it is not persisted and resets on restart.
+
+## The `sessions/history` envelope
+
+`remindb://sessions` answers "who's attached *now*"; `remindb://sessions/history` is its durable counterpart — "who has *ever* attached, for how long, how much". It is the read surface over the persistent session ledger (`.remindb/sessions/`, see [configuration](./configuration.md#session-ledger-remindbsessions)), accumulating across reconnects and `serve` restarts. `remindb://sessions/history/{hash}` returns the single client identified by `hash` (the id surfaced in the `clients` array).
+
+```json
+{
+  "db_path": "/repo/.remindb/memory.db",
+  "clients": [
+    { "hash": "Xy3K9mQ2pLs",
+      "client": { "name": "claude-code", "title": "Claude Code", "version": "1.2.0", "protocol": "2025-06-18" },
+      "transport": "stdio",
+      "sessions": 7, "lifetime_seconds": 18450, "last_disconnect": 1737200042, "tool_calls": 213 }
+  ]
+}
+```
+
+The shape is **locked**. Notes:
+
+- `clients` is always present (`[]` when nothing has ever attached), ordered by ledger filename.
+- `hash` is the **stable identity key** — a content hash of the client's name/title/version/protocol/transport, *not* the spoofable `client.name`. It is what `remindb://sessions/history/{hash}` takes; the by-hash form returns the bare client object (no `db_path`/`clients` wrapper) and errors on an unknown hash.
+- `client` is the last-seen self-reported metadata (same caveat as `sessions`: display, don't trust as identity).
+- `sessions` counts distinct connections ever seen; `lifetime_seconds` is their summed connection duration; `last_disconnect` is Unix **seconds** (0 if no session has cleanly closed yet); `tool_calls` is the lifetime total across all of this client's sessions.
+- A session that crashed mid-life contributes its last checkpoint (loss ≤ one `flush_interval`); a reconnect is a fresh session and never double-counts.
+- Reading this resource does **not** boost, lock, or snapshot. It is a pure projection over the on-disk JSONL — `resources.Deps` holds only the ledger reader, no tracker or emitter.
 
 ## The `rescan` envelope
 

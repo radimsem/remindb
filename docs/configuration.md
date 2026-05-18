@@ -4,15 +4,16 @@
 
 [← back to README](../README.md) · related: [CLI](./cli.md) · [temperature](./temperature.md)
 
-remindb keeps its workspace-level state in a `.remindb/` directory at the source root. Three files live there today:
+remindb keeps its workspace-level state in a `.remindb/` directory at the source root:
 
-| File | Purpose |
+| Entry | Purpose |
 |------|---------|
 | `.remindb/config.json` | Runtime configuration (knobs and feature blocks). |
 | `.remindb/ignore` | Gitignore-style exclude patterns. |
 | `.remindb/temperatures.json` | Per-path initial-temperature overrides. |
+| `.remindb/sessions/` | Machine-managed per-client session ledger ([below](#session-ledger-remindbsessions)). |
 
-All three are optional; missing → defaults. The whole directory is skipped during source walks, so its contents never end up as memory nodes.
+The three files are optional; missing → defaults. The whole directory is skipped during source walks, so its contents never end up as memory nodes.
 
 ## Runtime config: `.remindb/config.json`
 
@@ -65,6 +66,9 @@ A single JSON object of feature blocks. Unknown top-level or nested keys are rej
     "resources": {
       "debounce": "500ms",
       "overrides": { "logs": "1s", "temperature": "2s" }
+    },
+    "sessions": {
+      "flush_interval": "30s"
     }
   }
 }
@@ -82,7 +86,7 @@ Every field in every block is optional — only the keys you set override the de
 
 **`budgets`** sets the default token budget for the four read tools that take one — `MemorySearch`, `MemoryFetch`, `MemoryFetchBatch`, `MemoryRelated`. Resolution is per-tool and local: an explicit positive `budget` on the call always wins; otherwise the configured default; otherwise the built-in. `MemoryRelated`'s built-in is 1000; the other three treat an unset budget as **unlimited** (no trimming). Write tools are unaffected.
 
-**`server`** configures `serve` itself. `transport` (`stdio`|`http`) and `listen` mirror the flags of the same name; the nested `logging` object sets `level` (`debug`|`info`|`warn`|`error`), `format` (`text`|`json`), `output_path` (a file; absent → stderr), and `buffer_size` (the capacity of the in-memory ring buffer behind the `remindb://logs` resource; must be > 0, absent → 1000). Absent → today's behavior (stdio, info-level text to stderr, 1000-record buffer). `--verbose` is sugar for `logging.level=debug`. `buffer_size` only sizes the `remindb://logs` mirror — it never affects what reaches stderr/the file. The nested `resources` object tunes resource-update notification coalescing (see [resources](./resources.md#live-updates--subscriptions)): `debounce` is the global trailing-edge window applied to every subscribable resource (absent → `"500ms"`), and `overrides` maps a short resource name (`graph`, `snapshots`, `tree`, `files`, `temperature`, `logs`) to its own window. Absent overrides fall back to built-in floors of `"1s"` for `logs` and `"2s"` for `temperature` (so the two high-frequency streams never flood); every other resource uses the global default. A negative duration, or an `overrides` key naming a resource that isn't subscribable, fails startup with the offending field named.
+**`server`** configures `serve` itself. `transport` (`stdio`|`http`) and `listen` mirror the flags of the same name; the nested `logging` object sets `level` (`debug`|`info`|`warn`|`error`), `format` (`text`|`json`), `output_path` (a file; absent → stderr), and `buffer_size` (the capacity of the in-memory ring buffer behind the `remindb://logs` resource; must be > 0, absent → 1000). Absent → today's behavior (stdio, info-level text to stderr, 1000-record buffer). `--verbose` is sugar for `logging.level=debug`. `buffer_size` only sizes the `remindb://logs` mirror — it never affects what reaches stderr/the file. The nested `resources` object tunes resource-update notification coalescing (see [resources](./resources.md#live-updates--subscriptions)): `debounce` is the global trailing-edge window applied to every subscribable resource (absent → `"500ms"`), and `overrides` maps a short resource name (`graph`, `snapshots`, `tree`, `files`, `temperature`, `logs`) to its own window. Absent overrides fall back to built-in floors of `"1s"` for `logs` and `"2s"` for `temperature` (so the two high-frequency streams never flood); every other resource uses the global default. A negative duration, or an `overrides` key naming a resource that isn't subscribable, fails startup with the offending field named. The nested `sessions` object has one knob, `flush_interval` (absent → `"30s"`), the cadence at which `serve` checkpoints the session ledger ([below](#session-ledger-remindbsessions)); it doubles as the crash-recovery granularity. Must be positive.
 
 **Precedence**, highest first: **explicit CLI flag → `.remindb/config.json` → environment variable → built-in default**. The committed workspace config is authoritative — an env var only fills a key the config leaves *unset*, it never overrides one the config sets. In CI/automation, override a committed value with the explicit flag, not `REMINDB_*`. (`logging` has no flag/env tier beyond `--verbose`, which forces `debug` and wins.)
 
@@ -130,3 +134,9 @@ Slash-keys and nested objects mix freely — `"src/api/routes.yaml"` and `{"src"
 Two keys that resolve to the same leaf with disagreeing values fail at load time with the offending path named. A missing file is silently skipped; everything starts at the engine default of `0.50`. Supported: numbers in `[0, 1]`, nested objects, slash-keys, `*` glob at any level, leading `./` and trailing `/` (both normalized). Anything else — out-of-range numbers, string values, leading `/`, `..` segments, empty segments from `//` — fails the command at startup with the offending key named.
 
 By default, edits here reach only the nodes whose source files *also* changed in the same compile. That's deliberate: agent activity (`MemoryFetch` boosts, the decay tick) shouldn't be wiped silently every time the workspace is recompiled. Pass `remindb compile <dir> --reseed-temperatures` when you mean it — the flag overrides stored temperatures for every node whose source file is keyed here, regardless of whether its content changed. The reseed pass is a temperature update, not a content change, so it does **not** create a new snapshot. It applies to directory compiles only; single-file compiles ignore it, and the `MemoryCompile` MCP tool doesn't expose it (an agent can't use it to overwrite its own temperature signal).
+
+## Session ledger: `.remindb/sessions/`
+
+`serve` durably records, per MCP client that has ever attached to this database, one append-only JSONL file: `<client-name>-<hash>.jsonl`. The prefix is the self-reported client name (sanitized for the filesystem, cosmetic only); `<hash>` is the stable identity key — a content hash of the client's name/title/version/protocol/transport, *not* the spoofable name. Each line is one session checkpoint: connect time, last activity, disconnect time (once closed), and total tool calls. Readers collapse a file by session id, keeping the last line per session, so a process that crashes mid-session loses at most one `flush_interval` of that session's tail and a reconnect (a fresh session id) can never double-count. At `serve` start each file is compacted to one line per session, bounding growth to connections-over-time, not flush ticks.
+
+The ledger never stores payloads, summaries, or node bodies — only connection metadata and counters. It's machine-managed: don't hand-edit it. It surfaces over MCP as `remindb://sessions/history` (all clients) and `remindb://sessions/history/{hash}` (one client) — see [resources](./resources.md). Like every `.remindb/` entry it's excluded from source walks. Flush cadence is `server.sessions.flush_interval` (default `"30s"`).
