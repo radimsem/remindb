@@ -3,6 +3,7 @@ package session
 
 import (
 	"context"
+	"log/slog"
 	"sort"
 	"strconv"
 	"sync"
@@ -10,6 +11,7 @@ import (
 
 	gomcp "github.com/modelcontextprotocol/go-sdk/mcp"
 	"github.com/radimsem/remindb/internal/contentid"
+	"github.com/radimsem/remindb/pkg/mcp/ledger"
 )
 
 const (
@@ -36,6 +38,8 @@ type ClientMeta struct {
 }
 
 type meta struct {
+	id           string
+	client       ClientMeta
 	connectedAt  int64
 	lastActivity int64
 	toolCalls    int64
@@ -45,16 +49,25 @@ type Registry struct {
 	srv       *gomcp.Server
 	transport string
 	listen    string
+	ledger    *ledger.Ledger
+	logger    *slog.Logger
 
 	mu       sync.Mutex
 	sessions map[*gomcp.ServerSession]*meta
 }
 
-func NewRegistry(srv *gomcp.Server, transport, listen string) *Registry {
+// NewRegistry tracks live sessions; l (may be nil) persists their metrics.
+func NewRegistry(srv *gomcp.Server, transport, listen string, l *ledger.Ledger, logger *slog.Logger) *Registry {
+	if logger == nil {
+		logger = slog.New(slog.DiscardHandler)
+	}
+
 	return &Registry{
 		srv:       srv,
 		transport: transport,
 		listen:    listen,
+		ledger:    l,
+		logger:    logger,
 		sessions:  make(map[*gomcp.ServerSession]*meta),
 	}
 }
@@ -81,6 +94,10 @@ func (r *Registry) observe(ss *gomcp.ServerSession, method string) {
 		r.sessions[ss] = m
 	}
 
+	// Refresh each call: client metadata is only populated after initialize.
+	m.id = sessionID(ss.ID(), r.transport, m.connectedAt)
+	m.client = clientMetaOf(ss)
+
 	if method != methodPing {
 		m.lastActivity = now
 	}
@@ -96,12 +113,10 @@ func (r *Registry) Snapshot() []SessionInfo {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 
-	seen := make(map[*gomcp.ServerSession]bool)
 	var out []SessionInfo
 
+	// Report only live sessions.
 	for ss := range r.srv.Sessions() {
-		seen[ss] = true
-
 		m := r.sessions[ss]
 		if m == nil {
 			m = &meta{connectedAt: now, lastActivity: now}
@@ -109,12 +124,6 @@ func (r *Registry) Snapshot() []SessionInfo {
 		}
 
 		out = append(out, r.toInfo(ss.ID(), m, clientMetaOf(ss)))
-	}
-
-	for ss := range r.sessions {
-		if !seen[ss] {
-			delete(r.sessions, ss)
-		}
 	}
 
 	sort.Slice(out, func(i, j int) bool {
@@ -161,4 +170,75 @@ func sessionID(raw, transport string, connectedAt int64) string {
 		return raw
 	}
 	return contentid.IdentifyPayload("session", transport+strconv.FormatInt(connectedAt, 10))
+}
+
+// Run flushes the ledger on a ticker and once more on shutdown.
+func (r *Registry) Run(ctx context.Context, interval time.Duration) {
+	t := time.NewTicker(interval)
+	defer t.Stop()
+
+	for {
+		select {
+		case <-ctx.Done():
+			r.Flush(time.Now().Unix())
+			return
+		case <-t.C:
+			r.Flush(time.Now().Unix())
+		}
+	}
+}
+
+// Flush appends a checkpoint line for every live session.
+func (r *Registry) Flush(now int64) {
+	r.mu.Lock()
+
+	live := make(map[*gomcp.ServerSession]bool)
+	for ss := range r.srv.Sessions() {
+		live[ss] = true
+
+		m := r.sessions[ss]
+		if m == nil {
+			m = &meta{connectedAt: now, lastActivity: now}
+			r.sessions[ss] = m
+		}
+
+		m.id = sessionID(ss.ID(), r.transport, m.connectedAt)
+		m.client = clientMetaOf(ss)
+	}
+
+	var records []ledger.Record
+	for ss, m := range r.sessions {
+		if live[ss] {
+			records = append(records, r.record(m, 0))
+			continue
+		}
+
+		if m.id != "" {
+			records = append(records, r.record(m, m.lastActivity))
+		}
+		delete(r.sessions, ss)
+	}
+
+	r.mu.Unlock()
+
+	if r.ledger == nil {
+		return
+	}
+	for _, rec := range records {
+		if err := r.ledger.Append(rec); err != nil {
+			r.logger.Warn("failed to append: session ledger", "err", err)
+		}
+	}
+}
+
+func (r *Registry) record(m *meta, disconnectedAt int64) ledger.Record {
+	return ledger.Record{
+		SessionID:      m.id,
+		Client:         ledger.ClientMeta(m.client),
+		Transport:      r.transport,
+		ConnectedAt:    m.connectedAt,
+		LastSeen:       m.lastActivity,
+		DisconnectedAt: disconnectedAt,
+		ToolCalls:      m.toolCalls,
+	}
 }

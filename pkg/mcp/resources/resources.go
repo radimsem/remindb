@@ -4,6 +4,7 @@ package resources
 import (
 	gomcp "github.com/modelcontextprotocol/go-sdk/mcp"
 	"github.com/radimsem/remindb/pkg/logbuf"
+	"github.com/radimsem/remindb/pkg/mcp/ledger"
 	"github.com/radimsem/remindb/pkg/mcp/rescanstat"
 	"github.com/radimsem/remindb/pkg/mcp/session"
 	"github.com/radimsem/remindb/pkg/store"
@@ -26,6 +27,7 @@ type Deps struct {
 	ColdThreshold float64
 	LogBuffer     *logbuf.Buffer
 	Sessions      *session.Registry
+	Ledger        *ledger.Ledger
 	RescanStatus  *rescanstat.Status
 }
 
@@ -114,6 +116,20 @@ func Register(srv *gomcp.Server, d *Deps) {
 		MIMEType:    mimeJSON,
 		Description: "Active MCP client sessions on the bound database — db_path plus per-session id, transport, listen address (http only), connect/last-activity timestamps, and tool-call count, as stable JSON for a 'who's attached' view. Membership mirrors the SDK's live session set. Passive read: does not boost temperature or create a snapshot.",
 	}, d.HandleSessions)
+
+	srv.AddResource(&gomcp.Resource{
+		Name:        "sessions-history",
+		URI:         SessionsHistoryURI,
+		MIMEType:    mimeJSON,
+		Description: "Durable per-client session ledger — every MCP client that has ever attached to this database, with stable hash id, last-seen metadata, session count, summed connection lifetime, last-disconnect time, and total tool calls, as stable JSON. Accumulates across reconnects and serve restarts. Passive read: does not boost temperature or create a snapshot.",
+	}, d.HandleSessionsHistory)
+
+	srv.AddResourceTemplate(&gomcp.ResourceTemplate{
+		Name:        "sessions-history-by-hash",
+		URITemplate: SessionsHistoryByHashTemplate,
+		MIMEType:    mimeJSON,
+		Description: "Durable session ledger for a single client identified by {hash} (the id surfaced in remindb://sessions/history). Passive read: does not boost temperature or create a snapshot.",
+	}, d.HandleSessionsHistoryByHash)
 
 	srv.AddResource(&gomcp.Resource{
 		Name:        "rescan",

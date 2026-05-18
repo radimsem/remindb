@@ -26,7 +26,15 @@ type Env struct {
 
 	// RescanDir is the source dir a NewEnvWithRescan loop watches; "" otherwise.
 	RescanDir string
+
+	// WorkspaceDir is the source dir whose .remindb/ holds the session ledger.
+	WorkspaceDir string
+
+	srv *remindb.Server
 }
+
+// FlushSessions forces a session-ledger flush so tests observe it deterministically.
+func (e *Env) FlushSessions() { e.srv.FlushSessions() }
 
 func NewEnv(t *testing.T) *Env {
 	t.Helper()
@@ -205,6 +213,41 @@ func NewEnvWithRescan(t *testing.T) *Env {
 	t.Cleanup(func() { _ = session.Close() })
 
 	return &Env{Session: session, Store: st, RescanDir: dir}
+}
+
+func NewEnvWithSessionLedger(t *testing.T) *Env {
+	t.Helper()
+
+	st := testutil.OpenTestDB(t)
+	cfg := temperature.DefaultConfig()
+
+	tracker, err := temperature.NewTracker(st, "", cfg, nil)
+	if err != nil {
+		t.Fatalf("NewTracker: %v", err)
+	}
+
+	dir := t.TempDir()
+	srv, err := remindb.NewServer(st, tracker, cfg, remindb.WithSourceDir(dir))
+	if err != nil {
+		t.Fatalf("NewServer: %v", err)
+	}
+
+	serverTransport, clientTransport := mcp.NewInMemoryTransports()
+	ctx := context.Background()
+
+	if _, err := srv.Connect(ctx, serverTransport); err != nil {
+		t.Fatalf("server connect: %v", err)
+	}
+
+	client := mcp.NewClient(&mcp.Implementation{Name: "claude-code", Version: "1.0.0"}, nil)
+	session, err := client.Connect(ctx, clientTransport, nil)
+	if err != nil {
+		t.Fatalf("client connect: %v", err)
+	}
+
+	t.Cleanup(func() { _ = session.Close() })
+
+	return &Env{Session: session, Store: st, WorkspaceDir: dir, srv: srv}
 }
 
 func (e *Env) CallTool(t *testing.T, name string, args map[string]any) *mcp.CallToolResult {

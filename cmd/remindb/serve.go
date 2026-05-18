@@ -150,6 +150,10 @@ func runServe(cmd *cobra.Command, _ []string) error {
 		})
 		return nil
 	})
+	g.Go(func() error {
+		srv.RunSessionLedger(ctx)
+		return nil
+	})
 
 	if sourceDir != "" {
 		rescan, err := remindb.NewRescanLoop(st, sourceDir, rescanInterval, workspaceCfg.Compile, logger, rescanStatus)

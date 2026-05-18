@@ -5,11 +5,13 @@ import (
 	"fmt"
 	"log/slog"
 	"net"
+	"time"
 
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 	"github.com/radimsem/remindb/internal/redaction"
 	"github.com/radimsem/remindb/pkg/config"
 	"github.com/radimsem/remindb/pkg/logbuf"
+	"github.com/radimsem/remindb/pkg/mcp/ledger"
 	"github.com/radimsem/remindb/pkg/mcp/notify"
 	"github.com/radimsem/remindb/pkg/mcp/rescanstat"
 	"github.com/radimsem/remindb/pkg/mcp/resources"
@@ -27,6 +29,8 @@ const (
 	TransportHttp  = "http"
 
 	DefaultListenAddr = "127.0.0.1:7474"
+
+	DefaultSessionFlushInterval = 30 * time.Second
 )
 
 type Server struct {
@@ -37,6 +41,8 @@ type Server struct {
 	listen          string
 	listener        net.Listener
 	notifier        *notify.Publisher
+	sessions        *session.Registry
+	sessionFlush    time.Duration
 }
 
 type Option func(*options)
@@ -134,7 +140,20 @@ func NewServer(st *store.Store, tracker *temperature.Tracker, cfg temperature.Co
 	})
 	pub.Attach(mcpSrv)
 
-	sessions := session.NewRegistry(mcpSrv, transport, listen)
+	var sessLedger *ledger.Ledger
+	if o.sourceDir != "" {
+		sessLedger, err = ledger.New(o.sourceDir, logger)
+		if err != nil {
+			return nil, fmt.Errorf("failed to build: session ledger: %w", err)
+		}
+	}
+
+	flush := DefaultSessionFlushInterval
+	if fi := o.workspaceConfig.Server.Sessions.FlushInterval; fi != nil {
+		flush = time.Duration(*fi)
+	}
+
+	sessions := session.NewRegistry(mcpSrv, transport, listen, sessLedger, logger)
 	mcpSrv.AddReceivingMiddleware(sessions.Middleware)
 
 	s := &Server{
@@ -145,6 +164,8 @@ func NewServer(st *store.Store, tracker *temperature.Tracker, cfg temperature.Co
 		listen:          listen,
 		listener:        o.listener,
 		notifier:        pub,
+		sessions:        sessions,
+		sessionFlush:    flush,
 	}
 
 	deps := &tools.Deps{
@@ -161,8 +182,18 @@ func NewServer(st *store.Store, tracker *temperature.Tracker, cfg temperature.Co
 	}
 
 	registerTools(s.mcp, deps)
-	resources.Register(s.mcp, &resources.Deps{Store: st, ColdThreshold: cfg.ColdThreshold, LogBuffer: o.logBuffer, Sessions: sessions, RescanStatus: o.rescanStatus})
+	resources.Register(s.mcp, &resources.Deps{Store: st, ColdThreshold: cfg.ColdThreshold, LogBuffer: o.logBuffer, Sessions: sessions, Ledger: sessLedger, RescanStatus: o.rescanStatus})
 	return s, nil
+}
+
+// RunSessionLedger flushes the session ledger on its interval until ctx ends.
+func (s *Server) RunSessionLedger(ctx context.Context) {
+	s.sessions.Run(ctx, s.sessionFlush)
+}
+
+// FlushSessions forces a ledger flush — used at shutdown and in tests.
+func (s *Server) FlushSessions() {
+	s.sessions.Flush(time.Now().Unix())
 }
 
 // NotifyTemperatureTick signals that a temperature tick mutated heat values.

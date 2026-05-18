@@ -588,3 +588,38 @@ func TestValidate_CompileBlock(t *testing.T) {
 		t.Errorf("zero-value Config should validate, got %v", err)
 	}
 }
+
+func TestLoad_ServerSessionsBlock(t *testing.T) {
+	ws := t.TempDir()
+	writeConfig(t, ws, `{"server": {"sessions": {"flush_interval": "45s"}}}`)
+
+	cfg, err := Load(ws)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	fi := cfg.Server.Sessions.FlushInterval
+	if fi == nil || time.Duration(*fi) != 45*time.Second {
+		t.Errorf("flush_interval = %v, want 45s", fi)
+	}
+}
+
+func TestValidate_ServerSessionsBlock(t *testing.T) {
+	neg := Duration(-time.Second)
+	zero := Duration(0)
+	ok := Duration(30 * time.Second)
+
+	for i, c := range []Config{
+		{Server: ServerConfig{Sessions: SessionsConfig{FlushInterval: &neg}}},
+		{Server: ServerConfig{Sessions: SessionsConfig{FlushInterval: &zero}}},
+	} {
+		if err := c.Validate(); err == nil {
+			t.Errorf("case %d: expected validation error, got nil", i)
+		}
+	}
+
+	good := Config{Server: ServerConfig{Sessions: SessionsConfig{FlushInterval: &ok}}}
+	if err := good.Validate(); err != nil {
+		t.Errorf("valid sessions block should pass, got %v", err)
+	}
+}
