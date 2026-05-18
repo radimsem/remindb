@@ -153,9 +153,6 @@ func NewHttpEnv(t *testing.T) *Env {
 	return &Env{Session: session, Store: st}
 }
 
-// NewEnvWithRescan wires a server sharing one rescanstat.Status with a real
-// RescanLoop watching a temp source dir, so remindb://rescan reflects actual
-// rescan ticks. The loop reloads a fast-tick config from RescanDir/.remindb.
 func NewEnvWithRescan(t *testing.T) *Env {
 	t.Helper()
 
