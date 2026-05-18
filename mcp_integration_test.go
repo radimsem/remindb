@@ -2021,3 +2021,127 @@ func TestMcp_SessionsResource(t *testing.T) {
 
 	_ = a.Close()
 }
+
+type rescanEnvJSON struct {
+	IntervalS int64 `json:"interval_s"`
+	LastMeta  struct {
+		RunAt       int64  `json:"run_at"`
+		Error       string `json:"error"`
+		Added       int    `json:"added"`
+		Modified    int    `json:"modified"`
+		Removed     int    `json:"removed"`
+		PurgedFiles []struct {
+			Path  string `json:"path"`
+			Nodes int    `json:"nodes"`
+		} `json:"purged_files"`
+	} `json:"last_meta"`
+}
+
+func readRescanEnv(t *testing.T, env *mcptest.Env) (rescanEnvJSON, string) {
+	t.Helper()
+
+	read, err := env.Session.ReadResource(context.Background(), &gomcp.ReadResourceParams{URI: "remindb://rescan"})
+	if err != nil {
+		t.Fatalf("ReadResource(rescan): %v", err)
+	}
+	if len(read.Contents) != 1 {
+		t.Fatalf("rescan contents = %d, want 1", len(read.Contents))
+	}
+
+	c := read.Contents[0]
+	if c.URI != "remindb://rescan" || c.MIMEType != "application/json" {
+		t.Fatalf("rescan envelope: uri=%q mime=%q", c.URI, c.MIMEType)
+	}
+
+	var e rescanEnvJSON
+	if err := json.Unmarshal([]byte(c.Text), &e); err != nil {
+		t.Fatalf("rescan JSON not parseable: %v\nbody: %s", err, c.Text)
+	}
+	return e, c.Text
+}
+
+func pollRescanEnv(t *testing.T, env *mcptest.Env, want func(rescanEnvJSON) bool) (rescanEnvJSON, string) {
+	t.Helper()
+
+	var (
+		e    rescanEnvJSON
+		body string
+	)
+	for range 250 {
+		e, body = readRescanEnv(t, env)
+		if want(e) {
+			return e, body
+		}
+		time.Sleep(40 * time.Millisecond)
+	}
+
+	t.Fatalf("rescan resource never reached expected state; last body: %s", body)
+	return e, body
+}
+
+func TestMcp_RescanResource(t *testing.T) {
+	env := mcptest.NewEnvWithRescan(t)
+	ctx := context.Background()
+
+	listed, err := env.Session.ListResources(ctx, &gomcp.ListResourcesParams{})
+	if err != nil {
+		t.Fatalf("ListResources: %v", err)
+	}
+
+	var rescan *gomcp.Resource
+	for _, r := range listed.Resources {
+		if r.URI == "remindb://rescan" {
+			rescan = r
+		}
+	}
+	if rescan == nil {
+		t.Fatalf("resources/list missing remindb://rescan, got %d resources", len(listed.Resources))
+	}
+	if rescan.MIMEType != "application/json" {
+		t.Errorf("rescan MIME type = %q, want application/json", rescan.MIMEType)
+	}
+
+	// The startup scan over the (still empty) source dir publishes a clean tick.
+	initial, body := pollRescanEnv(t, env, func(e rescanEnvJSON) bool { return e.LastMeta.RunAt != 0 })
+	if initial.IntervalS != 1 {
+		t.Errorf("interval_s = %d, want 1 (config sets interval 1s)", initial.IntervalS)
+	}
+	if initial.LastMeta.Error != "" {
+		t.Errorf("error = %q, want empty on a clean scan", initial.LastMeta.Error)
+	}
+	if initial.LastMeta.Added != 0 {
+		t.Errorf("added = %d, want 0 before any fixture exists", initial.LastMeta.Added)
+	}
+	if !strings.Contains(body, `"purged_files":[]`) {
+		t.Errorf("purged_files must marshal as [] not null; body: %s", body)
+	}
+
+	// A new source file → the next tick compiles it; counts surface in last_meta.
+	fixture := filepath.Join(env.RescanDir, "rescan-fixture.md")
+	if err := os.WriteFile(fixture, []byte("# Rescan Fixture\n\nFirst body paragraph.\n"), 0o644); err != nil {
+		t.Fatalf("write fixture: %v", err)
+	}
+
+	added, _ := pollRescanEnv(t, env, func(e rescanEnvJSON) bool { return e.LastMeta.Added > 0 })
+	if added.LastMeta.Error != "" {
+		t.Errorf("error = %q after a successful compile, want empty", added.LastMeta.Error)
+	}
+	if added.LastMeta.Removed != 0 {
+		t.Errorf("removed = %d on a pure add, want 0", added.LastMeta.Removed)
+	}
+
+	// Deleting it → that tick reports it under purged_files (whole-file purge).
+	if err := os.Remove(fixture); err != nil {
+		t.Fatalf("remove fixture: %v", err)
+	}
+
+	purged, _ := pollRescanEnv(t, env, func(e rescanEnvJSON) bool { return len(e.LastMeta.PurgedFiles) == 1 })
+	pf := purged.LastMeta.PurgedFiles[0]
+
+	if pf.Path != "rescan-fixture.md" {
+		t.Errorf("purged path = %q, want %q", pf.Path, "rescan-fixture.md")
+	}
+	if pf.Nodes < 1 {
+		t.Errorf("purged nodes = %d, want >= 1", pf.Nodes)
+	}
+}

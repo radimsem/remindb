@@ -13,6 +13,7 @@ import (
 	"github.com/radimsem/remindb/pkg/config"
 	"github.com/radimsem/remindb/pkg/logbuf"
 	remindb "github.com/radimsem/remindb/pkg/mcp"
+	"github.com/radimsem/remindb/pkg/mcp/rescanstat"
 	"github.com/radimsem/remindb/pkg/store"
 	"github.com/radimsem/remindb/pkg/temperature"
 	"github.com/radimsem/remindb/pkg/version"
@@ -105,6 +106,8 @@ func runServe(cmd *cobra.Command, _ []string) error {
 		return err
 	}
 
+	rescanStatus := rescanstat.New()
+
 	srv, err := remindb.NewServer(st, tracker, startCfg,
 		remindb.WithSourceDir(sourceDir),
 		remindb.WithLogger(logger),
@@ -113,6 +116,7 @@ func runServe(cmd *cobra.Command, _ []string) error {
 		remindb.WithWorkspaceConfig(workspaceCfg),
 		remindb.WithRedactor(red),
 		remindb.WithLogBuffer(logBuf),
+		remindb.WithRescanStatus(rescanStatus),
 	)
 	if err != nil {
 		return fmt.Errorf("failed to build: server: %w", err)
@@ -145,7 +149,7 @@ func runServe(cmd *cobra.Command, _ []string) error {
 	})
 
 	if sourceDir != "" {
-		rescan, err := remindb.NewRescanLoop(st, sourceDir, rescanInterval, workspaceCfg.Compile, logger)
+		rescan, err := remindb.NewRescanLoop(st, sourceDir, rescanInterval, workspaceCfg.Compile, logger, rescanStatus)
 		if err != nil {
 			return err
 		}

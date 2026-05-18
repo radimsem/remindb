@@ -37,6 +37,7 @@ remindb://temperature             →   application/json   (static — per-node 
 remindb://doctor                  →   application/json   (static — health-check report)
 remindb://logs                    →   application/json   (static — recent server log records)
 remindb://sessions                →   application/json   (static — active MCP client sessions)
+remindb://rescan                  →   application/json   (static — latest source-rescan tick)
 ```
 
 Static resources answer "what is the state of the whole database". The templated forms (registered via `AddResourceTemplate`, RFC 6570 so the matcher spans the optional query / path variable) answer a narrower question: `remindb://tree/{rootId}{?depth}` the subtree under a node, `remindb://snapshots{?limit}` the newest N snapshots, `remindb://snapshots/{id}/diffs` the diffs of one snapshot. The static/templated split is a deliberately separate mechanism mirroring the resources/tools split: predictable surface first, parameterised surface only where a concrete need appeared.
@@ -257,6 +258,32 @@ The shape is **locked**. Notes:
 - `transport` is the process's transport (constant — one `serve` = one transport). `listen` is the HTTP bind address and is **omitted entirely** for stdio sessions.
 - `connected_at` / `last_activity` are Unix **seconds**; `count_tool_calls` counts `tools/call` only — resource reads and pings are activity but not tool calls.
 - Reading this resource does **not** boost, lock, or snapshot. The registry is in-process memory only; it is not persisted and resets on restart.
+
+## The `rescan` envelope
+
+`remindb://rescan` exposes the latest tick of the `serve` source-rescan loop — for a live rescan-activity panel. The loop publishes one snapshot per tick into a concurrency-safe in-process holder (`pkg/mcp/rescanstat`, the same shape as the session registry); the resource is a pure projection of it. With no `--source` (no loop) or before the first tick, the holder is its zero value.
+
+```json
+{
+  "interval_s": 30,
+  "last_meta": {
+    "run_at": 1737200000,
+    "error": "",
+    "added": 2,
+    "modified": 1,
+    "removed": 0,
+    "purged_files": [ { "path": "notes/old.md", "nodes": 4 } ]
+  }
+}
+```
+
+The shape is **locked**. Notes:
+
+- `interval_s` is the configured rescan interval in **seconds**; it reflects live `.remindb/config.json` reloads (`0` until the first tick has run).
+- `last_meta` is exactly one tick's result, replaced wholesale each tick. `run_at` is Unix **seconds** (`0` = never run); `error` is that tick's failure string, empty on success (a failed tick still publishes — counts stay zero, `error` is set).
+- `added` / `modified` / `removed` are the tick's compile counts. There is **no `total`** — a consumer sums the three.
+- `purged_files` lists each source file that was deleted from disk that tick, with `nodes` = how many context nodes it carried. Always present (`[]` when nothing was purged). Purging is **whole-file only** — a file removed from the source tree drops all its context nodes — so there is no separate `purged_nodes` count; the per-file `nodes` fully describes the purge. Entries sort by `path`.
+- Reading this resource does **not** boost, lock, or snapshot. The holder is in-process memory only; it is not persisted and resets on restart. (Durable JSONL rescan history under `.remindb/` is tracked separately, mirroring the per-session-logfile work.)
 
 ## What stays out
 

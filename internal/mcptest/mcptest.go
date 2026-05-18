@@ -5,12 +5,17 @@ import (
 	"io"
 	"log/slog"
 	"net"
+	"os"
+	"path/filepath"
 	"testing"
+	"time"
 
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 	"github.com/radimsem/remindb/internal/testutil"
+	"github.com/radimsem/remindb/pkg/config"
 	"github.com/radimsem/remindb/pkg/logbuf"
 	remindb "github.com/radimsem/remindb/pkg/mcp"
+	"github.com/radimsem/remindb/pkg/mcp/rescanstat"
 	"github.com/radimsem/remindb/pkg/store"
 	"github.com/radimsem/remindb/pkg/temperature"
 )
@@ -18,6 +23,9 @@ import (
 type Env struct {
 	Session *mcp.ClientSession
 	Store   *store.Store
+
+	// RescanDir is the source dir a NewEnvWithRescan loop watches; "" otherwise.
+	RescanDir string
 }
 
 func NewEnv(t *testing.T) *Env {
@@ -143,6 +151,60 @@ func NewHttpEnv(t *testing.T) *Env {
 	})
 
 	return &Env{Session: session, Store: st}
+}
+
+func NewEnvWithRescan(t *testing.T) *Env {
+	t.Helper()
+
+	st := testutil.OpenTestDB(t)
+	cfg := temperature.DefaultConfig()
+	tracker, err := temperature.NewTracker(st, "", cfg, nil)
+	if err != nil {
+		t.Fatalf("NewTracker: %v", err)
+	}
+
+	dir := t.TempDir()
+	cfgDir := filepath.Join(dir, config.DirName)
+	if err := os.MkdirAll(cfgDir, 0o755); err != nil {
+		t.Fatalf("mkdir .remindb: %v", err)
+	}
+	cfgJSON := `{"rescan":{"interval":"1s","settle":"1ms"}}`
+	if err := os.WriteFile(filepath.Join(cfgDir, config.FileName), []byte(cfgJSON), 0o644); err != nil {
+		t.Fatalf("write config: %v", err)
+	}
+
+	status := rescanstat.New()
+	srv, err := remindb.NewServer(st, tracker, cfg, remindb.WithRescanStatus(status))
+	if err != nil {
+		t.Fatalf("NewServer: %v", err)
+	}
+
+	loop, err := remindb.NewRescanLoop(st, dir, time.Second, config.CompileConfig{}, nil, status)
+	if err != nil {
+		t.Fatalf("NewRescanLoop: %v", err)
+	}
+
+	loopCtx, cancelLoop := context.WithCancel(context.Background())
+	t.Cleanup(cancelLoop)
+	go loop.Run(loopCtx)
+
+	serverTransport, clientTransport := mcp.NewInMemoryTransports()
+	ctx := context.Background()
+
+	_, err = srv.Connect(ctx, serverTransport)
+	if err != nil {
+		t.Fatalf("server connect: %v", err)
+	}
+
+	client := mcp.NewClient(&mcp.Implementation{Name: "test-agent", Version: "0.1.0"}, nil)
+	session, err := client.Connect(ctx, clientTransport, nil)
+	if err != nil {
+		t.Fatalf("client connect: %v", err)
+	}
+
+	t.Cleanup(func() { _ = session.Close() })
+
+	return &Env{Session: session, Store: st, RescanDir: dir}
 }
 
 func (e *Env) CallTool(t *testing.T, name string, args map[string]any) *mcp.CallToolResult {

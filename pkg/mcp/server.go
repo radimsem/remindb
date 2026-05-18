@@ -10,6 +10,7 @@ import (
 	"github.com/radimsem/remindb/internal/redaction"
 	"github.com/radimsem/remindb/pkg/config"
 	"github.com/radimsem/remindb/pkg/logbuf"
+	"github.com/radimsem/remindb/pkg/mcp/rescanstat"
 	"github.com/radimsem/remindb/pkg/mcp/resources"
 	"github.com/radimsem/remindb/pkg/mcp/session"
 	"github.com/radimsem/remindb/pkg/mcp/tools"
@@ -47,6 +48,7 @@ type options struct {
 	workspaceConfig config.Config
 	redactor        *redaction.Redactor
 	logBuffer       *logbuf.Buffer
+	rescanStatus    *rescanstat.Status
 }
 
 func WithSourceDir(dir string) Option {
@@ -79,6 +81,10 @@ func WithRedactor(r *redaction.Redactor) Option {
 
 func WithLogBuffer(b *logbuf.Buffer) Option {
 	return func(o *options) { o.logBuffer = b }
+}
+
+func WithRescanStatus(s *rescanstat.Status) Option {
+	return func(o *options) { o.rescanStatus = s }
 }
 
 func NewServer(st *store.Store, tracker *temperature.Tracker, cfg temperature.Config, opts ...Option) (*Server, error) {
@@ -142,7 +148,7 @@ func NewServer(st *store.Store, tracker *temperature.Tracker, cfg temperature.Co
 	}
 
 	registerTools(s.mcp, deps)
-	resources.Register(s.mcp, &resources.Deps{Store: st, ColdThreshold: cfg.ColdThreshold, LogBuffer: o.logBuffer, Sessions: sessions})
+	resources.Register(s.mcp, &resources.Deps{Store: st, ColdThreshold: cfg.ColdThreshold, LogBuffer: o.logBuffer, Sessions: sessions, RescanStatus: o.rescanStatus})
 	return s, nil
 }
 

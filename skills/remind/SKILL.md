@@ -1,13 +1,13 @@
 ---
 name: remind
-description: Read memory from a remindb MCP server — orient, search, fetch (single or batched), resync, traverse the relations graph, inspect DB health, read passive resources (`remindb://overview`, `remindb://files`, `remindb://tree`, `remindb://graph`, `remindb://snapshots`, `remindb://temperature`, `remindb://doctor`, `remindb://logs`). Covers the node/snapshot/temperature/relations model and FTS5 query syntax. Pair with `memoize` for writes.
+description: Read memory from a remindb MCP server — orient, search, fetch (single or batched), resync, traverse the relations graph, inspect DB health, read passive resources (`remindb://overview`, `remindb://files`, `remindb://tree`, `remindb://graph`, `remindb://snapshots`, `remindb://temperature`, `remindb://doctor`, `remindb://logs`, `remindb://sessions`, `remindb://rescan`). Covers the node/snapshot/temperature/relations model and FTS5 query syntax. Pair with `memoize` for writes.
 ---
 
 # Remind — read from remindb so you don't re-grep
 
 remindb is a compiled SQLite view of a workspace, served over MCP as the `Memory*` tool suite. It's long-term memory for your session — call it instead of re-reading files or grepping.
 
-Read path (this skill): `MemoryTree`, `MemorySearch`, `MemoryFetch`, `MemoryFetchBatch`, `MemoryDelta`, `MemoryDiff`, `MemoryHistory`, `MemoryRelated`, `MemoryStats`, plus read-only **resources** (`remindb://overview`, `remindb://files`, `remindb://tree`, `remindb://graph`, `remindb://temperature`, `remindb://doctor`, `remindb://logs`). Write path (pair with **`memoize`**): `MemoryWrite`, `MemoryForget`, `MemorySummarize`, `MemoryCompile`, `MemoryRelate`, `MemoryPin`, `MemoryUnpin`, `MemoryRollback`.
+Read path (this skill): `MemoryTree`, `MemorySearch`, `MemoryFetch`, `MemoryFetchBatch`, `MemoryDelta`, `MemoryDiff`, `MemoryHistory`, `MemoryRelated`, `MemoryStats`, plus read-only **resources** (`remindb://overview`, `remindb://files`, `remindb://tree`, `remindb://graph`, `remindb://temperature`, `remindb://doctor`, `remindb://logs`, `remindb://sessions`, `remindb://rescan`). Write path (pair with **`memoize`**): `MemoryWrite`, `MemoryForget`, `MemorySummarize`, `MemoryCompile`, `MemoryRelate`, `MemoryPin`, `MemoryUnpin`, `MemoryRollback`.
 
 ## Use-case playbook
 
@@ -225,6 +225,7 @@ remindb://temperature       →   application/json   (per-node heatmap + summary
 remindb://doctor            →   application/json   (health-check report)
 remindb://logs              →   application/json   (recent server log records)
 remindb://sessions          →   application/json   (active MCP client sessions)
+remindb://rescan            →   application/json   (latest source-rescan tick)
 ```
 
 `remindb://overview` — same data as `MemoryStats`, but as the locked JSON envelope (`db_path`, `db_bytes`, `nodes{total,by_type,tokens}`, `snapshots{count,head_id,cursor_hash,latest_message,latest_age_s}`, `temperature{avg,median,hot,cold,pinned}`, `relations{total,by_origin,pending}`, `fts_rows`) — for programmatic consumers (a UI rendering the database), not for reasoning in prose.
@@ -325,6 +326,17 @@ All three keys are always present (`{"nodes":[],"edges":[],"pending":[]}` on an 
 ```
 
 `client_meta` (always present) carries `name`/`version`/`protocol` from the `initialize` handshake (`title` omitted when unset) — **self-reported, display-only, not identity**. `connected_at`/`last_activity` are Unix **seconds**; `count_tool_calls` counts `tools/call` only (resource reads and pings are not tool calls); `listen` (HTTP bind address) appears only for `http` sessions and is omitted for stdio.
+
+`remindb://rescan` — the latest tick of the `serve` source-rescan loop, for a live rescan-activity panel. Always present; before the first tick (or when `serve` runs with no `--source`) `last_meta` is the zero value with `run_at: 0`:
+
+```json
+{ "interval_s": 30,
+  "last_meta": { "run_at": 1737200000, "error": "",
+                 "added": 2, "modified": 1, "removed": 0,
+                 "purged_files": [ { "path": "notes/old.md", "nodes": 4 } ] } }
+```
+
+`interval_s` is the configured rescan interval in seconds (reflects live `.remindb/config.json` reloads). `last_meta` is one tick's result: `run_at` is Unix **seconds** (0 = never run); `error` is the last tick's failure string (empty on success); `added`/`modified`/`removed` are that tick's compile counts (sum them yourself — there is no `total`); `purged_files` lists each source file deleted from disk that tick with how many context nodes it carried (`[]` when nothing was purged — purging is whole-file only, so the per-file node count fully describes it).
 
 The key difference from a read *tool*: a resource read is **passive observation**. It does **not** boost temperature. Reach for `MemorySearch`/`MemoryFetch` when you want the node to count as accessed (and warm up); read the resource only when you explicitly must *not* perturb the heatmap. For ordinary "what's the DB state" curiosity in a session, `MemoryStats` is still the call — the resource exists for external renderers.
 

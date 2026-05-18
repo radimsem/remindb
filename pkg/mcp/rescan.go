@@ -9,6 +9,7 @@ import (
 	"maps"
 	"os"
 	"path/filepath"
+	"sort"
 	"time"
 
 	"github.com/radimsem/remindb/internal/contentid"
@@ -18,6 +19,7 @@ import (
 	"github.com/radimsem/remindb/pkg/config"
 	"github.com/radimsem/remindb/pkg/diff"
 	"github.com/radimsem/remindb/pkg/emitter"
+	"github.com/radimsem/remindb/pkg/mcp/rescanstat"
 	"github.com/radimsem/remindb/pkg/parser"
 	"github.com/radimsem/remindb/pkg/store"
 )
@@ -41,14 +43,18 @@ type RescanLoop struct {
 	logger            *slog.Logger
 	ignore            *ignore.Matcher
 	compileOpts       []compiler.Option
+	status            *rescanstat.Status
 }
 
-func NewRescanLoop(st *store.Store, dir string, interval time.Duration, cc config.CompileConfig, logger *slog.Logger) (*RescanLoop, error) {
+func NewRescanLoop(st *store.Store, dir string, interval time.Duration, cc config.CompileConfig, logger *slog.Logger, status *rescanstat.Status) (*RescanLoop, error) {
 	if interval <= 0 {
 		interval = defaultRescanInterval
 	}
 	if logger == nil {
 		logger = slog.New(slog.DiscardHandler)
+	}
+	if status == nil {
+		status = rescanstat.New()
 	}
 
 	matcher, err := ignore.Load(dir)
@@ -69,6 +75,7 @@ func NewRescanLoop(st *store.Store, dir string, interval time.Duration, cc confi
 		logger:            logger,
 		ignore:            matcher,
 		compileOpts:       compiler.ConfigOptions(cc),
+		status:            status,
 	}, nil
 }
 
@@ -152,6 +159,9 @@ func (r *RescanLoop) scan(ctx context.Context) {
 	pending := make(map[string]time.Time)
 	now := r.now()
 
+	snap := rescanstat.Snapshot{RunAt: now.Unix()}
+	defer func() { r.status.Set(int64(r.interval/time.Second), snap) }()
+
 	walkErr := r.walkFn(r.dir, func(path string, d os.DirEntry, err error) error {
 		if err != nil {
 			r.logger.Warn("rescan: walk error", "path", path, "err", err)
@@ -205,6 +215,7 @@ func (r *RescanLoop) scan(ctx context.Context) {
 	// Purge entries for deleted files only when the walk was complete.
 	if walkErr != nil {
 		r.logger.Error("rescan: walk aborted", "dir", r.dir, "err", walkErr)
+		snap.Error = walkErr.Error()
 		return
 	}
 
@@ -226,7 +237,7 @@ func (r *RescanLoop) scan(ctx context.Context) {
 	r.store.OpMu.Lock()
 	defer r.store.OpMu.Unlock()
 
-	r.reconcileDeleted(ctx, deleted)
+	snap.PurgedFiles = r.reconcileDeleted(ctx, deleted)
 
 	if len(changed) == 0 {
 		r.logger.Debug("rescan: no changes", "watched", len(r.modTimes))
@@ -243,10 +254,12 @@ func (r *RescanLoop) scan(ctx context.Context) {
 	result, err := compiler.Compile(ctx, r.store, copts...)
 	if err != nil {
 		r.logger.Error("rescan: compile failed", "err", err)
+		snap.Error = err.Error()
 		return
 	}
 
 	maps.Copy(r.modTimes, pending)
+	snap.Added, snap.Modified, snap.Removed = result.Added, result.Modified, result.Removed
 
 	r.logger.Info("rescan: applied",
 		"added", result.Added,
@@ -256,22 +269,24 @@ func (r *RescanLoop) scan(ctx context.Context) {
 	)
 }
 
-func (r *RescanLoop) reconcileDeleted(ctx context.Context, deleted []string) {
+// Returns one PurgedFile per source file that lost nodes.
+func (r *RescanLoop) reconcileDeleted(ctx context.Context, deleted []string) []rescanstat.PurgedFile {
 	if len(deleted) == 0 {
-		return
+		return nil
 	}
 
 	nodes, err := r.store.GetNodesByFiles(ctx, deleted)
 	if err != nil {
 		r.logger.Error("rescan: load deleted nodes failed", "err", err)
-		return
+		return nil
 	}
 	if len(nodes) == 0 {
-		return
+		return nil
 	}
 
 	deltas := make([]diff.Delta, 0, len(nodes))
 	synthetic := make([]*parser.ContextNode, 0, len(nodes))
+	counts := make(map[string]int, len(deleted))
 	for _, n := range nodes {
 		deltas = append(deltas, diff.Delta{
 			NodeID:     n.ID,
@@ -279,8 +294,10 @@ func (r *RescanLoop) reconcileDeleted(ctx context.Context, deleted []string) {
 			OldHash:    n.ContentHash,
 			OldContent: n.Content,
 		})
+
 		// "rem:" prefix keeps the delete cursor-hash domain disjoint from compile's.
 		synthetic = append(synthetic, &parser.ContextNode{ContentHash: "rem:" + n.ID + ":" + n.ContentHash})
+		counts[n.SourceFile]++
 	}
 
 	msg := fmt.Sprintf("rescan: purged %d files", len(deleted))
@@ -290,7 +307,7 @@ func (r *RescanLoop) reconcileDeleted(ctx context.Context, deleted []string) {
 		emitter.WithMessage(msg),
 	); err != nil {
 		r.logger.Error("rescan: purge emit failed", "err", err)
-		return
+		return nil
 	}
 
 	r.logger.Info("rescan: purged deleted files",
@@ -298,4 +315,12 @@ func (r *RescanLoop) reconcileDeleted(ctx context.Context, deleted []string) {
 		"nodes", len(nodes),
 		"paths", deleted,
 	)
+
+	purged := make([]rescanstat.PurgedFile, 0, len(counts))
+	for path, c := range counts {
+		purged = append(purged, rescanstat.PurgedFile{Path: path, Nodes: c})
+	}
+
+	sort.Slice(purged, func(i, j int) bool { return purged[i].Path < purged[j].Path })
+	return purged
 }
