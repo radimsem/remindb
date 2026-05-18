@@ -58,6 +58,8 @@ func (d *Deps) HandleForget(ctx context.Context, _ *gomcp.CallToolRequest, input
 		return nil, nil, fmt.Errorf("failed to forget: %w", err)
 	}
 
+	d.touchSnapshot()
+
 	msg := fmt.Sprintf("forgot node %s (mode=%s, %d affected)", input.NodeID, mode, len(deltas))
 	return textResult(msg), nil, nil
 }

@@ -106,6 +106,8 @@ func (d *Deps) HandleRollback(ctx context.Context, _ *gomcp.CallToolRequest, inp
 		return nil, nil, fmt.Errorf("failed to rollback: %w", err)
 	}
 
+	d.touchSnapshot()
+
 	return textResult(formatRollbackResult(targetID, newSnapID, len(deltas), pruned, input.DropAfter, restore.Skipped)), nil, nil
 }
 

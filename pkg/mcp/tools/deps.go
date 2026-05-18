@@ -10,6 +10,8 @@ import (
 	"github.com/radimsem/remindb/pkg/config"
 	"github.com/radimsem/remindb/pkg/diff"
 	"github.com/radimsem/remindb/pkg/emitter"
+	"github.com/radimsem/remindb/pkg/mcp/notify"
+	"github.com/radimsem/remindb/pkg/mcp/resources"
 	"github.com/radimsem/remindb/pkg/parser"
 	"github.com/radimsem/remindb/pkg/query"
 	"github.com/radimsem/remindb/pkg/relations"
@@ -27,6 +29,36 @@ type Deps struct {
 	SourceDir        string
 	WorkspaceConfig  config.Config
 	SummarizeRebound float64
+	Notifier         *notify.Publisher
+}
+
+// touchSnapshot signals the resources a node-graph snapshot mutates.
+func (d *Deps) touchSnapshot() {
+	if d.Notifier == nil {
+		return
+	}
+
+	d.Notifier.Touch(resources.SnapshotsURI)
+	d.Notifier.Touch(resources.TreeURI)
+	d.Notifier.Touch(resources.GraphURI)
+}
+
+// touchCompile is touchSnapshot plus the file set, which only compile reshapes.
+func (d *Deps) touchCompile() {
+	if d.Notifier == nil {
+		return
+	}
+
+	d.touchSnapshot()
+	d.Notifier.Touch(resources.FilesURI)
+}
+
+func (d *Deps) touchGraph() {
+	if d.Notifier == nil {
+		return
+	}
+
+	d.Notifier.Touch(resources.GraphURI)
 }
 
 func (d *Deps) logCall(name string, errp *error, start time.Time, attrs ...any) {
@@ -71,15 +103,20 @@ func (d *Deps) boostResultNodes(ctx context.Context, result *query.Result) {
 	}
 }
 
-// Emit one snapshot for a single mutated or newly created node.
-func emitNodeChange(ctx context.Context, st *store.Store, node *parser.ContextNode, prev map[string]diff.NodeState, msg string) error {
+// Emit one snapshot for a single mutated or newly created node, then signal the resources that snapshot reshaped.
+func (d *Deps) emitNodeChange(ctx context.Context, node *parser.ContextNode, prev map[string]diff.NodeState, msg string) error {
 	roots := []*parser.ContextNode{node}
-	return emitter.Emit(ctx, st,
+	if err := emitter.Emit(ctx, d.Store,
 		emitter.WithRoots(roots),
 		emitter.WithDeltas(diff.Diff(roots, prev)),
 		emitter.WithCursorHash(diff.CursorHash(roots)),
 		emitter.WithMessage(msg),
-	)
+	); err != nil {
+		return err
+	}
+
+	d.touchSnapshot()
+	return nil
 }
 
 // Resolve a token budget: explicit call arg > configured default > built-in.

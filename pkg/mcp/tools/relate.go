@@ -71,6 +71,7 @@ func (d *Deps) HandleRelate(ctx context.Context, _ *gomcp.CallToolRequest, input
 			return nil, nil, fmt.Errorf("failed to upsert: relation: %w", err)
 		}
 
+		d.touchGraph()
 		return textResult(fmt.Sprintf("edge created (resolved): %s -> %s", input.SourceID, targetID)), nil, nil
 	}
 
@@ -89,6 +90,8 @@ func (d *Deps) HandleRelate(ctx context.Context, _ *gomcp.CallToolRequest, input
 	if err := d.Store.InsertPendingRelation(ctx, pr); err != nil {
 		return nil, nil, fmt.Errorf("failed to insert: pending relation: %w", err)
 	}
+
+	d.touchGraph()
 	return textResult(fmt.Sprintf("edge created (pending): %s -> %q", input.SourceID, input.TargetLabel)), nil, nil
 }
 

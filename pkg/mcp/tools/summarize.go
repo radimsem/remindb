@@ -62,7 +62,7 @@ func (d *Deps) HandleSummarize(ctx context.Context, _ *gomcp.CallToolRequest, in
 		Temperature: &rebound,
 	}
 
-	if err := emitNodeChange(ctx, d.Store, node, prev, "summarize:"+input.NodeID); err != nil {
+	if err := d.emitNodeChange(ctx, node, prev, "summarize:"+input.NodeID); err != nil {
 		return nil, nil, fmt.Errorf("failed to summarize: %w", err)
 	}
 

@@ -61,6 +61,10 @@ A single JSON object of feature blocks. Unknown top-level or nested keys are rej
       "format": "json",
       "output_path": "/var/log/remindb.log",
       "buffer_size": 1000
+    },
+    "resources": {
+      "debounce": "500ms",
+      "overrides": { "logs": "1s", "temperature": "2s" }
     }
   }
 }
@@ -78,7 +82,7 @@ Every field in every block is optional — only the keys you set override the de
 
 **`budgets`** sets the default token budget for the four read tools that take one — `MemorySearch`, `MemoryFetch`, `MemoryFetchBatch`, `MemoryRelated`. Resolution is per-tool and local: an explicit positive `budget` on the call always wins; otherwise the configured default; otherwise the built-in. `MemoryRelated`'s built-in is 1000; the other three treat an unset budget as **unlimited** (no trimming). Write tools are unaffected.
 
-**`server`** configures `serve` itself. `transport` (`stdio`|`http`) and `listen` mirror the flags of the same name; the nested `logging` object sets `level` (`debug`|`info`|`warn`|`error`), `format` (`text`|`json`), `output_path` (a file; absent → stderr), and `buffer_size` (the capacity of the in-memory ring buffer behind the `remindb://logs` resource; must be > 0, absent → 1000). Absent → today's behavior (stdio, info-level text to stderr, 1000-record buffer). `--verbose` is sugar for `logging.level=debug`. `buffer_size` only sizes the `remindb://logs` mirror — it never affects what reaches stderr/the file.
+**`server`** configures `serve` itself. `transport` (`stdio`|`http`) and `listen` mirror the flags of the same name; the nested `logging` object sets `level` (`debug`|`info`|`warn`|`error`), `format` (`text`|`json`), `output_path` (a file; absent → stderr), and `buffer_size` (the capacity of the in-memory ring buffer behind the `remindb://logs` resource; must be > 0, absent → 1000). Absent → today's behavior (stdio, info-level text to stderr, 1000-record buffer). `--verbose` is sugar for `logging.level=debug`. `buffer_size` only sizes the `remindb://logs` mirror — it never affects what reaches stderr/the file. The nested `resources` object tunes resource-update notification coalescing (see [resources](./resources.md#live-updates--subscriptions)): `debounce` is the global trailing-edge window applied to every subscribable resource (absent → `"500ms"`), and `overrides` maps a short resource name (`graph`, `snapshots`, `tree`, `files`, `temperature`, `logs`) to its own window. Absent overrides fall back to built-in floors of `"1s"` for `logs` and `"2s"` for `temperature` (so the two high-frequency streams never flood); every other resource uses the global default. A negative duration, or an `overrides` key naming a resource that isn't subscribable, fails startup with the offending field named.
 
 **Precedence**, highest first: **explicit CLI flag → `.remindb/config.json` → environment variable → built-in default**. The committed workspace config is authoritative — an env var only fills a key the config leaves *unset*, it never overrides one the config sets. In CI/automation, override a committed value with the explicit flag, not `REMINDB_*`. (`logging` has no flag/env tier beyond `--verbose`, which forces `debug` and wins.)
 

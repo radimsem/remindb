@@ -454,7 +454,7 @@ func TestLoad_ServerBlock_AbsentLeavesZero(t *testing.T) {
 		t.Fatalf("unexpected error: %v", err)
 	}
 
-	if cfg.Server != (ServerConfig{}) {
+	if !reflect.DeepEqual(cfg.Server, ServerConfig{}) {
 		t.Errorf("absent server block should leave zero value, got %+v", cfg.Server)
 	}
 }
@@ -493,6 +493,78 @@ func TestLoad_ServerBlock_RejectsBadValueAtStartup(t *testing.T) {
 		t.Fatal("expected Load to reject invalid logging.level")
 	} else if !strings.Contains(err.Error(), "trace") {
 		t.Errorf("error should name the offending value, got: %v", err)
+	}
+}
+
+func TestLoad_ServerResourcesBlock(t *testing.T) {
+	ws := t.TempDir()
+	writeConfig(t, ws, `{"server": {"resources": {"debounce": "500ms", "overrides": {"logs": "1s", "temperature": "2s"}}}}`)
+
+	cfg, err := Load(ws)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	rs := cfg.Server.Resources
+	if rs.Debounce == nil || time.Duration(*rs.Debounce) != 500*time.Millisecond {
+		t.Errorf("debounce = %v, want 500ms", rs.Debounce)
+	}
+
+	if d := rs.Overrides["logs"]; d == nil || time.Duration(*d) != time.Second {
+		t.Errorf("overrides[logs] = %v, want 1s", d)
+	}
+	if d := rs.Overrides["temperature"]; d == nil || time.Duration(*d) != 2*time.Second {
+		t.Errorf("overrides[temperature] = %v, want 2s", d)
+	}
+}
+
+func TestLoad_ServerResourcesBlock_AbsentLeavesZero(t *testing.T) {
+	ws := t.TempDir()
+	writeConfig(t, ws, `{"server": {"transport": "http"}}`)
+
+	cfg, err := Load(ws)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	if !reflect.DeepEqual(cfg.Server.Resources, ResourcesConfig{}) {
+		t.Errorf("absent resources block should leave zero value, got %+v", cfg.Server.Resources)
+	}
+}
+
+func TestLoad_ServerResourcesBlock_UnknownNestedKeyRejected(t *testing.T) {
+	ws := t.TempDir()
+	writeConfig(t, ws, `{"server": {"resources": {"debounce_ms": "500ms"}}}`)
+
+	if _, err := Load(ws); err == nil {
+		t.Fatal("expected Load to reject unknown server.resources key")
+	}
+}
+
+func TestValidate_ServerResourcesBlock(t *testing.T) {
+	negDebounce := Duration(-time.Second)
+	negOverride := Duration(-time.Millisecond)
+	okDebounce := Duration(500 * time.Millisecond)
+	okOverride := Duration(time.Second)
+
+	bad := []Config{
+		{Server: ServerConfig{Resources: ResourcesConfig{Debounce: &negDebounce}}},
+		{Server: ServerConfig{Resources: ResourcesConfig{Overrides: map[string]*Duration{"logs": &negOverride}}}},
+		{Server: ServerConfig{Resources: ResourcesConfig{Overrides: map[string]*Duration{"logs": nil}}}},
+	}
+	for i, c := range bad {
+		if err := c.Validate(); err == nil {
+			t.Errorf("case %d: expected validation error, got nil", i)
+		}
+	}
+
+	ok := Config{Server: ServerConfig{Resources: ResourcesConfig{
+		Debounce:  &okDebounce,
+		Overrides: map[string]*Duration{"logs": &okOverride},
+	}}}
+
+	if err := ok.Validate(); err != nil {
+		t.Errorf("valid resources block should pass, got %v", err)
 	}
 }
 

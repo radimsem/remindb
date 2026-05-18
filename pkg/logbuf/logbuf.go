@@ -4,6 +4,7 @@ package logbuf
 import (
 	"context"
 	"log/slog"
+	"maps"
 	"sync"
 )
 
@@ -15,21 +16,28 @@ type Record struct {
 }
 
 type Buffer struct {
-	mu      sync.Mutex
-	records []Record
-	size    int
-	next    int
-	count   int
-	dropped int64
+	mu       sync.Mutex
+	records  []Record
+	size     int
+	next     int
+	count    int
+	dropped  int64
+	onAppend func()
 }
 
 func NewBuffer(size int) *Buffer {
 	return &Buffer{records: make([]Record, size), size: size}
 }
 
+// SetObserver sets a callback fired after each appended record, outside the buffer lock so it must not block (nil disables).
+func (b *Buffer) SetObserver(fn func()) {
+	b.mu.Lock()
+	b.onAppend = fn
+	b.mu.Unlock()
+}
+
 func (b *Buffer) append(r Record) {
 	b.mu.Lock()
-	defer b.mu.Unlock()
 
 	if b.count == b.size {
 		b.dropped++
@@ -40,6 +48,13 @@ func (b *Buffer) append(r Record) {
 
 	if b.count < b.size {
 		b.count++
+	}
+
+	fn := b.onAppend
+	b.mu.Unlock()
+
+	if fn != nil {
+		fn()
 	}
 }
 
@@ -80,9 +95,8 @@ func (h *Handler) Enabled(ctx context.Context, level slog.Level) bool {
 
 func (h *Handler) Handle(ctx context.Context, r slog.Record) error {
 	attrs := make(map[string]any, len(h.attrs)+r.NumAttrs())
-	for k, v := range h.attrs {
-		attrs[k] = v
-	}
+	maps.Copy(attrs, h.attrs)
+
 	r.Attrs(func(a slog.Attr) bool {
 		attrs[h.prefix+a.Key] = a.Value.Resolve().Any()
 		return true
@@ -119,8 +133,7 @@ func (h *Handler) WithGroup(name string) slog.Handler {
 
 func (h *Handler) clone() *Handler {
 	attrs := make(map[string]any, len(h.attrs))
-	for k, v := range h.attrs {
-		attrs[k] = v
-	}
+	maps.Copy(attrs, h.attrs)
+
 	return &Handler{next: h.next, buf: h.buf, prefix: h.prefix, attrs: attrs}
 }

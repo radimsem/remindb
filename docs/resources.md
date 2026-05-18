@@ -285,6 +285,30 @@ The shape is **locked**. Notes:
 - `purged_files` lists each source file that was deleted from disk that tick, with `nodes` = how many context nodes it carried. Always present (`[]` when nothing was purged). Purging is **whole-file only** — a file removed from the source tree drops all its context nodes — so there is no separate `purged_nodes` count; the per-file `nodes` fully describes the purge. Entries sort by `path`.
 - Reading this resource does **not** boost, lock, or snapshot. The holder is in-process memory only; it is not persisted and resets on restart. (Durable JSONL rescan history under `.remindb/` is tracked separately, mirroring the per-session-logfile work.)
 
+## Live updates — subscriptions
+
+A renderer that wants live state subscribes instead of polling. The server supports `resources/subscribe` / `resources/unsubscribe` (go-sdk v1.6.0) and emits `notifications/resources/updated` for a URI when its backing state changes. Subscription bookkeeping is the SDK's; the only server-side logic is *which* URIs are subscribable and *how* updates are coalesced.
+
+**Subscribable set.** Only resources that meaningfully change at runtime are subscribable. Subscribing to anything else is rejected. The set, with the state change that triggers an update:
+
+| URI | Triggered by |
+|---|---|
+| `remindb://graph` | write · summarize · compile · forget · rollback · relate |
+| `remindb://snapshots` | write · summarize · compile · forget · rollback · rescan |
+| `remindb://tree` | write · summarize · compile · forget · rollback · rescan |
+| `remindb://files` | compile · rescan |
+| `remindb://rescan` | a source-rescan tick that mutated the store |
+| `remindb://temperature` | a temperature tick that decayed ≥ 1 node |
+| `remindb://logs` | a new server log record |
+
+(`graph` fires on any content write because relations are parsed from content — a payload with `[[wikilinks]]` adds edges; a debounced re-read on a link-free write is harmless. `rollback` does not restore relations but does change the referenced-node set the graph projects. `rescan` fires only on a *mutating* tick — a no-op scan that found no changes does not notify, so a "live activity panel" updates on real rescan activity, not on a fixed heartbeat.)
+
+`overview`, `doctor`, and `sessions` are **not** subscribable — `overview`/`doctor` are aggregate projections better polled on demand, `sessions` changes only on connect/disconnect. The templated forms (`tree/{rootId}`, `snapshots{?limit}`, `snapshots/{id}/diffs`) are not independently subscribable; subscribe to the static parent.
+
+**Coalescing.** Each subscribable URI has a debounce window. A burst of changes inside the window collapses to **one** `notifications/resources/updated` fired on the trailing edge — `logs` and `temperature` never flood. The intervals are config-driven (`server.resources`, see [configuration.md](configuration.md)), never hardcoded: a global `debounce` default plus per-resource `overrides` keyed by the short resource name (`graph`, `snapshots`, `tree`, `files`, `rescan`, `temperature`, `logs`). Defaults when the block is absent: 500ms global, with built-in floors of 1s for `logs` and 2s for `temperature`. An override naming an unknown resource is rejected at startup.
+
+**`resources/list_changed`** is *not* emitted: the resource set is registered once at startup and never changes for the life of the process. The capability is advertised by the SDK but no list-change notification is ever sent.
+
 ## What stays out
 
 This is read-only state introspection. Resources never mutate, never accept arguments that change the database, and are not a second way to do what a tool does. If a consumer needs to *change* memory, that is a `Memory*` write tool, with its snapshot and its lock — not a resource.

@@ -36,6 +36,12 @@ type Tracker struct {
 	cfg              Config
 	enabled          bool
 	recentlyNotified map[string]time.Time
+	onTick           func()
+}
+
+// SetTickObserver sets a callback fired after each tick that decayed a node, set before Run (nil disables).
+func (t *Tracker) SetTickObserver(fn func()) {
+	t.onTick = fn
 }
 
 func NewTracker(s NodeStore, dir string, bootstrap Config, logger *slog.Logger) (*Tracker, error) {

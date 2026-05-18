@@ -1,13 +1,13 @@
 ---
 name: remind
-description: Read memory from a remindb MCP server — orient, search, fetch (single or batched), resync, traverse the relations graph, inspect DB health, read passive resources (`remindb://overview`, `remindb://files`, `remindb://tree`, `remindb://graph`, `remindb://snapshots`, `remindb://temperature`, `remindb://doctor`, `remindb://logs`, `remindb://sessions`, `remindb://rescan`). Covers the node/snapshot/temperature/relations model and FTS5 query syntax. Pair with `memoize` for writes.
+description: Read memory from a remindb MCP server — orient, search, fetch (single or batched), resync, traverse the relations graph, inspect DB health, read passive resources (`remindb://overview`, `remindb://files`, `remindb://tree`, `remindb://graph`, `remindb://snapshots`, `remindb://temperature`, `remindb://doctor`, `remindb://logs`, `remindb://sessions`, `remindb://rescan`), subscribe for coalesced live resource updates. Covers the node/snapshot/temperature/relations model and FTS5 query syntax. Pair with `memoize` for writes.
 ---
 
 # Remind — read from remindb so you don't re-grep
 
 remindb is a compiled SQLite view of a workspace, served over MCP as the `Memory*` tool suite. It's long-term memory for your session — call it instead of re-reading files or grepping.
 
-Read path (this skill): `MemoryTree`, `MemorySearch`, `MemoryFetch`, `MemoryFetchBatch`, `MemoryDelta`, `MemoryDiff`, `MemoryHistory`, `MemoryRelated`, `MemoryStats`, plus read-only **resources** (`remindb://overview`, `remindb://files`, `remindb://tree`, `remindb://graph`, `remindb://temperature`, `remindb://doctor`, `remindb://logs`, `remindb://sessions`, `remindb://rescan`). Write path (pair with **`memoize`**): `MemoryWrite`, `MemoryForget`, `MemorySummarize`, `MemoryCompile`, `MemoryRelate`, `MemoryPin`, `MemoryUnpin`, `MemoryRollback`.
+Read path (this skill): `MemoryTree`, `MemorySearch`, `MemoryFetch`, `MemoryFetchBatch`, `MemoryDelta`, `MemoryDiff`, `MemoryHistory`, `MemoryRelated`, `MemoryStats`, plus read-only **resources** (`remindb://overview`, `remindb://files`, `remindb://tree`, `remindb://graph`, `remindb://temperature`, `remindb://doctor`, `remindb://logs`, `remindb://sessions`, `remindb://rescan`), which a renderer can also **subscribe** to for coalesced live updates. Write path (pair with **`memoize`**): `MemoryWrite`, `MemoryForget`, `MemorySummarize`, `MemoryCompile`, `MemoryRelate`, `MemoryPin`, `MemoryUnpin`, `MemoryRollback`.
 
 ## Use-case playbook
 
@@ -339,6 +339,28 @@ All three keys are always present (`{"nodes":[],"edges":[],"pending":[]}` on an 
 `interval_s` is the configured rescan interval in seconds (reflects live `.remindb/config.json` reloads). `last_meta` is one tick's result: `run_at` is Unix **seconds** (0 = never run); `error` is the last tick's failure string (empty on success); `added`/`modified`/`removed` are that tick's compile counts (sum them yourself — there is no `total`); `purged_files` lists each source file deleted from disk that tick with how many context nodes it carried (`[]` when nothing was purged — purging is whole-file only, so the per-file node count fully describes it).
 
 The key difference from a read *tool*: a resource read is **passive observation**. It does **not** boost temperature. Reach for `MemorySearch`/`MemoryFetch` when you want the node to count as accessed (and warm up); read the resource only when you explicitly must *not* perturb the heatmap. For ordinary "what's the DB state" curiosity in a session, `MemoryStats` is still the call — the resource exists for external renderers.
+
+### Subscriptions: live updates instead of polling
+
+A renderer that wants to stay current `resources/subscribe`s to a URI and gets `notifications/resources/updated` when its state changes — no polling loop. Subscribable URIs and what triggers them:
+
+```
+remindb://graph        ← write · summarize · compile · forget · rollback · relate
+remindb://snapshots    ← write · summarize · compile · forget · rollback · rescan
+remindb://tree         ← write · summarize · compile · forget · rollback · rescan
+remindb://files        ← compile · rescan
+remindb://rescan       ← a source-rescan tick that mutated the store
+remindb://temperature  ← a temperature tick that decayed a node
+remindb://logs         ← a new server log record
+```
+
+```
+resources/subscribe   { "uri": "remindb://graph" }
+→ later, on change:   notifications/resources/updated  { "uri": "remindb://graph" }
+resources/unsubscribe { "uri": "remindb://graph" }
+```
+
+`overview`, `doctor`, `sessions`, and the templated forms are **not** subscribable — subscribing to one is an error; poll those or subscribe to the static parent. (`sessions` changes only on connect/disconnect; `rescan` *is* subscribable for a live activity panel.) Updates are **coalesced**: a burst of changes inside a per-resource debounce window collapses to one notification on the trailing edge (`logs`/`temperature` never flood). The windows are config-driven (`server.resources` in `.remindb/config.json`; see [configuration.md](https://github.com/radimsem/remindb/blob/main/docs/configuration.md)). The notification carries only the URI — re-read the resource to get the new state. `resources/list_changed` is never sent: the resource set is fixed for the process lifetime.
 
 ## Inspect history before rewriting
 

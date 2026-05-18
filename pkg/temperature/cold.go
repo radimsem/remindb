@@ -38,6 +38,10 @@ func (t *Tracker) Run(ctx context.Context, handler ColdHandler) {
 
 			t.logger.Debug("temperature tick", "decayed", result.Decayed, "cold", len(result.Cold))
 
+			if result.Decayed > 0 && t.onTick != nil {
+				t.onTick()
+			}
+
 			if len(result.Cold) == 0 {
 				continue
 			}
