@@ -9,7 +9,8 @@ import (
 const mimeJSON = "application/json"
 
 type Deps struct {
-	Store *store.Store
+	Store         *store.Store
+	ColdThreshold float64
 }
 
 // Register every read-only resource on the server.
@@ -62,6 +63,13 @@ func Register(srv *gomcp.Server, d *Deps) {
 		MIMEType:    mimeJSON,
 		Description: "Version history bounded to the newest ?limit=N snapshots (omitted = full history). Passive read: does not boost temperature or create a snapshot.",
 	}, d.HandleSnapshotsLimited)
+
+	srv.AddResource(&gomcp.Resource{
+		Name:        "temperature",
+		URI:         TemperatureURI,
+		MIMEType:    mimeJSON,
+		Description: "Per-node temperature for a heatmap — every node's id, label, temperature, and pinned flag in one array, plus an aggregate summary with the cold/hot cut points. Passive read: does not boost temperature or create a snapshot.",
+	}, d.HandleTemperature)
 
 	srv.AddResourceTemplate(&gomcp.ResourceTemplate{
 		Name:        "snapshot-diffs",

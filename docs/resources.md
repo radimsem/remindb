@@ -33,6 +33,7 @@ remindb://graph                   →   application/json   (static — relations
 remindb://snapshots               →   application/json   (static — full history)
 remindb://snapshots{?limit}       →   application/json   (templated — newest N)
 remindb://snapshots/{id}/diffs    →   application/json   (templated — per-snapshot diffs)
+remindb://temperature             →   application/json   (static — per-node heatmap)
 ```
 
 Static resources answer "what is the state of the whole database". The templated forms (registered via `AddResourceTemplate`, RFC 6570 so the matcher spans the optional query / path variable) answer a narrower question: `remindb://tree/{rootId}{?depth}` the subtree under a node, `remindb://snapshots{?limit}` the newest N snapshots, `remindb://snapshots/{id}/diffs` the diffs of one snapshot. The static/templated split is a deliberately separate mechanism mirroring the resources/tools split: predictable surface first, parameterised surface only where a concrete need appeared.
@@ -166,6 +167,24 @@ The shape is **locked** — clients depend on these keys. Notes:
 - `is_head` marks the snapshot at the cursor. At most one is `true`; if no snapshot has been recorded, none is.
 - `snapshots` and `diffs` are always present; an empty database / a snapshot with no diffs → `[]`, never `null`.
 - An unparseable `{id}` or non-positive `?limit` is an **error**, not an empty body — the client gets a failed read.
+
+## The `temperature` envelope
+
+`remindb://temperature` is the heatmap source for a UI that draws node attention. Every node lands in **one** `nodes` array — hot, cold, and pinned together, not split — so the renderer classifies each node itself from `temperature` against the cut points the `summary` echoes. The aggregate `summary` mirrors `MemoryStats`' temperature block (`avg`, `median`, `hot`, `cold`, `pinned`) with one deliberate difference: `cold` is counted against the **live configured** threshold (`.remindb/config.json` → `temperature.cold_threshold`, resolved through `temperature.Config`), not a hardcoded constant, so the heatmap and the cold-node notifier agree on what "cold" means. `hot_threshold` is the fixed `0.5` presentation cut — there is no configurable hot threshold (a future one would be a `pkg/temperature.Config` field, governed by the tune-temperature-policy skill).
+
+```json
+{
+  "summary": { "avg": 0.29, "median": 0.30, "hot": 1, "cold": 2, "pinned": 1,
+               "cold_threshold": 0.1, "hot_threshold": 0.5 },
+  "nodes":   [ { "id": "aB3", "label": "Auth design", "temperature": 0.8, "pinned": false } ]
+}
+```
+
+The shape is **locked**. Notes:
+
+- `nodes` is always present (`[]` on an empty database, never `null`) and is the *whole* node set — there is no separate `cold` array; the summary's `cold`/`hot` counts and the per-node temperatures are two views of the same fetch, so they cannot disagree.
+- `summary` echoes `cold_threshold` and `hot_threshold` precisely so a client reproduces the exact classification the counts were derived from. `hot`/`cold` count pinned nodes too (same semantics as `MemoryStats`); `pinned` is the independent pinned count.
+- Reading this resource does **not** boost — a heatmap that warmed the nodes it rendered would measure its own rendering. Use `MemoryStats` when you want the access to count.
 
 ## What stays out
 
