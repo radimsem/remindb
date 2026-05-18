@@ -11,6 +11,16 @@ import (
 
 const mimeJSON = "application/json"
 
+var Subscribable = map[string]string{
+	"graph":       GraphURI,
+	"snapshots":   SnapshotsURI,
+	"temperature": TemperatureURI,
+	"tree":        TreeURI,
+	"files":       FilesURI,
+	"logs":        LogsURI,
+	"rescan":      RescanURI,
+}
+
 type Deps struct {
 	Store         *store.Store
 	ColdThreshold float64

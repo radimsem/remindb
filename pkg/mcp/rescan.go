@@ -44,6 +44,18 @@ type RescanLoop struct {
 	ignore            *ignore.Matcher
 	compileOpts       []compiler.Option
 	status            *rescanstat.Status
+	onChange          func()
+}
+
+// SetChangeObserver sets a callback fired after a scan that mutated the store, set before Run (nil disables).
+func (r *RescanLoop) SetChangeObserver(fn func()) {
+	r.onChange = fn
+}
+
+func (r *RescanLoop) notifyChange() {
+	if r.onChange != nil {
+		r.onChange()
+	}
 }
 
 func NewRescanLoop(st *store.Store, dir string, interval time.Duration, cc config.CompileConfig, logger *slog.Logger, status *rescanstat.Status) (*RescanLoop, error) {
@@ -240,6 +252,10 @@ func (r *RescanLoop) scan(ctx context.Context) {
 	snap.PurgedFiles = r.reconcileDeleted(ctx, deleted)
 
 	if len(changed) == 0 {
+		if len(deleted) > 0 {
+			r.notifyChange()
+		}
+
 		r.logger.Debug("rescan: no changes", "watched", len(r.modTimes))
 		return
 	}
@@ -267,6 +283,8 @@ func (r *RescanLoop) scan(ctx context.Context) {
 		"removed", result.Removed,
 		"total", result.Total,
 	)
+
+	r.notifyChange()
 }
 
 // Returns one PurgedFile per source file that lost nodes.

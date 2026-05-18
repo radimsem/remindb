@@ -7,12 +7,14 @@ import (
 	"path/filepath"
 	"strconv"
 	"strings"
+	"sync/atomic"
 	"testing"
 	"time"
 
 	gomcp "github.com/modelcontextprotocol/go-sdk/mcp"
 	"github.com/radimsem/remindb/internal/mcptest"
 	"github.com/radimsem/remindb/internal/testutil"
+	"github.com/radimsem/remindb/pkg/config"
 	remindb "github.com/radimsem/remindb/pkg/mcp"
 	"github.com/radimsem/remindb/pkg/store"
 	"github.com/radimsem/remindb/pkg/temperature"
@@ -2143,5 +2145,71 @@ func TestMcp_RescanResource(t *testing.T) {
 	}
 	if pf.Nodes < 1 {
 		t.Errorf("purged nodes = %d, want >= 1", pf.Nodes)
+	}
+}
+
+func TestMcp_ResourceSubscription_CoalescesToOneNotification(t *testing.T) {
+	st := testutil.OpenTestDB(t)
+	cfg := temperature.DefaultConfig()
+
+	tracker, err := temperature.NewTracker(st, "", cfg, nil)
+	if err != nil {
+		t.Fatalf("NewTracker: %v", err)
+	}
+
+	debounce := config.Duration(50 * time.Millisecond)
+	wsCfg := config.Config{Server: config.ServerConfig{
+		Resources: config.ResourcesConfig{Debounce: &debounce},
+	}}
+
+	srv, err := remindb.NewServer(st, tracker, cfg, remindb.WithWorkspaceConfig(wsCfg))
+	if err != nil {
+		t.Fatalf("NewServer: %v", err)
+	}
+
+	serverT, clientT := gomcp.NewInMemoryTransports()
+	if _, err := srv.Connect(context.Background(), serverT); err != nil {
+		t.Fatalf("server connect: %v", err)
+	}
+
+	var notifications atomic.Int32
+	c := gomcp.NewClient(&gomcp.Implementation{Name: "subscriber", Version: "0.1.0"}, &gomcp.ClientOptions{
+		ResourceUpdatedHandler: func(_ context.Context, req *gomcp.ResourceUpdatedNotificationRequest) {
+			if req.Params.URI == "remindb://graph" {
+				notifications.Add(1)
+			}
+		},
+	})
+
+	cs, err := c.Connect(context.Background(), clientT, nil)
+	if err != nil {
+		t.Fatalf("client connect: %v", err)
+	}
+	defer func() { _ = cs.Close() }()
+
+	if err := cs.Subscribe(context.Background(), &gomcp.SubscribeParams{URI: "remindb://graph"}); err != nil {
+		t.Fatalf("subscribe: %v", err)
+	}
+
+	// Non-subscribable URIs must be rejected.
+	if err := cs.Subscribe(context.Background(), &gomcp.SubscribeParams{URI: "remindb://overview"}); err == nil {
+		t.Fatal("expected subscribe to remindb://overview to be rejected")
+	}
+
+	dir := t.TempDir()
+	if err := os.WriteFile(filepath.Join(dir, "note.md"), []byte("# Title\n\nbody\n"), 0o644); err != nil {
+		t.Fatalf("write source: %v", err)
+	}
+
+	if _, err := cs.CallTool(context.Background(), &gomcp.CallToolParams{
+		Name:      "MemoryCompile",
+		Arguments: map[string]any{"path": dir},
+	}); err != nil {
+		t.Fatalf("MemoryCompile: %v", err)
+	}
+
+	time.Sleep(400 * time.Millisecond) // > debounce + slack
+	if n := notifications.Load(); n != 1 {
+		t.Fatalf("got %d graph notifications, want exactly 1 (coalesced)", n)
 	}
 }

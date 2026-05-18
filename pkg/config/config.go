@@ -30,9 +30,15 @@ type Config struct {
 }
 
 type ServerConfig struct {
-	Transport *string       `json:"transport,omitempty"`
-	Listen    *string       `json:"listen,omitempty"`
-	Logging   LoggingConfig `json:"logging"`
+	Transport *string         `json:"transport,omitempty"`
+	Listen    *string         `json:"listen,omitempty"`
+	Logging   LoggingConfig   `json:"logging"`
+	Resources ResourcesConfig `json:"resources"`
+}
+
+type ResourcesConfig struct {
+	Debounce  *Duration            `json:"debounce,omitempty"`
+	Overrides map[string]*Duration `json:"overrides,omitempty"`
 }
 
 type LoggingConfig struct {
@@ -267,6 +273,20 @@ func (c Config) Validate() error {
 	}
 	if lg.BufferSize != nil && *lg.BufferSize <= 0 {
 		return errors.New("server.logging.buffer_size must be positive")
+	}
+
+	rs := sc.Resources
+
+	if rs.Debounce != nil && *rs.Debounce < 0 {
+		return errors.New("server.resources.debounce must not be negative")
+	}
+	for name, d := range rs.Overrides {
+		if d == nil {
+			return fmt.Errorf("server.resources.overrides[%q] must be set", name)
+		}
+		if *d < 0 {
+			return fmt.Errorf("server.resources.overrides[%q] must not be negative", name)
+		}
 	}
 
 	return nil

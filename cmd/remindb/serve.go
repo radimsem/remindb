@@ -122,6 +122,9 @@ func runServe(cmd *cobra.Command, _ []string) error {
 		return fmt.Errorf("failed to build: server: %w", err)
 	}
 
+	logBuf.SetObserver(srv.NotifyLogRecord)
+	tracker.SetTickObserver(srv.NotifyTemperatureTick)
+
 	logger.Info("serve: starting", startupAttrs(startCfg.TickInterval)...)
 
 	go checkLatestVersion(ctx, version.Get(), logger)
@@ -153,6 +156,7 @@ func runServe(cmd *cobra.Command, _ []string) error {
 		if err != nil {
 			return err
 		}
+		rescan.SetChangeObserver(srv.NotifyRescan)
 
 		g.Go(func() error {
 			rescan.Run(ctx)

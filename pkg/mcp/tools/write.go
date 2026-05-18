@@ -69,7 +69,7 @@ func (d *Deps) HandleWrite(ctx context.Context, _ *gomcp.CallToolRequest, input 
 		}
 	}
 
-	if err := emitNodeChange(ctx, d.Store, node, prev, "write:"+nodeID); err != nil {
+	if err := d.emitNodeChange(ctx, node, prev, "write:"+nodeID); err != nil {
 		return nil, nil, fmt.Errorf("failed to write: %w", err)
 	}
 

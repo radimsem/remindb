@@ -52,6 +52,8 @@ func (d *Deps) HandleCompile(ctx context.Context, _ *gomcp.CallToolRequest, inpu
 		return nil, nil, fmt.Errorf("failed to compile: %w", err)
 	}
 
+	d.touchCompile()
+
 	text := fmt.Sprintf("compiled: %d added, %d modified, %d removed (%d ops)",
 		result.Added, result.Modified, result.Removed, result.Total)
 

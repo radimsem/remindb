@@ -10,6 +10,7 @@ import (
 	"github.com/radimsem/remindb/internal/redaction"
 	"github.com/radimsem/remindb/pkg/config"
 	"github.com/radimsem/remindb/pkg/logbuf"
+	"github.com/radimsem/remindb/pkg/mcp/notify"
 	"github.com/radimsem/remindb/pkg/mcp/rescanstat"
 	"github.com/radimsem/remindb/pkg/mcp/resources"
 	"github.com/radimsem/remindb/pkg/mcp/session"
@@ -35,6 +36,7 @@ type Server struct {
 	transport       string
 	listen          string
 	listener        net.Listener
+	notifier        *notify.Publisher
 }
 
 type Option func(*options)
@@ -118,10 +120,19 @@ func NewServer(st *store.Store, tracker *temperature.Tracker, cfg temperature.Co
 		red = def
 	}
 
+	pub, err := notify.NewPublisher(o.workspaceConfig.Server.Resources, logger)
+	if err != nil {
+		return nil, fmt.Errorf("failed to build: resource notifier: %w", err)
+	}
+
 	mcpSrv := mcp.NewServer(&mcp.Implementation{
 		Name:    "remindb",
 		Version: version.Get(),
-	}, nil)
+	}, &mcp.ServerOptions{
+		SubscribeHandler:   pub.HandleSubscribe,
+		UnsubscribeHandler: pub.HandleUnsubscribe,
+	})
+	pub.Attach(mcpSrv)
 
 	sessions := session.NewRegistry(mcpSrv, transport, listen)
 	mcpSrv.AddReceivingMiddleware(sessions.Middleware)
@@ -133,6 +144,7 @@ func NewServer(st *store.Store, tracker *temperature.Tracker, cfg temperature.Co
 		transport:       transport,
 		listen:          listen,
 		listener:        o.listener,
+		notifier:        pub,
 	}
 
 	deps := &tools.Deps{
@@ -145,6 +157,7 @@ func NewServer(st *store.Store, tracker *temperature.Tracker, cfg temperature.Co
 		SourceDir:        o.sourceDir,
 		WorkspaceConfig:  o.workspaceConfig,
 		SummarizeRebound: cfg.SummarizeRebound,
+		Notifier:         pub,
 	}
 
 	registerTools(s.mcp, deps)
@@ -152,7 +165,27 @@ func NewServer(st *store.Store, tracker *temperature.Tracker, cfg temperature.Co
 	return s, nil
 }
 
+// NotifyTemperatureTick signals that a temperature tick mutated heat values.
+func (s *Server) NotifyTemperatureTick() {
+	s.notifier.Touch(resources.TemperatureURI)
+}
+
+// NotifyRescan signals that a source rescan reshaped the compiled set.
+func (s *Server) NotifyRescan() {
+	s.notifier.Touch(resources.FilesURI)
+	s.notifier.Touch(resources.TreeURI)
+	s.notifier.Touch(resources.SnapshotsURI)
+	s.notifier.Touch(resources.RescanURI)
+}
+
+// NotifyLogRecord signals a new server log record (heavily coalesced).
+func (s *Server) NotifyLogRecord() {
+	s.notifier.Touch(resources.LogsURI)
+}
+
 func (s *Server) Run(ctx context.Context) error {
+	defer s.notifier.Close()
+
 	switch s.transport {
 	case TransportStdio:
 		return s.mcp.Run(ctx, &mcp.StdioTransport{})
