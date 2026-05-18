@@ -8,10 +8,14 @@ import (
 	"strconv"
 	"strings"
 	"testing"
+	"time"
 
 	gomcp "github.com/modelcontextprotocol/go-sdk/mcp"
 	"github.com/radimsem/remindb/internal/mcptest"
+	"github.com/radimsem/remindb/internal/testutil"
+	remindb "github.com/radimsem/remindb/pkg/mcp"
 	"github.com/radimsem/remindb/pkg/store"
+	"github.com/radimsem/remindb/pkg/temperature"
 )
 
 // Simulates an OpenClaw agent session.
@@ -1896,4 +1900,124 @@ func seedForgetNode(t *testing.T, env *mcptest.Env, id, parent string) {
 	if err != nil {
 		t.Fatalf("seedForgetNode %s: %v", id, err)
 	}
+}
+
+type clientMetaJSON struct {
+	Name     string `json:"name"`
+	Title    string `json:"title"`
+	Version  string `json:"version"`
+	Protocol string `json:"protocol"`
+}
+
+type sessJSON struct {
+	ID             string         `json:"id"`
+	Client         clientMetaJSON `json:"client_meta"`
+	Transport      string         `json:"transport"`
+	Listen         string         `json:"listen,omitempty"`
+	ConnectedAt    int64          `json:"connected_at"`
+	LastActivity   int64          `json:"last_activity"`
+	CountToolCalls int64          `json:"count_tool_calls"`
+}
+
+type sessEnvJSON struct {
+	DBPath   string     `json:"db_path"`
+	Sessions []sessJSON `json:"sessions"`
+}
+
+func connectSessionClient(t *testing.T, srv *remindb.Server, name string) *gomcp.ClientSession {
+	t.Helper()
+
+	serverT, clientT := gomcp.NewInMemoryTransports()
+	if _, err := srv.Connect(context.Background(), serverT); err != nil {
+		t.Fatalf("server connect %s: %v", name, err)
+	}
+
+	c := gomcp.NewClient(&gomcp.Implementation{Name: name, Version: "0.1.0"}, nil)
+	cs, err := c.Connect(context.Background(), clientT, nil)
+	if err != nil {
+		t.Fatalf("client connect %s: %v", name, err)
+	}
+
+	return cs
+}
+
+func readSessionsEnv(t *testing.T, cs *gomcp.ClientSession) sessEnvJSON {
+	t.Helper()
+
+	res, err := cs.ReadResource(context.Background(), &gomcp.ReadResourceParams{URI: "remindb://sessions"})
+	if err != nil {
+		t.Fatalf("ReadResource(sessions): %v", err)
+	}
+
+	var env sessEnvJSON
+	if err := json.Unmarshal([]byte(res.Contents[0].Text), &env); err != nil {
+		t.Fatalf("sessions JSON not parseable: %v\nbody: %s", err, res.Contents[0].Text)
+	}
+	return env
+}
+
+// Exercises the remindb://sessions resource end-to-end.
+func TestMcp_SessionsResource(t *testing.T) {
+	st := testutil.OpenTestDB(t)
+	cfg := temperature.DefaultConfig()
+
+	tracker, err := temperature.NewTracker(st, "", cfg, nil)
+	if err != nil {
+		t.Fatalf("NewTracker: %v", err)
+	}
+	srv, err := remindb.NewServer(st, tracker, cfg)
+	if err != nil {
+		t.Fatalf("NewServer: %v", err)
+	}
+
+	ctx := context.Background()
+	a := connectSessionClient(t, srv, "agent-A")
+
+	env := readSessionsEnv(t, a)
+	if env.DBPath != st.Path {
+		t.Errorf("db_path: got %q, want %q", env.DBPath, st.Path)
+	}
+	if len(env.Sessions) != 1 {
+		t.Fatalf("after A connect: got %d sessions, want 1", len(env.Sessions))
+	}
+	if s := env.Sessions[0]; s.Transport != "stdio" || s.Listen != "" || s.CountToolCalls != 0 {
+		t.Errorf("session shape: %+v (want stdio, no listen, 0 tool calls)", s)
+	}
+	if c := env.Sessions[0].Client; c.Name != "agent-A" || c.Version != "0.1.0" || c.Protocol == "" {
+		t.Errorf("client_meta: %+v (want name=agent-A, version=0.1.0, non-empty protocol)", c)
+	}
+	if env.Sessions[0].ConnectedAt == 0 {
+		t.Error("connected_at not stamped on first-seen request")
+	}
+
+	if _, err := a.CallTool(ctx, &gomcp.CallToolParams{Name: "MemoryTree", Arguments: map[string]any{}}); err != nil {
+		t.Fatalf("CallTool MemoryTree: %v", err)
+	}
+	env = readSessionsEnv(t, a)
+	if env.Sessions[0].CountToolCalls != 1 {
+		t.Errorf("count_tool_calls after one MemoryTree (resource reads excluded): got %d, want 1", env.Sessions[0].CountToolCalls)
+	}
+
+	b := connectSessionClient(t, srv, "agent-B")
+	if got := len(readSessionsEnv(t, a).Sessions); got != 2 {
+		t.Fatalf("after B connect: got %d sessions, want 2", got)
+	}
+
+	if err := b.Close(); err != nil {
+		t.Fatalf("close B: %v", err)
+	}
+
+	var final sessEnvJSON
+	for range 50 {
+		final = readSessionsEnv(t, a)
+		if len(final.Sessions) == 1 {
+			break
+		}
+		time.Sleep(20 * time.Millisecond)
+	}
+	if len(final.Sessions) != 1 {
+		t.Fatalf("after B disconnect: got %d sessions, want 1 (lazy reconcile against SDK set)", len(final.Sessions))
+	}
+
+	_ = a.Close()
 }

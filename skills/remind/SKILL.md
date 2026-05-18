@@ -224,6 +224,7 @@ remindb://snapshots/{id}/diffs →   application/json   (per-snapshot diffs; tem
 remindb://temperature       →   application/json   (per-node heatmap + summary)
 remindb://doctor            →   application/json   (health-check report)
 remindb://logs              →   application/json   (recent server log records)
+remindb://sessions          →   application/json   (active MCP client sessions)
 ```
 
 `remindb://overview` — same data as `MemoryStats`, but as the locked JSON envelope (`db_path`, `db_bytes`, `nodes{total,by_type,tokens}`, `snapshots{count,head_id,cursor_hash,latest_message,latest_age_s}`, `temperature{avg,median,hot,cold,pinned}`, `relations{total,by_origin,pending}`, `fts_rows`) — for programmatic consumers (a UI rendering the database), not for reasoning in prose.
@@ -312,6 +313,18 @@ All three keys are always present (`{"nodes":[],"edges":[],"pending":[]}` on an 
 ```
 
 `time` is Unix milliseconds; `level` is the slog level string (`DEBUG`/`INFO`/`WARN`/`ERROR`); `attrs` is the flattened structured fields (always an object). It mirrors exactly what stderr/file logging emits — `--verbose`/level filtering applies upstream, so below-level records never appear here. Payloads/bodies are never logged, so they never reach this resource.
+
+`remindb://sessions` — the MCP client sessions attached to *this* `serve` process (the one bound to `db_path`), for a "who's attached to this brain" view. `sessions` is always present (`[]` when none attached), ordered oldest-connected first; membership mirrors the SDK's live session set (a closed session disappears on the next read):
+
+```json
+{ "db_path": "/repo/.remindb/memory.db",
+  "sessions": [ { "id": "k7f3…",
+                  "client_meta": { "name": "claude-code", "version": "1.2.0", "protocol": "2025-06-18" },
+                  "transport": "stdio",
+                  "connected_at": 1737200000, "last_activity": 1737200042, "count_tool_calls": 9 } ] }
+```
+
+`client_meta` (always present) carries `name`/`version`/`protocol` from the `initialize` handshake (`title` omitted when unset) — **self-reported, display-only, not identity**. `connected_at`/`last_activity` are Unix **seconds**; `count_tool_calls` counts `tools/call` only (resource reads and pings are not tool calls); `listen` (HTTP bind address) appears only for `http` sessions and is omitted for stdio.
 
 The key difference from a read *tool*: a resource read is **passive observation**. It does **not** boost temperature. Reach for `MemorySearch`/`MemoryFetch` when you want the node to count as accessed (and warm up); read the resource only when you explicitly must *not* perturb the heatmap. For ordinary "what's the DB state" curiosity in a session, `MemoryStats` is still the call — the resource exists for external renderers.
 

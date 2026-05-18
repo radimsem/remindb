@@ -11,6 +11,7 @@ import (
 	"github.com/radimsem/remindb/pkg/config"
 	"github.com/radimsem/remindb/pkg/logbuf"
 	"github.com/radimsem/remindb/pkg/mcp/resources"
+	"github.com/radimsem/remindb/pkg/mcp/session"
 	"github.com/radimsem/remindb/pkg/mcp/tools"
 	"github.com/radimsem/remindb/pkg/query"
 	"github.com/radimsem/remindb/pkg/relations"
@@ -111,11 +112,16 @@ func NewServer(st *store.Store, tracker *temperature.Tracker, cfg temperature.Co
 		red = def
 	}
 
+	mcpSrv := mcp.NewServer(&mcp.Implementation{
+		Name:    "remindb",
+		Version: version.Get(),
+	}, nil)
+
+	sessions := session.NewRegistry(mcpSrv, transport, listen)
+	mcpSrv.AddReceivingMiddleware(sessions.Middleware)
+
 	s := &Server{
-		mcp: mcp.NewServer(&mcp.Implementation{
-			Name:    "remindb",
-			Version: version.Get(),
-		}, nil),
+		mcp:             mcpSrv,
 		logger:          logger,
 		notifyThreshold: cfg.NotifyThreshold,
 		transport:       transport,
@@ -136,7 +142,7 @@ func NewServer(st *store.Store, tracker *temperature.Tracker, cfg temperature.Co
 	}
 
 	registerTools(s.mcp, deps)
-	resources.Register(s.mcp, &resources.Deps{Store: st, ColdThreshold: cfg.ColdThreshold, LogBuffer: o.logBuffer})
+	resources.Register(s.mcp, &resources.Deps{Store: st, ColdThreshold: cfg.ColdThreshold, LogBuffer: o.logBuffer, Sessions: sessions})
 	return s, nil
 }
 
