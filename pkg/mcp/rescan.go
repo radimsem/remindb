@@ -15,6 +15,7 @@ import (
 	"github.com/radimsem/remindb/internal/contentid"
 	"github.com/radimsem/remindb/internal/fileext"
 	"github.com/radimsem/remindb/internal/ignore"
+	"github.com/radimsem/remindb/internal/loghelper"
 	"github.com/radimsem/remindb/pkg/compiler"
 	"github.com/radimsem/remindb/pkg/config"
 	"github.com/radimsem/remindb/pkg/diff"
@@ -64,9 +65,7 @@ func NewRescanLoop(st *store.Store, dir string, interval time.Duration, cc confi
 	if interval <= 0 {
 		interval = defaultRescanInterval
 	}
-	if logger == nil {
-		logger = slog.New(slog.DiscardHandler)
-	}
+	logger = loghelper.OrDiscard(logger)
 	if status == nil {
 		status = rescanstat.New()
 	}

@@ -11,6 +11,7 @@ import (
 
 	gomcp "github.com/modelcontextprotocol/go-sdk/mcp"
 	"github.com/radimsem/remindb/internal/contentid"
+	"github.com/radimsem/remindb/internal/loghelper"
 	"github.com/radimsem/remindb/pkg/mcp/ledger"
 	"github.com/radimsem/remindb/pkg/mcp/sessionlog"
 )
@@ -59,9 +60,7 @@ type Registry struct {
 
 // NewRegistry tracks live sessions; l (may be nil) persists their metrics.
 func NewRegistry(srv *gomcp.Server, transport, listen string, l *ledger.Ledger, logger *slog.Logger) *Registry {
-	if logger == nil {
-		logger = slog.New(slog.DiscardHandler)
-	}
+	logger = loghelper.OrDiscard(logger)
 
 	return &Registry{
 		srv:       srv,

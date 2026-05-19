@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/modelcontextprotocol/go-sdk/mcp"
+	"github.com/radimsem/remindb/internal/loghelper"
 	"github.com/radimsem/remindb/internal/redaction"
 	"github.com/radimsem/remindb/pkg/config"
 	"github.com/radimsem/remindb/pkg/logbuf"
@@ -102,10 +103,7 @@ func NewServer(st *store.Store, tracker *temperature.Tracker, cfg temperature.Co
 		opt(&o)
 	}
 
-	logger := o.logger
-	if logger == nil {
-		logger = slog.New(slog.DiscardHandler)
-	}
+	logger := loghelper.OrDiscard(o.logger)
 
 	transport := o.transport
 	if transport == "" {

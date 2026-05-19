@@ -119,12 +119,12 @@ The one documented exception is `MemorySearch`'s `query` field — it's small, u
 
 ## 5. Nil-Logger Safety ★
 
-Library code — anything in `pkg/` — must accept a `nil` logger and behave silently. Two project conventions for the fallback:
+Library code — anything in `pkg/` — must accept a `nil` logger and behave silently. The two project conventions for the fallback are encoded once in `internal/loghelper`; **call the helper, never inline the `if logger == nil` block**:
 
-| Where | Fallback | Why |
+| Where | Helper | Why |
 |---|---|---|
-| `pkg/` libraries (`mcp`, `temperature`) | `slog.New(slog.DiscardHandler)` | Tests and embedders may not want output |
-| CLI-time code (`pkg/compiler` when invoked directly) | `slog.Default()` | Users running `remindb compile` want feedback |
+| `pkg/` libraries (`mcp`, `temperature`) | `loghelper.OrDiscard(l)` → `slog.New(slog.DiscardHandler)` | Tests and embedders may not want output |
+| CLI-time code (`pkg/compiler` when invoked directly) | `loghelper.OrDefault(l)` → `slog.Default()` | Users running `remindb compile` want feedback |
 
 ```go
 // Bad — assumes the caller passed a non-nil logger
@@ -134,7 +134,7 @@ func NewServer(st *store.Store, ..., logger *slog.Logger) *Server {
     return s
 }
 
-// Good — pkg/ library default
+// Bad — inlining the fallback; it now lives in one place
 func NewServer(st *store.Store, ..., logger *slog.Logger) *Server {
     if logger == nil {
         logger = slog.New(slog.DiscardHandler)
@@ -142,18 +142,20 @@ func NewServer(st *store.Store, ..., logger *slog.Logger) *Server {
     return &Server{logger: logger, ...}
 }
 
+// Good — pkg/ library default
+func NewServer(st *store.Store, ..., logger *slog.Logger) *Server {
+    return &Server{logger: loghelper.OrDiscard(logger), ...}
+}
+
 // Good — CLI-time default (used only when the call is the entry point)
 func Run(ctx context.Context, st *store.Store, opts ...Option) error {
     o := applyOptions(opts...)
-    logger := o.logger
-    if logger == nil {
-        logger = slog.Default()
-    }
+    logger := loghelper.OrDefault(o.logger)
     ...
 }
 ```
 
-See `pkg/mcp/server.go:26-28` and `pkg/temperature/tracker.go:30-32` for the discard pattern; `pkg/compiler/compiler.go:63-66` for the default pattern.
+`internal/loghelper/loghelper.go` is the canonical implementation of both conventions; every `pkg/` site resolves through it (`OrDiscard` for libraries, `OrDefault` for CLI-entry code). No `pkg/` file should still inline `if logger == nil { logger = slog.New(...) }`.
 
 ---
 
