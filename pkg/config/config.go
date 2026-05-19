@@ -30,11 +30,17 @@ type Config struct {
 }
 
 type ServerConfig struct {
-	Transport *string         `json:"transport,omitempty"`
-	Listen    *string         `json:"listen,omitempty"`
-	Logging   LoggingConfig   `json:"logging"`
-	Resources ResourcesConfig `json:"resources"`
-	Sessions  SessionsConfig  `json:"sessions"`
+	Transport   *string           `json:"transport,omitempty"`
+	Listen      *string           `json:"listen,omitempty"`
+	Logging     LoggingConfig     `json:"logging"`
+	Resources   ResourcesConfig   `json:"resources"`
+	Sessions    SessionsConfig    `json:"sessions"`
+	RescanFiles RescanFilesConfig `json:"rescan_files"`
+}
+
+type RescanFilesConfig struct {
+	Enabled     *bool     `json:"enabled,omitempty"`
+	MaxFileSize *ByteSize `json:"max_file_size,omitempty"`
 }
 
 type SessionsConfig struct {
@@ -306,6 +312,10 @@ func (c Config) Validate() error {
 
 	if mfs := sc.Logging.SessionFiles.MaxFileSize; mfs != nil && *mfs <= 0 {
 		return errors.New("server.logging.session_files.max_file_size must be positive")
+	}
+
+	if mfs := sc.RescanFiles.MaxFileSize; mfs != nil && *mfs <= 0 {
+		return errors.New("server.rescan_files.max_file_size must be positive")
 	}
 
 	return nil

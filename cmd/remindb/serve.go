@@ -13,6 +13,7 @@ import (
 	"github.com/radimsem/remindb/pkg/config"
 	"github.com/radimsem/remindb/pkg/logbuf"
 	remindb "github.com/radimsem/remindb/pkg/mcp"
+	"github.com/radimsem/remindb/pkg/mcp/rescanlog"
 	"github.com/radimsem/remindb/pkg/mcp/rescanstat"
 	"github.com/radimsem/remindb/pkg/mcp/sessionlog"
 	"github.com/radimsem/remindb/pkg/store"
@@ -33,6 +34,7 @@ var (
 const (
 	defaultLogBufferSize         = 1000
 	defaultSessionLogMaxFileSize = 10 << 20 // 10 MiB
+	defaultRescanLogMaxFileSize  = 10 << 20 // 10 MiB
 )
 
 var serveCmd = &cobra.Command{
@@ -167,7 +169,12 @@ func runServe(cmd *cobra.Command, _ []string) error {
 	})
 
 	if sourceDir != "" {
-		rescan, err := remindb.NewRescanLoop(st, sourceDir, rescanInterval, workspaceCfg.Compile, logger, rescanStatus)
+		rescanLog, err := newRescanLog(sourceDir, workspaceCfg.Server.RescanFiles)
+		if err != nil {
+			return err
+		}
+
+		rescan, err := remindb.NewRescanLoop(st, sourceDir, rescanInterval, workspaceCfg.Compile, logger, rescanStatus, rescanLog)
 		if err != nil {
 			return err
 		}
@@ -272,6 +279,20 @@ func withSessionLogs(logger *slog.Logger, workspace string, sl config.SessionFil
 	}
 
 	return slog.New(sessionlog.NewHandler(logger.Handler(), sink)), nil
+}
+
+// newRescanLog builds the durable rescan-tick sink when enabled; nil otherwise.
+func newRescanLog(workspace string, rf config.RescanFilesConfig) (*rescanlog.Sink, error) {
+	if rf.Enabled == nil || !*rf.Enabled {
+		return nil, nil
+	}
+
+	maxFileSize := int64(defaultRescanLogMaxFileSize)
+	if rf.MaxFileSize != nil {
+		maxFileSize = int64(*rf.MaxFileSize)
+	}
+
+	return rescanlog.New(workspace, maxFileSize)
 }
 
 func parseLogLevel(s string) slog.Level {

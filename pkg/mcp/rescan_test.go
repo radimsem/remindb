@@ -3,6 +3,7 @@ package mcp
 import (
 	"bytes"
 	"context"
+	"encoding/json"
 	"errors"
 	"io/fs"
 	"log/slog"
@@ -17,13 +18,14 @@ import (
 	"github.com/radimsem/remindb/internal/testutil"
 	"github.com/radimsem/remindb/pkg/compiler"
 	"github.com/radimsem/remindb/pkg/config"
+	"github.com/radimsem/remindb/pkg/mcp/rescanlog"
 	"github.com/radimsem/remindb/pkg/mcp/rescanstat"
 	"github.com/radimsem/remindb/pkg/store"
 )
 
 func mustRescan(t *testing.T, st *store.Store, dir string, interval time.Duration, logger *slog.Logger) *RescanLoop {
 	t.Helper()
-	r, err := NewRescanLoop(st, dir, interval, config.CompileConfig{}, logger, nil)
+	r, err := NewRescanLoop(st, dir, interval, config.CompileConfig{}, logger, nil, nil)
 
 	if err != nil {
 		t.Fatalf("NewRescanLoop: %v", err)
@@ -224,7 +226,7 @@ func TestRescanLoop_PublishesStatus(t *testing.T) {
 	st := testutil.OpenTestDB(t)
 	status := rescanstat.New()
 
-	r, err := NewRescanLoop(st, dir, 90*time.Second, config.CompileConfig{}, nil, status)
+	r, err := NewRescanLoop(st, dir, 90*time.Second, config.CompileConfig{}, nil, status, nil)
 	if err != nil {
 		t.Fatalf("NewRescanLoop: %v", err)
 	}
@@ -276,6 +278,62 @@ func TestRescanLoop_PublishesStatus(t *testing.T) {
 	}
 	if pf.Nodes != len(goneNodes) {
 		t.Errorf("purged nodes = %d, want %d", pf.Nodes, len(goneNodes))
+	}
+}
+
+func TestRescanLoop_PersistsTickAndExcludesFromWalk(t *testing.T) {
+	dir := t.TempDir()
+	writeFile(t, dir, "doc.md", "# Doc\n\nBody.\n")
+
+	st := testutil.OpenTestDB(t)
+	sink, err := rescanlog.New(dir, 1<<20)
+	if err != nil {
+		t.Fatalf("rescanlog.New: %v", err)
+	}
+
+	r, err := NewRescanLoop(st, dir, 45*time.Second, config.CompileConfig{}, nil, nil, sink)
+	if err != nil {
+		t.Fatalf("NewRescanLoop: %v", err)
+	}
+	r.now = func() time.Time { return time.Now().Add(time.Hour) }
+
+	ctx := context.Background()
+	r.scan(ctx) // tick 1: compiles doc.md and writes rescan.jsonl
+	r.scan(ctx) // tick 2: rescan.jsonl is now on disk while the tree is walked
+
+	data, err := os.ReadFile(rescanlog.Path(dir))
+	if err != nil {
+		t.Fatalf("read rescan.jsonl: %v", err)
+	}
+
+	lines := strings.Split(strings.TrimRight(string(data), "\n"), "\n")
+	if len(lines) != 2 {
+		t.Fatalf("rescan.jsonl line count = %d, want 2 (one per tick)", len(lines))
+	}
+
+	for i, l := range lines {
+		var snap rescanstat.Snapshot
+		if err := json.Unmarshal([]byte(l), &snap); err != nil {
+			t.Fatalf("tick %d line not valid Snapshot JSON: %v", i, err)
+		}
+
+		if snap.RunAt == 0 {
+			t.Errorf("tick %d run_at unset", i)
+		}
+	}
+
+	nodes, err := st.GetAllNodes(ctx)
+	if err != nil {
+		t.Fatalf("GetAllNodes: %v", err)
+	}
+
+	if len(nodes) == 0 {
+		t.Fatal("expected doc.md nodes after scan")
+	}
+	for _, n := range nodes {
+		if strings.Contains(filepath.ToSlash(n.SourceFile), config.DirName+"/") {
+			t.Errorf("indexed file inside %s/: %s", config.DirName, n.SourceFile)
+		}
 	}
 }
 
@@ -506,7 +564,7 @@ func TestNewRescanLoop_FailsOnMalformedIgnore(t *testing.T) {
 	writeFile(t, dir, ignore.Path, "a//b\n")
 
 	st := testutil.OpenTestDB(t)
-	_, err := NewRescanLoop(st, dir, time.Minute, config.CompileConfig{}, nil, nil)
+	_, err := NewRescanLoop(st, dir, time.Minute, config.CompileConfig{}, nil, nil, nil)
 	if err == nil {
 		t.Fatal("expected error for malformed ignore file")
 	}
