@@ -15,6 +15,7 @@ import (
 	"github.com/radimsem/remindb/pkg/config"
 	"github.com/radimsem/remindb/pkg/logbuf"
 	remindb "github.com/radimsem/remindb/pkg/mcp"
+	"github.com/radimsem/remindb/pkg/mcp/rescan"
 	"github.com/radimsem/remindb/pkg/mcp/rescanstat"
 	"github.com/radimsem/remindb/pkg/mcp/sessionlog"
 	"github.com/radimsem/remindb/pkg/store"
@@ -188,9 +189,9 @@ func NewEnvWithRescan(t *testing.T) *Env {
 		t.Fatalf("NewServer: %v", err)
 	}
 
-	loop, err := remindb.NewRescanLoop(st, dir, time.Second, config.CompileConfig{}, nil, status, nil)
+	loop, err := rescan.New(st, dir, time.Second, rescan.WithStatus(status))
 	if err != nil {
-		t.Fatalf("NewRescanLoop: %v", err)
+		t.Fatalf("rescan.New: %v", err)
 	}
 
 	loopCtx, cancelLoop := context.WithCancel(context.Background())

@@ -1,4 +1,4 @@
-package mcp
+package rescan
 
 import (
 	"bytes"
@@ -23,13 +23,14 @@ import (
 	"github.com/radimsem/remindb/pkg/store"
 )
 
-func mustRescan(t *testing.T, st *store.Store, dir string, interval time.Duration, logger *slog.Logger) *RescanLoop {
+func mustRescan(t *testing.T, st *store.Store, dir string, interval time.Duration, logger *slog.Logger) *Loop {
 	t.Helper()
-	r, err := NewRescanLoop(st, dir, interval, config.CompileConfig{}, logger, nil, nil)
 
+	r, err := New(st, dir, interval, WithLogger(logger))
 	if err != nil {
-		t.Fatalf("NewRescanLoop: %v", err)
+		t.Fatalf("New: %v", err)
 	}
+
 	return r
 }
 
@@ -92,7 +93,6 @@ func TestRescanLoop_DetectsChanges(t *testing.T) {
 
 	ctx := context.Background()
 
-	// First scan compiles doc.md into the DB.
 	r.scan(ctx)
 	nodes, _ := st.GetAllNodes(ctx)
 	for _, n := range nodes {
@@ -101,7 +101,6 @@ func TestRescanLoop_DetectsChanges(t *testing.T) {
 		}
 	}
 
-	// Modify the file (bump mtime).
 	time.Sleep(10 * time.Millisecond)
 	writeFile(t, dir, "doc.md", "# Updated\n\nNew content.\n")
 
@@ -125,7 +124,6 @@ func TestRescanLoop_DebouncesMidSave(t *testing.T) {
 	st := testutil.OpenTestDB(t)
 	r := mustRescan(t, st, dir, time.Minute, nil)
 
-	// Freeze "now" so the file's mtime is always inside the settle window.
 	frozen := time.Now()
 	r.now = func() time.Time { return frozen }
 	writeFile(t, dir, "doc.md", "# Fresh\n\nContent.\n")
@@ -137,7 +135,6 @@ func TestRescanLoop_DebouncesMidSave(t *testing.T) {
 		t.Errorf("expected no nodes — file is still settling, got %d", len(roots))
 	}
 
-	// Advance past the settle window; now the file should be compiled.
 	r.now = func() time.Time { return frozen.Add(r.settle + time.Second) }
 	r.scan(ctx)
 	roots, _ = st.GetRootNodes(ctx)
@@ -182,7 +179,6 @@ func TestRescanLoop_ReconcilesDeletedFiles(t *testing.T) {
 
 	ctx := context.Background()
 
-	// First scan populates both.
 	r.scan(ctx)
 
 	before, err := st.GetNodesByFile(ctx, "gone.md")
@@ -193,12 +189,10 @@ func TestRescanLoop_ReconcilesDeletedFiles(t *testing.T) {
 		t.Fatal("expected gone.md nodes after initial scan")
 	}
 
-	// Delete the file from disk.
 	if err := os.Remove(filepath.Join(dir, "gone.md")); err != nil {
 		t.Fatal(err)
 	}
 
-	// Rescan should purge the orphaned nodes.
 	r.scan(ctx)
 
 	after, err := st.GetNodesByFile(ctx, "gone.md")
@@ -226,9 +220,9 @@ func TestRescanLoop_PublishesStatus(t *testing.T) {
 	st := testutil.OpenTestDB(t)
 	status := rescanstat.New()
 
-	r, err := NewRescanLoop(st, dir, 90*time.Second, config.CompileConfig{}, nil, status, nil)
+	r, err := New(st, dir, 90*time.Second, WithStatus(status))
 	if err != nil {
-		t.Fatalf("NewRescanLoop: %v", err)
+		t.Fatalf("New: %v", err)
 	}
 
 	r.now = func() time.Time { return time.Now().Add(time.Hour) }
@@ -291,9 +285,9 @@ func TestRescanLoop_PersistsTickAndExcludesFromWalk(t *testing.T) {
 		t.Fatalf("rescanlog.New: %v", err)
 	}
 
-	r, err := NewRescanLoop(st, dir, 45*time.Second, config.CompileConfig{}, nil, nil, sink)
+	r, err := New(st, dir, 45*time.Second, WithRescanLog(sink))
 	if err != nil {
-		t.Fatalf("NewRescanLoop: %v", err)
+		t.Fatalf("New: %v", err)
 	}
 	r.now = func() time.Time { return time.Now().Add(time.Hour) }
 
@@ -453,7 +447,6 @@ func TestRescanLoop_NewFile(t *testing.T) {
 	ctx := context.Background()
 	r.scan(ctx)
 
-	// Add a new file after the first scan.
 	writeFile(t, dir, "new.md", "# New\n\nContent.\n")
 
 	r.scan(ctx)
@@ -506,11 +499,8 @@ func TestRescanLoop_RunCatchesStaleEditsAtStartup(t *testing.T) {
 		t.Fatalf("CompileDir: %v", err)
 	}
 
-	// User edits the file while serve was offline.
 	writeFile(t, dir, "doc.md", "# Before\n\nUpdated body.\n")
 
-	// Long interval — ticker must not fire during the test, so only the
-	// startup reconcile can catch the edit.
 	r := mustRescan(t, st, dir, time.Hour, nil)
 	r.now = func() time.Time { return time.Now().Add(time.Hour) }
 
@@ -564,66 +554,12 @@ func TestNewRescanLoop_FailsOnMalformedIgnore(t *testing.T) {
 	writeFile(t, dir, ignore.Path, "a//b\n")
 
 	st := testutil.OpenTestDB(t)
-	_, err := NewRescanLoop(st, dir, time.Minute, config.CompileConfig{}, nil, nil, nil)
+	_, err := New(st, dir, time.Minute)
 	if err == nil {
 		t.Fatal("expected error for malformed ignore file")
 	}
 	if !strings.Contains(err.Error(), ignore.Path) {
 		t.Errorf("error should mention %s, got: %v", ignore.Path, err)
-	}
-}
-
-func TestMaybeInitialCompile_EmptyDB(t *testing.T) {
-	dir := t.TempDir()
-	writeFile(t, dir, "a.md", "# A\n\nBody.\n")
-	writeFile(t, dir, "b.md", "# B\n\nBody.\n")
-
-	st := testutil.OpenTestDB(t)
-	ctx := context.Background()
-
-	if err := MaybeInitialCompile(ctx, st, dir, nil); err != nil {
-		t.Fatalf("MaybeInitialCompile: %v", err)
-	}
-
-	roots, err := st.GetRootNodes(ctx)
-	if err != nil {
-		t.Fatalf("GetRootNodes: %v", err)
-	}
-	if len(roots) == 0 {
-		t.Error("expected nodes to be compiled on empty DB")
-	}
-}
-
-func TestMaybeInitialCompile_NonEmptyDB(t *testing.T) {
-	dir := t.TempDir()
-	writeFile(t, dir, "a.md", "# A\n\nBody.\n")
-
-	st := testutil.OpenTestDB(t)
-	ctx := context.Background()
-
-	// Pre-populate so DB is not empty.
-	if err := MaybeInitialCompile(ctx, st, dir, nil); err != nil {
-		t.Fatalf("seed compile: %v", err)
-	}
-
-	before, err := st.GetRootNodes(ctx)
-	if err != nil {
-		t.Fatal(err)
-	}
-
-	// Add a new file, call MaybeInitialCompile again — must skip.
-	writeFile(t, dir, "new.md", "# New\n")
-
-	if err := MaybeInitialCompile(ctx, st, dir, nil); err != nil {
-		t.Fatalf("MaybeInitialCompile: %v", err)
-	}
-
-	after, err := st.GetRootNodes(ctx)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if len(after) != len(before) {
-		t.Errorf("root count changed: before=%d after=%d (MaybeInitialCompile ran on non-empty DB)", len(before), len(after))
 	}
 }
 
@@ -687,7 +623,6 @@ func TestRescanLoop_InvalidReloadKeepsLastGood(t *testing.T) {
 		t.Fatalf("precondition: good config not applied (enabled=%v interval=%v)", r.enabled, r.interval)
 	}
 
-	// interval <= 0 fails Config.Validate inside config.Parse.
 	writeFile(t, dir, config.Path, `{"rescan":{"interval":"-3s"}}`)
 	if r.reloadConfig() {
 		t.Error("invalid reload must not report an interval change")
@@ -699,7 +634,6 @@ func TestRescanLoop_InvalidReloadKeepsLastGood(t *testing.T) {
 		t.Errorf("expected WARN on invalid reload, got %q", buf.String())
 	}
 
-	// Hash was not advanced on failure, so the next valid write is picked up.
 	writeFile(t, dir, config.Path, `{"rescan":{"interval":"7s"}}`)
 	r.reloadConfig()
 	if r.interval != 7*time.Second {

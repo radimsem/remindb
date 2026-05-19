@@ -1,4 +1,5 @@
-package mcp
+// Package rescan periodically recompiles a source tree into the store.
+package rescan
 
 import (
 	"context"
@@ -31,7 +32,32 @@ const (
 	defaultSettleTime     = 500 * time.Millisecond
 )
 
-type RescanLoop struct {
+type Option func(*options)
+
+type options struct {
+	compileConfig config.CompileConfig
+	logger        *slog.Logger
+	status        *rescanstat.Status
+	rescanLog     *rescanlog.Sink
+}
+
+func WithCompileConfig(cc config.CompileConfig) Option {
+	return func(o *options) { o.compileConfig = cc }
+}
+
+func WithLogger(l *slog.Logger) Option {
+	return func(o *options) { o.logger = l }
+}
+
+func WithStatus(s *rescanstat.Status) Option {
+	return func(o *options) { o.status = s }
+}
+
+func WithRescanLog(s *rescanlog.Sink) Option {
+	return func(o *options) { o.rescanLog = s }
+}
+
+type Loop struct {
 	store             *store.Store
 	dir               string
 	bootstrapInterval time.Duration
@@ -50,22 +76,27 @@ type RescanLoop struct {
 	onChange          func()
 }
 
-// SetChangeObserver sets a callback fired after a scan that mutated the store, set before Run (nil disables).
-func (r *RescanLoop) SetChangeObserver(fn func()) {
+func (r *Loop) SetChangeObserver(fn func()) {
 	r.onChange = fn
 }
 
-func (r *RescanLoop) notifyChange() {
+func (r *Loop) notifyChange() {
 	if r.onChange != nil {
 		r.onChange()
 	}
 }
 
-func NewRescanLoop(st *store.Store, dir string, interval time.Duration, cc config.CompileConfig, logger *slog.Logger, status *rescanstat.Status, rescanLog *rescanlog.Sink) (*RescanLoop, error) {
+func New(st *store.Store, dir string, interval time.Duration, opts ...Option) (*Loop, error) {
+	var o options
+	for _, opt := range opts {
+		opt(&o)
+	}
+
 	if interval <= 0 {
 		interval = defaultRescanInterval
 	}
-	logger = loghelper.OrDiscard(logger)
+	logger := loghelper.OrDiscard(o.logger)
+	status := o.status
 	if status == nil {
 		status = rescanstat.New()
 	}
@@ -75,7 +106,7 @@ func NewRescanLoop(st *store.Store, dir string, interval time.Duration, cc confi
 		return nil, fmt.Errorf("failed to load: %s: %w", ignore.Path, err)
 	}
 
-	return &RescanLoop{
+	return &Loop{
 		store:             st,
 		dir:               dir,
 		bootstrapInterval: interval,
@@ -87,16 +118,15 @@ func NewRescanLoop(st *store.Store, dir string, interval time.Duration, cc confi
 		modTimes:          make(map[string]time.Time),
 		logger:            logger,
 		ignore:            matcher,
-		compileOpts:       compiler.ConfigOptions(cc),
+		compileOpts:       compiler.ConfigOptions(o.compileConfig),
 		status:            status,
-		rescanLog:         rescanLog,
+		rescanLog:         o.rescanLog,
 	}, nil
 }
 
-func (r *RescanLoop) Run(ctx context.Context) {
+func (r *Loop) Run(ctx context.Context) {
 	r.reloadConfig()
 
-	// Startup reconcile catches edits made between the last compile and now.
 	if r.enabled {
 		r.scan(ctx)
 	}
@@ -122,8 +152,7 @@ func (r *RescanLoop) Run(ctx context.Context) {
 	}
 }
 
-// Re-source the rescan block from config.json.
-func (r *RescanLoop) reloadConfig() (intervalChanged bool) {
+func (r *Loop) reloadConfig() (intervalChanged bool) {
 	path := filepath.Join(r.dir, config.DirName, config.FileName)
 
 	data, err := os.ReadFile(path)
@@ -167,7 +196,7 @@ func (r *RescanLoop) reloadConfig() (intervalChanged bool) {
 	return intervalChanged
 }
 
-func (r *RescanLoop) scan(ctx context.Context) {
+func (r *Loop) scan(ctx context.Context) {
 	var changed []string
 	seen := make(map[string]bool, len(r.modTimes))
 	pending := make(map[string]time.Time)
@@ -221,7 +250,6 @@ func (r *RescanLoop) scan(ctx context.Context) {
 
 		mtime := info.ModTime()
 
-		// Skip files still settling.
 		if now.Sub(mtime) < r.settle {
 			return nil
 		}
@@ -234,7 +262,6 @@ func (r *RescanLoop) scan(ctx context.Context) {
 		return nil
 	})
 
-	// Purge entries for deleted files only when the walk was complete.
 	if walkErr != nil {
 		r.logger.Error("rescan: walk aborted", "dir", r.dir, "err", walkErr)
 		snap.Error = walkErr.Error()
@@ -255,7 +282,6 @@ func (r *RescanLoop) scan(ctx context.Context) {
 		deleted = append(deleted, rel)
 	}
 
-	// Lock only around store mutations.
 	r.store.OpMu.Lock()
 	defer r.store.OpMu.Unlock()
 
@@ -297,8 +323,7 @@ func (r *RescanLoop) scan(ctx context.Context) {
 	r.notifyChange()
 }
 
-// Returns one PurgedFile per source file that lost nodes.
-func (r *RescanLoop) reconcileDeleted(ctx context.Context, deleted []string) []rescanstat.PurgedFile {
+func (r *Loop) reconcileDeleted(ctx context.Context, deleted []string) []rescanstat.PurgedFile {
 	if len(deleted) == 0 {
 		return nil
 	}
@@ -323,7 +348,6 @@ func (r *RescanLoop) reconcileDeleted(ctx context.Context, deleted []string) []r
 			OldContent: n.Content,
 		})
 
-		// "rem:" prefix keeps the delete cursor-hash domain disjoint from compile's.
 		synthetic = append(synthetic, &parser.ContextNode{ContentHash: "rem:" + n.ID + ":" + n.ContentHash})
 		counts[n.SourceFile]++
 	}
