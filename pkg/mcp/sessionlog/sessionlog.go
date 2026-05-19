@@ -197,6 +197,9 @@ func jsonable(v any) any {
 	if e, ok := v.(error); ok {
 		return e.Error()
 	}
+	if s, ok := v.(fmt.Stringer); ok {
+		return s.String()
+	}
 	return v
 }
 

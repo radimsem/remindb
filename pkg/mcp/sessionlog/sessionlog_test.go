@@ -233,6 +233,37 @@ func TestRoundTrip(t *testing.T) {
 	}
 }
 
+type stringerAttr struct{ s string }
+
+func (a stringerAttr) String() string { return a.s }
+
+// A fmt.Stringer-only attr (no error, no json.Marshaler) must reach the
+// session file as its String() form, matching the shared text handler —
+// not as marshalled exported fields or "{}".
+func TestRoundTrip_StringerAttr(t *testing.T) {
+	h := &Handler{}
+	when := time.Date(2026, 5, 19, 12, 34, 56, 789, time.UTC)
+
+	r := slog.NewRecord(when, slog.LevelInfo, MsgToolCall, 0)
+	r.AddAttrs(slog.Any("dur", stringerAttr{"1.5s"}))
+
+	var buf bytes.Buffer
+	buf.Write(h.render(r))
+
+	got, err := ParseLog(&buf)
+	if err != nil {
+		t.Fatalf("ParseLog: %v", err)
+	}
+
+	if len(got) != 1 {
+		t.Fatalf("round-tripped %d records, want 1", len(got))
+	}
+
+	if g := got[0].Fields["dur"]; g != "1.5s" {
+		t.Errorf("dur = %v (%T), want \"1.5s\" (string) — Stringer must coerce via String()", g, g)
+	}
+}
+
 func TestSlug_FilesystemSafe(t *testing.T) {
 	for in, want := range map[string]string{
 		"abc-123":               "abc-123",
