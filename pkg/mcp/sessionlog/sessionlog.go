@@ -2,9 +2,12 @@
 package sessionlog
 
 import (
+	"bufio"
 	"bytes"
 	"context"
+	"encoding/json"
 	"fmt"
+	"io"
 	"log/slog"
 	"maps"
 	"os"
@@ -25,6 +28,13 @@ const (
 
 	slugMaxLen = 64
 )
+
+type Record struct {
+	Time   time.Time      `json:"time"`
+	Level  string         `json:"level"`
+	Msg    string         `json:"msg"`
+	Fields map[string]any `json:"fields,omitempty"`
+}
 
 type ctxKey struct{}
 
@@ -47,7 +57,7 @@ type Sink struct {
 
 // New creates <workspace>/.remindb/logs and returns a sink bounded by maxFileSize bytes.
 func New(workspace string, maxFileSize int64) (*Sink, error) {
-	dir := filepath.Join(workspace, config.DirName, subDir)
+	dir := Dir(workspace)
 	if err := os.MkdirAll(dir, 0o755); err != nil {
 		return nil, fmt.Errorf("failed to create: session logs dir: %w", err)
 	}
@@ -55,9 +65,14 @@ func New(workspace string, maxFileSize int64) (*Sink, error) {
 	return &Sink{dir: dir, maxFileSize: maxFileSize}, nil
 }
 
+// Dir returns the per-session log directory under workspace.
+func Dir(workspace string) string {
+	return filepath.Join(workspace, config.DirName, subDir)
+}
+
 // Write appends line to the file keyed by sessionID, rotating once when the cap is reached.
 func (s *Sink) Write(sessionID string, line []byte) error {
-	path := filepath.Join(s.dir, slug(sessionID)+".log")
+	path := filepath.Join(s.dir, Slug(sessionID)+".log")
 
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -86,8 +101,8 @@ func (s *Sink) Write(sessionID string, line []byte) error {
 	return nil
 }
 
-// slug reduces a session id to a filesystem-safe name; ids are UUID/hex in practice.
-func slug(id string) string {
+// Slug reduces a session id to its filesystem-safe logfile stem; ids are UUID/hex in practice.
+func Slug(id string) string {
 	var b strings.Builder
 
 	for _, r := range id {
@@ -149,35 +164,70 @@ func (h *Handler) captures(r slog.Record) bool {
 	return r.Level >= slog.LevelWarn || r.Message == MsgToolCall || r.Message == MsgToolCallFailed
 }
 
-// render formats one record as a single append-only line: time, level, msg, then key=value attrs.
+// render serializes one record as a single append-only JSON line.
 func (h *Handler) render(r slog.Record) []byte {
-	var b bytes.Buffer
-	b.WriteString(r.Time.Format(time.RFC3339))
-	b.WriteByte(' ')
-	b.WriteString(r.Level.String())
-	b.WriteByte(' ')
-	b.WriteString(r.Message)
+	rec := Record{Time: r.Time, Level: r.Level.String(), Msg: r.Message}
 
+	fields := make(map[string]any, len(h.attrs)+r.NumAttrs())
 	for k, v := range h.attrs {
-		if isEmptyAttrValue(v) {
-			continue
+		if !isEmptyAttrValue(v) {
+			fields[k] = jsonable(v)
 		}
-
-		fmt.Fprintf(&b, " %s=%v", k, v)
 	}
 
 	r.Attrs(func(a slog.Attr) bool {
 		v := a.Value.Resolve().Any()
-		if isEmptyAttrValue(v) {
-			return true
+		if !isEmptyAttrValue(v) {
+			fields[h.prefix+a.Key] = jsonable(v)
 		}
-
-		fmt.Fprintf(&b, " %s%s=%v", h.prefix, a.Key, v)
 		return true
 	})
-	b.WriteByte('\n')
+	if len(fields) > 0 {
+		rec.Fields = fields
+	}
 
-	return b.Bytes()
+	line, err := json.Marshal(rec)
+	if err != nil {
+		// An attr value json can't encode is rare here.
+		rec.Fields = nil
+		line, _ = json.Marshal(rec)
+	}
+
+	return append(line, '\n')
+}
+
+// ParseLog reads JSONL session-log records in append order.
+func ParseLog(r io.Reader) ([]Record, error) {
+	sc := bufio.NewScanner(r)
+	sc.Buffer(make([]byte, 0, 64*1024), 1<<20)
+
+	var recs []Record
+	for sc.Scan() {
+		line := bytes.TrimSpace(sc.Bytes())
+		if len(line) == 0 {
+			continue
+		}
+
+		var rec Record
+		if err := json.Unmarshal(line, &rec); err != nil {
+			continue
+		}
+
+		recs = append(recs, rec)
+	}
+	if err := sc.Err(); err != nil {
+		return nil, fmt.Errorf("failed to read: session log: %w", err)
+	}
+
+	return recs, nil
+}
+
+// jsonable replaces values whose JSON encoding would lose their meaning.
+func jsonable(v any) any {
+	if e, ok := v.(error); ok {
+		return e.Error()
+	}
+	return v
 }
 
 func isEmptyAttrValue(v any) bool {

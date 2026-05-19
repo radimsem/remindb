@@ -39,6 +39,8 @@ remindb://logs                    →   application/json   (static — recent se
 remindb://sessions                →   application/json   (static — active MCP client sessions)
 remindb://sessions/history        →   application/json   (static — durable per-client session ledger)
 remindb://sessions/history/{hash} →   application/json   (templated — one client's ledger)
+remindb://sessions/logs           →   application/json   (static — per-session logfile index)
+remindb://sessions/logs/{id}      →   application/json   (templated — one session's captured trace)
 remindb://rescan                  →   application/json   (static — latest source-rescan tick)
 ```
 
@@ -286,6 +288,38 @@ The shape is **locked**. Notes:
 - A session that crashed mid-life contributes its last checkpoint (loss ≤ one `flush_interval`); a reconnect is a fresh session and never double-counts.
 - Reading this resource does **not** boost, lock, or snapshot. It is a pure projection over the on-disk JSONL — `resources.Deps` holds only the ledger reader, no tracker or emitter.
 
+## The `sessions/logs` envelope
+
+`remindb://sessions/logs` is the read surface over the per-session logfiles under `.remindb/logs/` (see [configuration](./configuration.md#session-logfiles-remindblogs)) — so a desktop client / operator can audit one MCP client's tool-call + `Warn`/`Error` trace without shelling into the workspace. The static URI is the **index**; `remindb://sessions/logs/{id}` returns one session's captured records, keyed by the **session-id slug** `remindb://sessions` reports (not the client content hash `sessions/history` uses).
+
+```json
+{
+  "db_path": "/repo/.remindb/memory.db",
+  "logs": [
+    { "session_id": "k7f3a9c2", "size_bytes": 4096, "rotated": false, "modified_at": 1737200042 }
+  ]
+}
+```
+
+```json
+{
+  "session_id": "k7f3a9c2",
+  "entries": [
+    { "time": "2026-05-19T12:34:56.0009Z", "level": "DEBUG", "msg": "mcp call",
+      "fields": { "tool": "MemoryWrite", "elapsed_ms": 4, "payload_bytes": 41 } }
+  ]
+}
+```
+
+The shape is **locked**. Notes:
+
+- `logs` is always present (`[]` when session logging is disabled, unconfigured, or no client has logged yet — the directory simply doesn't exist or is empty), one entry per **active** logfile, ordered by filename.
+- `session_id` is the logfile stem (the same slug `remindb://sessions` surfaces); `size_bytes` / `modified_at` (Unix **seconds**) describe the active file; `rotated` is `true` when a single-generation `<id>.log.1` tail exists alongside it.
+- `remindb://sessions/logs/{id}` returns `{session_id, entries}` where `entries` is always present (`[]` for a file that exists but has no parseable records), each entry the locked `{time, level, msg, fields}` — `time` is RFC3339Nano, `level` the slog level string, `fields` an object (omitted when empty), in **append order (newest last)**. An unknown / missing id is a clean not-found error, never a panic.
+- **Rotated tail is not included.** `{id}` returns the **active file only**. The `.1` is an explicitly-discarded single-generation safety tail (the prior `.1` is overwritten on the next rotation) and is the *older* half — prepending it would contradict "append order, newest last". The index's `rotated` flag tells a consumer truncation happened; the structured read stays coherent.
+- The on-disk file is **JSONL** and the resource deserializes the *same* `sessionlog.Record` type `render()` serializes — one shared definition, no second hand-rolled parser that could drift. A round-trip test asserts fidelity.
+- Reading this resource does **not** boost, lock, or snapshot — it is a pure file read; `resources.Deps` holds only the logs-directory path, no tracker or emitter. It carries only the payload-free fields the shared log already filters to (see [logging-conventions](../.claude/rules/logging-conventions.md) §4), so no user content is exposed by construction.
+
 ## The `rescan` envelope
 
 `remindb://rescan` exposes the latest tick of the `serve` source-rescan loop — for a live rescan-activity panel. The loop publishes one snapshot per tick into a concurrency-safe in-process holder (`pkg/mcp/rescanstat`, the same shape as the session registry); the resource is a pure projection of it. With no `--source` (no loop) or before the first tick, the holder is its zero value.
@@ -330,7 +364,7 @@ A renderer that wants live state subscribes instead of polling. The server suppo
 
 (`graph` fires on any content write because relations are parsed from content — a payload with `[[wikilinks]]` adds edges; a debounced re-read on a link-free write is harmless. `rollback` does not restore relations but does change the referenced-node set the graph projects. `rescan` fires only on a *mutating* tick — a no-op scan that found no changes does not notify, so a "live activity panel" updates on real rescan activity, not on a fixed heartbeat.)
 
-`overview`, `doctor`, and `sessions` are **not** subscribable — `overview`/`doctor` are aggregate projections better polled on demand, `sessions` changes only on connect/disconnect. The templated forms (`tree/{rootId}`, `snapshots{?limit}`, `snapshots/{id}/diffs`) are not independently subscribable; subscribe to the static parent.
+`overview`, `doctor`, `sessions`, `sessions/history`, and `sessions/logs` are **not** subscribable — `overview`/`doctor` are aggregate projections better polled on demand, `sessions`/`sessions/history` change only on connect/disconnect, and `sessions/logs` is an on-demand operator audit surface (subscribing would fire on every tool call). The templated forms (`tree/{rootId}`, `snapshots{?limit}`, `snapshots/{id}/diffs`, `sessions/logs/{id}`) are not independently subscribable; subscribe to the static parent.
 
 **Coalescing.** Each subscribable URI has a debounce window. A burst of changes inside the window collapses to **one** `notifications/resources/updated` fired on the trailing edge — `logs` and `temperature` never flood. The intervals are config-driven (`server.resources`, see [configuration.md](configuration.md)), never hardcoded: a global `debounce` default plus per-resource `overrides` keyed by the short resource name (`graph`, `snapshots`, `tree`, `files`, `rescan`, `temperature`, `logs`). Defaults when the block is absent: 500ms global, with built-in floors of 1s for `logs` and 2s for `temperature`. An override naming an unknown resource is rejected at startup.
 
