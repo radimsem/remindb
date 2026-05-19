@@ -7,6 +7,7 @@ import (
 	"time"
 
 	gomcp "github.com/modelcontextprotocol/go-sdk/mcp"
+	"github.com/radimsem/remindb/internal/treewalk"
 )
 
 type HistoryInput struct {
@@ -22,10 +23,7 @@ func (d *Deps) HandleHistory(ctx context.Context, _ *gomcp.CallToolRequest, inpu
 		return nil, nil, fmt.Errorf("failed to get history: %w", err)
 	}
 
-	limit := input.Depth
-	if limit <= 0 {
-		limit = 10
-	}
+	limit := treewalk.ClampDepth(input.Depth, 10, treewalk.MaxDepth)
 	if limit > len(diffs) {
 		limit = len(diffs)
 	}

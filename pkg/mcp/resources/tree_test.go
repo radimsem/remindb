@@ -29,7 +29,7 @@ func reach(n *treeNode) int {
 	return max
 }
 
-func TestBuildTreeNode_DepthBounding(t *testing.T) {
+func TestBuildTreeJSON_DepthBounding(t *testing.T) {
 	root, children := depthFixture()
 
 	cases := []struct {
@@ -44,7 +44,7 @@ func TestBuildTreeNode_DepthBounding(t *testing.T) {
 	}
 
 	for _, tc := range cases {
-		got := buildTreeNode(children, root, "", 0, tc.maxDepth)
+		got := buildTreeJSON(children, root, "", tc.maxDepth)
 
 		if r := reach(got); r != tc.wantReach {
 			t.Errorf("maxDepth=%d: reach=%d, want %d", tc.maxDepth, r, tc.wantReach)
@@ -52,9 +52,9 @@ func TestBuildTreeNode_DepthBounding(t *testing.T) {
 	}
 }
 
-func TestBuildTreeNode_ShapeInvariants(t *testing.T) {
+func TestBuildTreeJSON_ShapeInvariants(t *testing.T) {
 	root, children := depthFixture()
-	got := buildTreeNode(children, root, "", 0, 1)
+	got := buildTreeJSON(children, root, "", 1)
 
 	// Children is always a non-nil slice (JSON [] not null), even when bounded.
 	if got.Children == nil {

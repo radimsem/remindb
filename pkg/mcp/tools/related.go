@@ -6,6 +6,7 @@ import (
 	"time"
 
 	gomcp "github.com/modelcontextprotocol/go-sdk/mcp"
+	"github.com/radimsem/remindb/internal/treewalk"
 	"github.com/radimsem/remindb/pkg/query"
 	"github.com/radimsem/remindb/pkg/store"
 )
@@ -40,13 +41,7 @@ func (d *Deps) HandleRelated(ctx context.Context, _ *gomcp.CallToolRequest, inpu
 		direction = store.DirectionBoth
 	}
 
-	depth := input.Depth
-	if depth < 1 {
-		depth = defaultRelatedDepth
-	}
-	if depth > maxRelatedDepth {
-		depth = maxRelatedDepth
-	}
+	depth := treewalk.ClampDepth(input.Depth, defaultRelatedDepth, maxRelatedDepth)
 
 	related, err := d.Store.GetRelatedNodes(ctx, input.Anchor, direction, depth, input.WeightMin, relatedQueryLimit)
 	if err != nil {
