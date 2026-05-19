@@ -411,7 +411,7 @@ func TestSnapshotAndCursor(t *testing.T) {
 	}
 
 	err = st.Tx(ctx, func(tx *sql.Tx) error {
-		snapID, err := st.CreateSnapshotTx(ctx, tx, "abcdef0123456789", "first", "")
+		snapID, err := st.CreateSnapshotTx(ctx, tx, WithCursorHash("abcdef0123456789"), WithMessage("first"))
 		if err != nil {
 			return err
 		}
@@ -731,7 +731,7 @@ func TestPruneSnapshotsAfterTx_KeepsTargetAndExcluded(t *testing.T) {
 	for i := range 4 {
 		err := st.Tx(ctx, func(tx *sql.Tx) error {
 			cursor := fmt.Sprintf("csr%013d", i)
-			id, err := st.CreateSnapshotTx(ctx, tx, cursor, "m", "")
+			id, err := st.CreateSnapshotTx(ctx, tx, WithCursorHash(cursor), WithMessage("m"))
 			if err != nil {
 				return err
 			}
@@ -750,7 +750,7 @@ func TestPruneSnapshotsAfterTx_KeepsTargetAndExcluded(t *testing.T) {
 	}
 
 	err := st.Tx(ctx, func(tx *sql.Tx) error {
-		id, err := st.CreateSnapshotWithParentTx(ctx, tx, "csr000000005", "rollback to 1", "", ids[0])
+		id, err := st.CreateSnapshotTx(ctx, tx, WithCursorHash("csr000000005"), WithMessage("rollback to 1"), WithParent(ids[0]))
 		if err != nil {
 			return err
 		}
@@ -805,7 +805,7 @@ func TestRestoreToSnapshot_PreMigrationOpRem_ReportsSkipped(t *testing.T) {
 
 	// Snap 1: empty baseline.
 	err := st.Tx(ctx, func(tx *sql.Tx) error {
-		id, err := st.CreateSnapshotTx(ctx, tx, "h0", "init", "")
+		id, err := st.CreateSnapshotTx(ctx, tx, WithCursorHash("h0"), WithMessage("init"))
 		if err != nil {
 			return err
 		}
@@ -815,7 +815,7 @@ func TestRestoreToSnapshot_PreMigrationOpRem_ReportsSkipped(t *testing.T) {
 	must(t, err)
 
 	err = st.Tx(ctx, func(tx *sql.Tx) error {
-		id, err := st.CreateSnapshotTx(ctx, tx, "h1", "remX", "")
+		id, err := st.CreateSnapshotTx(ctx, tx, WithCursorHash("h1"), WithMessage("remX"))
 		if err != nil {
 			return err
 		}
@@ -852,7 +852,7 @@ func TestRestoreToSnapshot_RemovesPostTargetAdditions(t *testing.T) {
 
 	// Snapshot 1: empty.
 	err := st.Tx(ctx, func(tx *sql.Tx) error {
-		id, err := st.CreateSnapshotTx(ctx, tx, "h0", "init", "")
+		id, err := st.CreateSnapshotTx(ctx, tx, WithCursorHash("h0"), WithMessage("init"))
 		if err != nil {
 			return err
 		}
@@ -867,7 +867,7 @@ func TestRestoreToSnapshot_RemovesPostTargetAdditions(t *testing.T) {
 			return err
 		}
 
-		id, err := st.CreateSnapshotTx(ctx, tx, "h1", "addA", "")
+		id, err := st.CreateSnapshotTx(ctx, tx, WithCursorHash("h1"), WithMessage("addA"))
 		if err != nil {
 			return err
 		}
@@ -898,7 +898,7 @@ func TestGetDiffsBySnapshot(t *testing.T) {
 	ctx := context.Background()
 
 	err := st.Tx(ctx, func(tx *sql.Tx) error {
-		snapID, err := st.CreateSnapshotTx(ctx, tx, "hash1111", "v1", "")
+		snapID, err := st.CreateSnapshotTx(ctx, tx, WithCursorHash("hash1111"), WithMessage("v1"))
 		if err != nil {
 			return err
 		}
@@ -930,7 +930,7 @@ func TestGetDiffsSince(t *testing.T) {
 
 	// Create two snapshots.
 	err := st.Tx(ctx, func(tx *sql.Tx) error {
-		id, err := st.CreateSnapshotTx(ctx, tx, "hash1111", "v1", "")
+		id, err := st.CreateSnapshotTx(ctx, tx, WithCursorHash("hash1111"), WithMessage("v1"))
 		if err != nil {
 			return err
 		}
@@ -945,7 +945,7 @@ func TestGetDiffsSince(t *testing.T) {
 	must(t, err)
 
 	err = st.Tx(ctx, func(tx *sql.Tx) error {
-		id, err := st.CreateSnapshotTx(ctx, tx, "hash2222", "v2", "")
+		id, err := st.CreateSnapshotTx(ctx, tx, WithCursorHash("hash2222"), WithMessage("v2"))
 		if err != nil {
 			return err
 		}
@@ -1171,7 +1171,7 @@ func TestListFileSummaries(t *testing.T) {
 	upsert("dddddddd", "orphan.md", 2)
 
 	err := st.Tx(ctx, func(tx *sql.Tx) error {
-		sidA, err := st.CreateSnapshotTx(ctx, tx, "hash1111", "first", "/repo/a")
+		sidA, err := st.CreateSnapshotTx(ctx, tx, WithCursorHash("hash1111"), WithMessage("first"), WithCompileRoot("/repo/a"))
 		if err != nil {
 			return err
 		}
@@ -1182,7 +1182,7 @@ func TestListFileSummaries(t *testing.T) {
 			}
 		}
 
-		sidB, err := st.CreateSnapshotTx(ctx, tx, "hash2222", "second", "/repo/b")
+		sidB, err := st.CreateSnapshotTx(ctx, tx, WithCursorHash("hash2222"), WithMessage("second"), WithCompileRoot("/repo/b"))
 		if err != nil {
 			return err
 		}
@@ -1232,7 +1232,7 @@ func TestGetDiffsForNode(t *testing.T) {
 	ctx := context.Background()
 
 	err := st.Tx(ctx, func(tx *sql.Tx) error {
-		id, err := st.CreateSnapshotTx(ctx, tx, "hash1111", "v1", "")
+		id, err := st.CreateSnapshotTx(ctx, tx, WithCursorHash("hash1111"), WithMessage("v1"))
 		if err != nil {
 			return err
 		}
@@ -1271,7 +1271,7 @@ func upsertNodeAt(t *testing.T, st *Store, ctx context.Context, id, compileRoot 
 			return err
 		}
 
-		snapID, err := st.CreateSnapshotTx(ctx, tx, "h_"+id+"_"+compileRoot, "m", compileRoot)
+		snapID, err := st.CreateSnapshotTx(ctx, tx, WithCursorHash("h_"+id+"_"+compileRoot), WithMessage("m"), WithCompileRoot(compileRoot))
 		if err != nil {
 			return err
 		}

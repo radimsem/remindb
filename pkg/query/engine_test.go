@@ -393,7 +393,7 @@ func TestDelta(t *testing.T) {
 
 	// Create two snapshots with diffs.
 	err := st.Tx(ctx, func(tx *sql.Tx) error {
-		id, err := st.CreateSnapshotTx(ctx, tx, "hash1111", "v1", "")
+		id, err := st.CreateSnapshotTx(ctx, tx, store.WithCursorHash("hash1111"), store.WithMessage("v1"))
 		if err != nil {
 			return err
 		}
@@ -410,7 +410,7 @@ func TestDelta(t *testing.T) {
 	}
 
 	err = st.Tx(ctx, func(tx *sql.Tx) error {
-		id, err := st.CreateSnapshotTx(ctx, tx, "hash2222", "v2", "")
+		id, err := st.CreateSnapshotTx(ctx, tx, store.WithCursorHash("hash2222"), store.WithMessage("v2"))
 		if err != nil {
 			return err
 		}

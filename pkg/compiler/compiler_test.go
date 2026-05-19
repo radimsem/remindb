@@ -831,7 +831,7 @@ func TestCompile_WikilinkResolvesCrossFile(t *testing.T) {
 		t.Fatalf("no source paragraph found in a.md: %+v", aNodes)
 	}
 
-	related, err := st.GetRelatedNodes(ctx, sourceID, store.DirectionOut, 1, 0, 10)
+	related, err := st.GetRelatedNodes(ctx, sourceID, store.WithDirection(store.DirectionOut), store.WithMaxDepth(1), store.WithLimit(10))
 	if err != nil {
 		t.Fatalf("GetRelatedNodes: %v", err)
 	}
@@ -910,7 +910,7 @@ func TestCompile_WikilinkPendingResolvesOnLaterCompile(t *testing.T) {
 		t.Fatalf("no source paragraph found in a.md after second compile: %+v", aNodes)
 	}
 
-	related, err := st.GetRelatedNodes(ctx, sourceID, store.DirectionOut, 1, 0, 10)
+	related, err := st.GetRelatedNodes(ctx, sourceID, store.WithDirection(store.DirectionOut), store.WithMaxDepth(1), store.WithLimit(10))
 	if err != nil {
 		t.Fatalf("GetRelatedNodes: %v", err)
 	}

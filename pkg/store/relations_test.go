@@ -45,7 +45,7 @@ func TestUpsertRelation_Resolved(t *testing.T) {
 	r := &Relation{SourceNodeID: "aaaaaaaaaa1", TargetNodeID: "bbbbbbbbbb1", Weight: 1.5, Origin: OriginParsed}
 	must(t, st.UpsertRelation(ctx, r))
 
-	related, err := st.GetRelatedNodes(ctx, "aaaaaaaaaa1", DirectionOut, 1, 0, 10)
+	related, err := st.GetRelatedNodes(ctx, "aaaaaaaaaa1", WithDirection(DirectionOut), WithMaxDepth(1), WithLimit(10))
 	if err != nil {
 		t.Fatalf("GetRelatedNodes: %v", err)
 	}
@@ -75,7 +75,7 @@ func TestUpsertRelation_DuplicateUpdatesWeight(t *testing.T) {
 		t.Errorf("relations row count = %d, want 1 (UNIQUE(source, target, origin) blocks duplicate row)", n)
 	}
 
-	related, _ := st.GetRelatedNodes(ctx, "aaaaaaaaaa1", DirectionOut, 1, 0, 10)
+	related, _ := st.GetRelatedNodes(ctx, "aaaaaaaaaa1", WithDirection(DirectionOut), WithMaxDepth(1), WithLimit(10))
 	if len(related) != 1 {
 		t.Fatalf("got %d related, want 1", len(related))
 	}
@@ -98,7 +98,7 @@ func TestUpsertRelation_ParsedAndManualCoexist(t *testing.T) {
 		t.Errorf("relations row count = %d, want 2 (parsed + manual coexist)", n)
 	}
 
-	related, _ := st.GetRelatedNodes(ctx, "aaaaaaaaaa1", DirectionOut, 1, 0, 10)
+	related, _ := st.GetRelatedNodes(ctx, "aaaaaaaaaa1", WithDirection(DirectionOut), WithMaxDepth(1), WithLimit(10))
 	if len(related) != 1 {
 		t.Errorf("got %d unique targets from GetRelatedNodes, want 1 (GROUP BY dedupes)", len(related))
 	}
@@ -330,13 +330,13 @@ func TestGetRelatedNodes_MultiHop(t *testing.T) {
 	must(t, st.UpsertRelation(ctx, &Relation{SourceNodeID: "bbb11111111", TargetNodeID: "ccc11111111", Weight: 1, Origin: OriginParsed}))
 
 	// depth=1: only direct
-	d1, _ := st.GetRelatedNodes(ctx, "aaa11111111", DirectionOut, 1, 0, 10)
+	d1, _ := st.GetRelatedNodes(ctx, "aaa11111111", WithDirection(DirectionOut), WithMaxDepth(1), WithLimit(10))
 	if len(d1) != 1 || d1[0].Node.ID != "bbb11111111" {
 		t.Errorf("depth=1: %+v, want [bbb11111111]", d1)
 	}
 
 	// depth=2: includes 2-hop
-	d2, _ := st.GetRelatedNodes(ctx, "aaa11111111", DirectionOut, 2, 0, 10)
+	d2, _ := st.GetRelatedNodes(ctx, "aaa11111111", WithDirection(DirectionOut), WithMaxDepth(2), WithLimit(10))
 	if len(d2) != 2 {
 		t.Fatalf("depth=2: got %d results, want 2", len(d2))
 	}
@@ -367,7 +367,7 @@ func TestGetRelatedNodes_Incoming(t *testing.T) {
 	must(t, st.UpsertRelation(ctx, &Relation{SourceNodeID: "aaa11111111", TargetNodeID: "ccc11111111", Weight: 1, Origin: OriginParsed}))
 	must(t, st.UpsertRelation(ctx, &Relation{SourceNodeID: "bbb11111111", TargetNodeID: "ccc11111111", Weight: 1, Origin: OriginParsed}))
 
-	in, _ := st.GetRelatedNodes(ctx, "ccc11111111", DirectionIn, 1, 0, 10)
+	in, _ := st.GetRelatedNodes(ctx, "ccc11111111", WithDirection(DirectionIn), WithMaxDepth(1), WithLimit(10))
 	if len(in) != 2 {
 		t.Fatalf("incoming: got %d results, want 2 (both source nodes)", len(in))
 	}
@@ -395,7 +395,7 @@ func TestGetRelatedNodes_MultiHopSumsWeights(t *testing.T) {
 	must(t, st.UpsertRelation(ctx, &Relation{SourceNodeID: "aaa11111111", TargetNodeID: "bbb11111111", Weight: 1.5, Origin: OriginParsed}))
 	must(t, st.UpsertRelation(ctx, &Relation{SourceNodeID: "bbb11111111", TargetNodeID: "ccc11111111", Weight: 2.0, Origin: OriginParsed}))
 
-	related, _ := st.GetRelatedNodes(ctx, "aaa11111111", DirectionOut, 2, 0, 10)
+	related, _ := st.GetRelatedNodes(ctx, "aaa11111111", WithDirection(DirectionOut), WithMaxDepth(2), WithLimit(10))
 	byID := map[string]*RelatedNode{}
 	for _, r := range related {
 		byID[r.Node.ID] = r
@@ -452,7 +452,7 @@ func TestGetRelatedNodes_WeightMin(t *testing.T) {
 	must(t, st.UpsertRelation(ctx, &Relation{SourceNodeID: "aaa11111111", TargetNodeID: "bbb11111111", Weight: 0.5, Origin: OriginParsed}))
 	must(t, st.UpsertRelation(ctx, &Relation{SourceNodeID: "aaa11111111", TargetNodeID: "ccc11111111", Weight: 2.0, Origin: OriginParsed}))
 
-	out, _ := st.GetRelatedNodes(ctx, "aaa11111111", DirectionOut, 1, 1.0, 10)
+	out, _ := st.GetRelatedNodes(ctx, "aaa11111111", WithDirection(DirectionOut), WithMaxDepth(1), WithWeightMin(1.0), WithLimit(10))
 	if len(out) != 1 || out[0].Node.ID != "ccc11111111" {
 		t.Errorf("weight_min=1.0: %+v, want only ccc11111111", out)
 	}
