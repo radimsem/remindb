@@ -16,6 +16,7 @@ import (
 	"github.com/radimsem/remindb/pkg/mcp/rescanstat"
 	"github.com/radimsem/remindb/pkg/mcp/resources"
 	"github.com/radimsem/remindb/pkg/mcp/session"
+	"github.com/radimsem/remindb/pkg/mcp/sessionlog"
 	"github.com/radimsem/remindb/pkg/mcp/tools"
 	"github.com/radimsem/remindb/pkg/query"
 	"github.com/radimsem/remindb/pkg/relations"
@@ -181,8 +182,13 @@ func NewServer(st *store.Store, tracker *temperature.Tracker, cfg temperature.Co
 		Notifier:         pub,
 	}
 
+	sessionLogDir := ""
+	if o.sourceDir != "" {
+		sessionLogDir = sessionlog.Dir(o.sourceDir)
+	}
+
 	registerTools(s.mcp, deps)
-	resources.Register(s.mcp, &resources.Deps{Store: st, ColdThreshold: cfg.ColdThreshold, LogBuffer: o.logBuffer, Sessions: sessions, Ledger: sessLedger, RescanStatus: o.rescanStatus})
+	resources.Register(s.mcp, &resources.Deps{Store: st, ColdThreshold: cfg.ColdThreshold, LogBuffer: o.logBuffer, Sessions: sessions, Ledger: sessLedger, RescanStatus: o.rescanStatus, SessionLogDir: sessionLogDir})
 	return s, nil
 }
 

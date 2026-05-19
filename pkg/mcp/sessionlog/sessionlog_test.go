@@ -1,12 +1,15 @@
 package sessionlog
 
 import (
+	"bytes"
 	"context"
+	"errors"
 	"log/slog"
 	"os"
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/radimsem/remindb/pkg/config"
 )
@@ -28,7 +31,7 @@ func newTestLogger(t *testing.T, ws string, maxFileSize int64) (*slog.Logger, *s
 func readSessionLog(t *testing.T, ws, id string) string {
 	t.Helper()
 
-	path := filepath.Join(ws, config.DirName, subDir, slug(id)+".log")
+	path := filepath.Join(ws, config.DirName, subDir, Slug(id)+".log")
 	data, err := os.ReadFile(path)
 	if err != nil {
 		t.Fatalf("read %s: %v", path, err)
@@ -47,15 +50,35 @@ func TestHandler_CapturesToolTraceAndErrorsExcludesPayload(t *testing.T) {
 	// Successful tool call: logged at Debug, must still reach the session file
 	// even though the shared stream sits at Info. Only payload_bytes, never body.
 	logger.DebugContext(ctx, MsgToolCall, "tool", "MemoryWrite", "elapsed_ms", 4, "payload_bytes", len(secret))
-	logger.ErrorContext(ctx, MsgToolCallFailed, "tool", "MemorySearch", "err", "boom")
+
+	// A real error value, exactly as logCall passes it (*errp). Its message
+	// must survive JSON encoding — json.Marshal of an error alone yields "{}".
+	logger.ErrorContext(ctx, MsgToolCallFailed, "tool", "MemorySearch", "err", errors.New("boom"))
 	logger.WarnContext(ctx, "failed to boost: access", "count", 3)
 
 	got := readSessionLog(t, ws, "sess-abc")
 
-	for _, want := range []string{MsgToolCall, "MemoryWrite", "payload_bytes=20", MsgToolCallFailed, "err=boom", "failed to boost: access"} {
-		if !strings.Contains(got, want) {
-			t.Errorf("session log missing %q\n--- log ---\n%s", want, got)
-		}
+	recs, err := ParseLog(strings.NewReader(got))
+	if err != nil {
+		t.Fatalf("ParseLog: %v", err)
+	}
+	if len(recs) != 3 {
+		t.Fatalf("parsed %d records, want 3\n--- log ---\n%s", len(recs), got)
+	}
+
+	if recs[0].Msg != MsgToolCall || recs[0].Fields["tool"] != "MemoryWrite" {
+		t.Errorf("record 0 = %+v, want the MemoryWrite tool trace", recs[0])
+	}
+	if pb := recs[0].Fields["payload_bytes"]; pb != float64(len(secret)) {
+		t.Errorf("payload_bytes = %v, want %d (count, not body)", pb, len(secret))
+	}
+
+	if recs[1].Msg != MsgToolCallFailed || recs[1].Fields["err"] != "boom" {
+		t.Errorf("record 1 = %+v, want the failed-call error record", recs[1])
+	}
+
+	if recs[2].Msg != "failed to boost: access" || recs[2].Level != "WARN" {
+		t.Errorf("record 2 = %+v, want the Warn record", recs[2])
 	}
 	if strings.Contains(got, secret) {
 		t.Errorf("session log leaked payload body %q\n--- log ---\n%s", secret, got)
@@ -152,6 +175,63 @@ func TestSink_OversizedLineDoesNotInfiniteRotate(t *testing.T) {
 	}
 }
 
+func TestRoundTrip(t *testing.T) {
+	h := &Handler{}
+	when := time.Date(2026, 5, 19, 12, 34, 56, 789, time.UTC)
+
+	levels := map[string]slog.Level{
+		"DEBUG": slog.LevelDebug, "INFO": slog.LevelInfo,
+		"WARN": slog.LevelWarn, "ERROR": slog.LevelError,
+	}
+	cases := []Record{
+		{Time: when, Level: "INFO", Msg: "mcp call", Fields: map[string]any{
+			"tool": "MemorySearch", "query": "a=b c d", "elapsed_ms": float64(7),
+		}},
+		{Time: when, Level: "ERROR", Msg: "", Fields: map[string]any{
+			"err": "boom: spaces, equals = and 日本語\nsecond line",
+		}},
+		{Time: when, Level: "DEBUG", Msg: "no fields"},
+	}
+
+	var buf bytes.Buffer
+	for _, c := range cases {
+		r := slog.NewRecord(c.Time, levels[c.Level], c.Msg, 0)
+		for k, v := range c.Fields {
+			r.AddAttrs(slog.Any(k, v))
+		}
+
+		buf.Write(h.render(r))
+	}
+
+	got, err := ParseLog(&buf)
+	if err != nil {
+		t.Fatalf("ParseLog: %v", err)
+	}
+	if len(got) != len(cases) {
+		t.Fatalf("round-tripped %d records, want %d", len(got), len(cases))
+	}
+
+	for i, want := range cases {
+		g := got[i]
+		if !g.Time.Equal(want.Time) || g.Level != want.Level || g.Msg != want.Msg {
+			t.Errorf("record %d header = {%v %q %q}, want {%v %q %q}",
+				i, g.Time, g.Level, g.Msg, want.Time, want.Level, want.Msg)
+		}
+
+		if len(g.Fields) != len(want.Fields) {
+			t.Errorf("record %d fields = %v, want %v", i, g.Fields, want.Fields)
+			continue
+		}
+
+		for k, wv := range want.Fields {
+			if g.Fields[k] != wv {
+				t.Errorf("record %d field %q = %v (%T), want %v (%T)",
+					i, k, g.Fields[k], g.Fields[k], wv, wv)
+			}
+		}
+	}
+}
+
 func TestSlug_FilesystemSafe(t *testing.T) {
 	for in, want := range map[string]string{
 		"abc-123":               "abc-123",
@@ -159,8 +239,8 @@ func TestSlug_FilesystemSafe(t *testing.T) {
 		"":                      "session",
 		strings.Repeat("x", 80): strings.Repeat("x", slugMaxLen),
 	} {
-		if got := slug(in); got != want {
-			t.Errorf("slug(%q) = %q, want %q", in, got, want)
+		if got := Slug(in); got != want {
+			t.Errorf("Slug(%q) = %q, want %q", in, got, want)
 		}
 	}
 }

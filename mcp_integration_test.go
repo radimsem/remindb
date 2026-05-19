@@ -16,6 +16,7 @@ import (
 	"github.com/radimsem/remindb/internal/testutil"
 	"github.com/radimsem/remindb/pkg/config"
 	remindb "github.com/radimsem/remindb/pkg/mcp"
+	"github.com/radimsem/remindb/pkg/mcp/sessionlog"
 	"github.com/radimsem/remindb/pkg/store"
 	"github.com/radimsem/remindb/pkg/temperature"
 )
@@ -2359,19 +2360,118 @@ func TestMcp_SessionLogs(t *testing.T) {
 	}
 	got := string(data)
 
-	// The tool-call trace and the error record are present — payload_bytes
-	// carries the real length, proving a count (not the body) was logged.
-	wantBytes := "payload_bytes=" + strconv.Itoa(len(payload))
-	for _, want := range []string{
-		"mcp call", "tool=MemoryWrite", wantBytes, "tool=MemorySearch",
-		"mcp call failed", "tool=MemoryCompile",
-	} {
-		if !strings.Contains(got, want) {
-			t.Errorf("session log missing %q\n--- log ---\n%s", want, got)
+	// The file is JSONL: parse it back through the one shared Record
+	// definition the resource also uses.
+	recs, err := sessionlog.ParseLog(strings.NewReader(got))
+	if err != nil {
+		t.Fatalf("ParseLog: %v", err)
+	}
+
+	tools := map[string]sessionlog.Record{}
+	for _, r := range recs {
+		if tn, ok := r.Fields["tool"].(string); ok {
+			tools[tn] = r
 		}
+	}
+
+	w, ok := tools["MemoryWrite"]
+	if !ok || w.Msg != "mcp call" {
+		t.Fatalf("no MemoryWrite tool-call trace in session log\n--- log ---\n%s", got)
+	}
+
+	// payload_bytes carries the real length — proving a count, not the body.
+	if pb := w.Fields["payload_bytes"]; pb != float64(len(payload)) {
+		t.Errorf("payload_bytes = %v, want %d", pb, len(payload))
+	}
+	if _, ok := tools["MemorySearch"]; !ok {
+		t.Errorf("no MemorySearch trace in session log\n--- log ---\n%s", got)
+	}
+	if c, ok := tools["MemoryCompile"]; !ok || c.Msg != "mcp call failed" {
+		t.Errorf("no failed MemoryCompile record in session log\n--- log ---\n%s", got)
 	}
 
 	if strings.Contains(got, secret) {
 		t.Errorf("session log leaked payload body %q\n--- log ---\n%s", secret, got)
+	}
+}
+
+func TestMcp_SessionLogsResource(t *testing.T) {
+	env := mcptest.NewEnvWithSessionLogs(t)
+	ctx := context.Background()
+
+	const secret = "TOP-SECRET-NODE-BODY-r3s0urce"
+	payload := secret + " plus filler so the node is non-trivial."
+
+	if r := env.CallTool(t, "MemoryWrite", map[string]any{"payload": payload}); !strings.Contains(env.TextContent(t, r), "wrote node") {
+		t.Fatalf("seed write failed: %s", env.TextContent(t, r))
+	}
+	env.CallTool(t, "MemorySearch", map[string]any{"query": "filler", "budget": 1000})
+
+	failed, err := env.Session.CallTool(ctx, &gomcp.CallToolParams{
+		Name:      "MemoryCompile",
+		Arguments: map[string]any{"path": "/no/such/workspace-xyz", "message": "boom"},
+	})
+	if err != nil {
+		t.Fatalf("CallTool MemoryCompile transport error: %v", err)
+	}
+	if !failed.IsError {
+		t.Fatal("expected MemoryCompile on a bogus path to be a tool error")
+	}
+
+	// 1. Index lists exactly one session, not rotated.
+	var idx struct {
+		DBPath string `json:"db_path"`
+		Logs   []struct {
+			SessionID  string `json:"session_id"`
+			SizeBytes  int64  `json:"size_bytes"`
+			Rotated    bool   `json:"rotated"`
+			ModifiedAt int64  `json:"modified_at"`
+		} `json:"logs"`
+	}
+	if err := json.Unmarshal([]byte(env.ReadResource(t, "remindb://sessions/logs")), &idx); err != nil {
+		t.Fatalf("unmarshal index: %v", err)
+	}
+	if len(idx.Logs) != 1 {
+		t.Fatalf("index logs = %+v, want exactly 1", idx.Logs)
+	}
+
+	entry := idx.Logs[0]
+	if entry.SessionID == "" || entry.SizeBytes == 0 || entry.ModifiedAt == 0 || entry.Rotated {
+		t.Fatalf("index entry = %+v, want non-empty id/size/mtime and rotated=false", entry)
+	}
+
+	// 2. The per-session read returns the structured trace in append order.
+	body := env.ReadResource(t, "remindb://sessions/logs/"+entry.SessionID)
+	if strings.Contains(body, secret) {
+		t.Errorf("resource leaked payload body %q\n--- body ---\n%s", secret, body)
+	}
+
+	var env2 struct {
+		SessionID string              `json:"session_id"`
+		Entries   []sessionlog.Record `json:"entries"`
+	}
+	if err := json.Unmarshal([]byte(body), &env2); err != nil {
+		t.Fatalf("unmarshal session log: %v", err)
+	}
+	if env2.SessionID != entry.SessionID || len(env2.Entries) == 0 {
+		t.Fatalf("session log env = {%q, %d entries}, want id %q with entries", env2.SessionID, len(env2.Entries), entry.SessionID)
+	}
+
+	var write *sessionlog.Record
+	for i := range env2.Entries {
+		if env2.Entries[i].Fields["tool"] == "MemoryWrite" {
+			write = &env2.Entries[i]
+		}
+	}
+	if write == nil || write.Msg != "mcp call" {
+		t.Fatalf("no structured MemoryWrite trace in %+v", env2.Entries)
+	}
+	if pb := write.Fields["payload_bytes"]; pb != float64(len(payload)) {
+		t.Errorf("payload_bytes = %v, want %d (count, not body)", pb, len(payload))
+	}
+
+	// 3. An unknown session id is a clean error, never a panic.
+	if _, err := env.Session.ReadResource(ctx, &gomcp.ReadResourceParams{URI: "remindb://sessions/logs/does-not-exist"}); err == nil {
+		t.Error("reading an unknown session id should error")
 	}
 }

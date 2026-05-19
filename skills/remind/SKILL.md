@@ -1,13 +1,13 @@
 ---
 name: remind
-description: Read memory from a remindb MCP server — orient, search, fetch (single or batched), resync, traverse the relations graph, inspect DB health, read passive resources (`remindb://overview`, `remindb://files`, `remindb://tree`, `remindb://graph`, `remindb://snapshots`, `remindb://temperature`, `remindb://doctor`, `remindb://logs`, `remindb://sessions`, `remindb://sessions/history`, `remindb://rescan`), subscribe for coalesced live resource updates. Covers the node/snapshot/temperature/relations model and FTS5 query syntax. Pair with `memoize` for writes.
+description: Read memory from a remindb MCP server — orient, search, fetch (single or batched), resync, traverse the relations graph, inspect DB health, read passive resources (`remindb://overview`, `remindb://files`, `remindb://tree`, `remindb://graph`, `remindb://snapshots`, `remindb://temperature`, `remindb://doctor`, `remindb://logs`, `remindb://sessions`, `remindb://sessions/history`, `remindb://sessions/logs`, `remindb://rescan`), subscribe for coalesced live resource updates. Covers the node/snapshot/temperature/relations model and FTS5 query syntax. Pair with `memoize` for writes.
 ---
 
 # Remind — read from remindb so you don't re-grep
 
 remindb is a compiled SQLite view of a workspace, served over MCP as the `Memory*` tool suite. It's long-term memory for your session — call it instead of re-reading files or grepping.
 
-Read path (this skill): `MemoryTree`, `MemorySearch`, `MemoryFetch`, `MemoryFetchBatch`, `MemoryDelta`, `MemoryDiff`, `MemoryHistory`, `MemoryRelated`, `MemoryStats`, plus read-only **resources** (`remindb://overview`, `remindb://files`, `remindb://tree`, `remindb://graph`, `remindb://temperature`, `remindb://doctor`, `remindb://logs`, `remindb://sessions`, `remindb://rescan`), which a renderer can also **subscribe** to for coalesced live updates. Write path (pair with **`memoize`**): `MemoryWrite`, `MemoryForget`, `MemorySummarize`, `MemoryCompile`, `MemoryRelate`, `MemoryPin`, `MemoryUnpin`, `MemoryRollback`.
+Read path (this skill): `MemoryTree`, `MemorySearch`, `MemoryFetch`, `MemoryFetchBatch`, `MemoryDelta`, `MemoryDiff`, `MemoryHistory`, `MemoryRelated`, `MemoryStats`, plus read-only **resources** (`remindb://overview`, `remindb://files`, `remindb://tree`, `remindb://graph`, `remindb://temperature`, `remindb://doctor`, `remindb://logs`, `remindb://sessions`, `remindb://sessions/logs`, `remindb://rescan`), which a renderer can also **subscribe** to for coalesced live updates. Write path (pair with **`memoize`**): `MemoryWrite`, `MemoryForget`, `MemorySummarize`, `MemoryCompile`, `MemoryRelate`, `MemoryPin`, `MemoryUnpin`, `MemoryRollback`.
 
 ## Use-case playbook
 
@@ -227,6 +227,8 @@ remindb://logs              →   application/json   (recent server log records)
 remindb://sessions          →   application/json   (active MCP client sessions)
 remindb://sessions/history  →   application/json   (durable per-client session ledger)
 remindb://sessions/history/{hash}  →  application/json  (one client's ledger)
+remindb://sessions/logs     →   application/json   (per-session logfile index)
+remindb://sessions/logs/{id}  →  application/json   (one session's captured trace; templated)
 remindb://rescan            →   application/json   (latest source-rescan tick)
 ```
 
@@ -330,6 +332,8 @@ All three keys are always present (`{"nodes":[],"edges":[],"pending":[]}` on an 
 `client_meta` (always present) carries `name`/`version`/`protocol` from the `initialize` handshake (`title` omitted when unset) — **self-reported, display-only, not identity**. `connected_at`/`last_activity` are Unix **seconds**; `count_tool_calls` counts `tools/call` only (resource reads and pings are not tool calls); `listen` (HTTP bind address) appears only for `http` sessions and is omitted for stdio.
 
 `remindb://sessions/history` — the durable counterpart: every client that has *ever* attached, accumulated across reconnects and `serve` restarts (in-memory `sessions` resets on restart; this one persists to `.remindb/sessions/`). `clients` is always present (`[]` when empty); each entry has a stable `hash` (content hash of the client identity tuple — **not** the spoofable `client.name`), last-seen `client`, `sessions` count, summed `lifetime_seconds`, `last_disconnect` (Unix seconds, 0 if none closed), and lifetime `tool_calls`. `remindb://sessions/history/{hash}` returns one client's bare object (the `hash` from the array), erroring on an unknown hash. A crashed session loses ≤ one flush interval; a reconnect never double-counts. Pure on-disk projection — no boost, lock, or snapshot.
+
+`remindb://sessions/logs` — the read surface over the per-session logfiles under `.remindb/logs/`, for auditing one MCP client's tool-call + `Warn`/`Error` trace. The static URI is the index (`{db_path, logs[]}` where each log is `{session_id, size_bytes, rotated, modified_at}`; `logs` is `[]` when session logging is off); `remindb://sessions/logs/{id}` returns `{session_id, entries}` where each entry is the structured `{time, level, msg, fields}` in append order (newest last), **active file only** (a rotated `.1` tail is flagged in the index but not replayed). Unknown id → clean error. JSONL on disk, deserialized through the same `Record` type `render()` writes — no parser drift. Pure file read: no boost, lock, or snapshot.
 
 `remindb://rescan` — the latest tick of the `serve` source-rescan loop, for a live rescan-activity panel. Always present; before the first tick (or when `serve` runs with no `--source`) `last_meta` is the zero value with `run_at: 0`:
 

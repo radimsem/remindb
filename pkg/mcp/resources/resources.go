@@ -29,6 +29,7 @@ type Deps struct {
 	Sessions      *session.Registry
 	Ledger        *ledger.Ledger
 	RescanStatus  *rescanstat.Status
+	SessionLogDir string
 }
 
 // Register every read-only resource on the server.
@@ -130,6 +131,20 @@ func Register(srv *gomcp.Server, d *Deps) {
 		MIMEType:    mimeJSON,
 		Description: "Durable session ledger for a single client identified by {hash} (the id surfaced in remindb://sessions/history). Passive read: does not boost temperature or create a snapshot.",
 	}, d.HandleSessionsHistoryByHash)
+
+	srv.AddResource(&gomcp.Resource{
+		Name:        "sessions-logs",
+		URI:         SessionsLogsURI,
+		MIMEType:    mimeJSON,
+		Description: "Index of per-session logfiles under .remindb/logs/ — db_path plus one entry per session with session_id, size_bytes, rotated (a .1 generation exists), and modified_at, as stable JSON. Empty array when session logging is disabled. Passive read: does not boost temperature or create a snapshot.",
+	}, d.HandleSessionsLogs)
+
+	srv.AddResourceTemplate(&gomcp.ResourceTemplate{
+		Name:        "sessions-log-by-id",
+		URITemplate: SessionsLogByIDTemplate,
+		MIMEType:    mimeJSON,
+		Description: "One session's captured tool-call + Warn/Error trace ({id} is the session id surfaced in remindb://sessions/logs) as structured JSON entries (time, level, msg, fields) in append order, active file only. Passive read: does not boost temperature or create a snapshot.",
+	}, d.HandleSessionsLogByID)
 
 	srv.AddResource(&gomcp.Resource{
 		Name:        "rescan",
