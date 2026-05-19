@@ -18,7 +18,7 @@ type CompileInput struct {
 }
 
 func (d *Deps) HandleCompile(ctx context.Context, _ *gomcp.CallToolRequest, input CompileInput) (_ *gomcp.CallToolResult, _ any, err error) {
-	defer d.logCall("MemoryCompile", &err, time.Now(), "path", input.Path, "message", input.Message)
+	defer d.logCall(ctx, "MemoryCompile", &err, time.Now(), "path", input.Path, "message", input.Message)
 
 	// Pure path normalization — runs before OpMu so EvalSymlinks doesn't block other writers.
 	path, err := canonicalizePath(input.Path, d.SourceDir)

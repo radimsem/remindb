@@ -16,7 +16,7 @@ type SearchInput struct {
 
 func (d *Deps) HandleSearch(ctx context.Context, _ *gomcp.CallToolRequest, input SearchInput) (_ *gomcp.CallToolResult, _ any, err error) {
 	budget := resolveBudget(input.Budget, d.WorkspaceConfig.Budgets.Search, 0)
-	defer d.logCall("MemorySearch", &err, time.Now(), "query", input.Query, "budget", budget)
+	defer d.logCall(ctx, "MemorySearch", &err, time.Now(), "query", input.Query, "budget", budget)
 
 	result, err := d.Engine.Search(ctx, input.Query, budget)
 	if err != nil {

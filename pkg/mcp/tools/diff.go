@@ -15,7 +15,7 @@ type DiffInput struct {
 }
 
 func (d *Deps) HandleDiff(ctx context.Context, _ *gomcp.CallToolRequest, input DiffInput) (_ *gomcp.CallToolResult, _ any, err error) {
-	defer d.logCall("MemoryDiff", &err, time.Now(), "from_snapshot_id", input.FromSnapshotID, "to_snapshot_id", input.ToSnapshotID)
+	defer d.logCall(ctx, "MemoryDiff", &err, time.Now(), "from_snapshot_id", input.FromSnapshotID, "to_snapshot_id", input.ToSnapshotID)
 
 	if input.FromSnapshotID > input.ToSnapshotID {
 		return nil, nil, fmt.Errorf("from_snapshot_id (%d) must be <= to_snapshot_id (%d)", input.FromSnapshotID, input.ToSnapshotID)

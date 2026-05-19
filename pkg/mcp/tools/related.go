@@ -27,7 +27,7 @@ const (
 
 func (d *Deps) HandleRelated(ctx context.Context, _ *gomcp.CallToolRequest, input RelatedInput) (_ *gomcp.CallToolResult, _ any, err error) {
 	budget := resolveBudget(input.Budget, d.WorkspaceConfig.Budgets.Related, defaultRelatedBudget)
-	defer d.logCall("MemoryRelated", &err, time.Now(),
+	defer d.logCall(ctx, "MemoryRelated", &err, time.Now(),
 		"anchor", input.Anchor, "direction", input.Direction,
 		"depth", input.Depth, "budget", budget, "weight_min", input.WeightMin)
 
@@ -71,6 +71,6 @@ func (d *Deps) boostRelatedNodes(ctx context.Context, related []*store.RelatedNo
 	}
 
 	if err := d.Tracker.RecordAccess(ctx, ids); err != nil && d.Logger != nil {
-		d.Logger.Warn("failed to boost: related access", "err", err, "count", len(ids))
+		d.Logger.WarnContext(ctx, "failed to boost: related access", "err", err, "count", len(ids))
 	}
 }

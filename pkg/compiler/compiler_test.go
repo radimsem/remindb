@@ -394,6 +394,39 @@ func TestCompileDir_RespectsIgnore(t *testing.T) {
 	}
 }
 
+func TestCompileDir_ExcludesSessionLogsDir(t *testing.T) {
+	st := testutil.OpenTestDB(t)
+	ctx := context.Background()
+	dir := t.TempDir()
+
+	writeFile(t, dir, "kept.md", "# Kept\n\nVisible.\n")
+
+	logsDir := filepath.Join(dir, config.DirName, "logs")
+	if err := os.MkdirAll(logsDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	writeFile(t, logsDir, "sess-abc.log", "2026-01-01T00:00:00Z DEBUG mcp call tool=MemoryWrite\n")
+
+	result, err := CompileDir(ctx, st, dir, "logs-excl")
+	if err != nil {
+		t.Fatalf("CompileDir: %v", err)
+	}
+
+	nodes, err := st.GetAllNodes(ctx)
+	if err != nil {
+		t.Fatalf("GetAllNodes: %v", err)
+	}
+
+	for _, n := range nodes {
+		if strings.Contains(filepath.ToSlash(n.SourceFile), config.DirName+"/logs/") {
+			t.Errorf("indexed session log under %s/logs/: %s", config.DirName, n.SourceFile)
+		}
+	}
+	if result.Added == 0 {
+		t.Error("expected kept.md to contribute nodes")
+	}
+}
+
 func TestCompileDir_MalformedIgnore(t *testing.T) {
 	st := testutil.OpenTestDB(t)
 	ctx := context.Background()

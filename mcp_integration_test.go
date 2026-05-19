@@ -2306,3 +2306,72 @@ func TestMcp_SessionLedger(t *testing.T) {
 		t.Fatal("disconnected session was never finalized in the ledger")
 	}
 }
+
+func TestMcp_SessionLogs(t *testing.T) {
+	env := mcptest.NewEnvWithSessionLogs(t)
+
+	const secret = "TOP-SECRET-NODE-BODY-9f3c"
+	payload := secret + " plus filler so the node is non-trivial."
+
+	// 1. A write whose payload carries a recognizable secret. logCall records
+	//    only the byte count (mcp-tool-conventions §9), never the body.
+	writeResult := env.CallTool(t, "MemoryWrite", map[string]any{
+		"payload": payload,
+	})
+	if !strings.Contains(env.TextContent(t, writeResult), "wrote node") {
+		t.Fatalf("seed write failed: %s", env.TextContent(t, writeResult))
+	}
+
+	// 2. A read tool: its Debug "mcp call" trace must still reach the session
+	//    file even though the shared stream is gated at Info.
+	env.CallTool(t, "MemorySearch", map[string]any{"query": "filler", "budget": 1000})
+
+	// 3. A guaranteed tool failure → an Error "mcp call failed" record.
+	//    CallTool fatals on IsError, so drive the session directly here.
+	failed, err := env.Session.CallTool(context.Background(), &gomcp.CallToolParams{
+		Name:      "MemoryCompile",
+		Arguments: map[string]any{"path": "/no/such/workspace-xyz", "message": "boom"},
+	})
+	if err != nil {
+		t.Fatalf("CallTool MemoryCompile transport error: %v", err)
+	}
+	if !failed.IsError {
+		t.Fatal("expected MemoryCompile on a bogus path to be a tool error")
+	}
+
+	// 4. Exactly one per-session logfile, keyed by the registry session id.
+	logsDir := filepath.Join(env.WorkspaceDir, config.DirName, "logs")
+	entries, err := os.ReadDir(logsDir)
+	if err != nil {
+		t.Fatalf("read logs dir: %v", err)
+	}
+
+	if len(entries) != 1 {
+		t.Fatalf("session logfiles: got %d, want exactly 1 (%v)", len(entries), entries)
+	}
+	if !strings.HasSuffix(entries[0].Name(), ".log") {
+		t.Errorf("session logfile = %q, want a .log file (no rotation expected)", entries[0].Name())
+	}
+
+	data, err := os.ReadFile(filepath.Join(logsDir, entries[0].Name()))
+	if err != nil {
+		t.Fatalf("read session log: %v", err)
+	}
+	got := string(data)
+
+	// The tool-call trace and the error record are present — payload_bytes
+	// carries the real length, proving a count (not the body) was logged.
+	wantBytes := "payload_bytes=" + strconv.Itoa(len(payload))
+	for _, want := range []string{
+		"mcp call", "tool=MemoryWrite", wantBytes, "tool=MemorySearch",
+		"mcp call failed", "tool=MemoryCompile",
+	} {
+		if !strings.Contains(got, want) {
+			t.Errorf("session log missing %q\n--- log ---\n%s", want, got)
+		}
+	}
+
+	if strings.Contains(got, secret) {
+		t.Errorf("session log leaked payload body %q\n--- log ---\n%s", secret, got)
+	}
+}

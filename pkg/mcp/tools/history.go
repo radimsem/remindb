@@ -15,7 +15,7 @@ type HistoryInput struct {
 }
 
 func (d *Deps) HandleHistory(ctx context.Context, _ *gomcp.CallToolRequest, input HistoryInput) (_ *gomcp.CallToolResult, _ any, err error) {
-	defer d.logCall("MemoryHistory", &err, time.Now(), "anchor", input.Anchor, "depth", input.Depth)
+	defer d.logCall(ctx, "MemoryHistory", &err, time.Now(), "anchor", input.Anchor, "depth", input.Depth)
 
 	diffs, err := d.Store.GetDiffsForNode(ctx, input.Anchor)
 	if err != nil {

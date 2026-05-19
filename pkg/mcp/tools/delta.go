@@ -14,7 +14,7 @@ type DeltaInput struct {
 }
 
 func (d *Deps) HandleDelta(ctx context.Context, _ *gomcp.CallToolRequest, input DeltaInput) (_ *gomcp.CallToolResult, _ any, err error) {
-	defer d.logCall("MemoryDelta", &err, time.Now(), "since_snapshot", input.SinceSnapshot)
+	defer d.logCall(ctx, "MemoryDelta", &err, time.Now(), "since_snapshot", input.SinceSnapshot)
 
 	diffs, err := d.Engine.Delta(ctx, input.SinceSnapshot)
 	if err != nil {

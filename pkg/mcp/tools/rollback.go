@@ -20,7 +20,7 @@ type RollbackInput struct {
 }
 
 func (d *Deps) HandleRollback(ctx context.Context, _ *gomcp.CallToolRequest, input RollbackInput) (_ *gomcp.CallToolResult, _ any, err error) {
-	defer d.logCall("MemoryRollback", &err, time.Now(), "snapshot_id", input.SnapshotID, "drop_after", input.DropAfter)
+	defer d.logCall(ctx, "MemoryRollback", &err, time.Now(), "snapshot_id", input.SnapshotID, "drop_after", input.DropAfter)
 
 	if input.SnapshotID <= 0 {
 		return nil, nil, fmt.Errorf("invalid snapshot_id %d: expected positive integer", input.SnapshotID)
