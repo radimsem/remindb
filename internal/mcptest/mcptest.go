@@ -188,7 +188,7 @@ func NewEnvWithRescan(t *testing.T) *Env {
 		t.Fatalf("NewServer: %v", err)
 	}
 
-	loop, err := remindb.NewRescanLoop(st, dir, time.Second, config.CompileConfig{}, nil, status)
+	loop, err := remindb.NewRescanLoop(st, dir, time.Second, config.CompileConfig{}, nil, status, nil)
 	if err != nil {
 		t.Fatalf("NewRescanLoop: %v", err)
 	}

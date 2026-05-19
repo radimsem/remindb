@@ -344,7 +344,7 @@ The shape is **locked**. Notes:
 - `last_meta` is exactly one tick's result, replaced wholesale each tick. `run_at` is Unix **seconds** (`0` = never run); `error` is that tick's failure string, empty on success (a failed tick still publishes — counts stay zero, `error` is set).
 - `added` / `modified` / `removed` are the tick's compile counts. There is **no `total`** — a consumer sums the three.
 - `purged_files` lists each source file that was deleted from disk that tick, with `nodes` = how many context nodes it carried. Always present (`[]` when nothing was purged). Purging is **whole-file only** — a file removed from the source tree drops all its context nodes — so there is no separate `purged_nodes` count; the per-file `nodes` fully describes the purge. Entries sort by `path`.
-- Reading this resource does **not** boost, lock, or snapshot. The holder is in-process memory only; it is not persisted and resets on restart. (Durable JSONL rescan history under `.remindb/` is tracked separately, mirroring the per-session-logfile work.)
+- Reading this resource does **not** boost, lock, or snapshot. The holder is in-process memory only; it is not persisted and resets on restart. For durable history, opt into `server.rescan_files` — every tick is then also appended to `.remindb/rescan.jsonl` (this exact per-tick shape), surviving restarts. See [configuration](./configuration.md#rescan-history-remindbrescanjsonl). Reading that file back over MCP is out of scope for now.
 
 ## Live updates — subscriptions
 

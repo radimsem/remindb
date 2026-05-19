@@ -661,3 +661,41 @@ func TestValidate_ServerSessionFilesBlock(t *testing.T) {
 		t.Errorf("valid session_files block should pass, got %v", err)
 	}
 }
+
+func TestLoad_ServerRescanFilesBlock(t *testing.T) {
+	ws := t.TempDir()
+	writeConfig(t, ws, `{"server": {"rescan_files": {"enabled": true, "max_file_size": "4MB"}}}`)
+
+	cfg, err := Load(ws)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	rf := cfg.Server.RescanFiles
+	if rf.Enabled == nil || !*rf.Enabled {
+		t.Errorf("enabled = %v, want true", rf.Enabled)
+	}
+	if rf.MaxFileSize == nil || *rf.MaxFileSize != 4<<20 {
+		t.Errorf("max_file_size = %v, want 4MiB", rf.MaxFileSize)
+	}
+}
+
+func TestValidate_ServerRescanFilesBlock(t *testing.T) {
+	neg := ByteSize(-1)
+	zero := ByteSize(0)
+	ok := ByteSize(1 << 20)
+
+	for i, c := range []Config{
+		{Server: ServerConfig{RescanFiles: RescanFilesConfig{MaxFileSize: &neg}}},
+		{Server: ServerConfig{RescanFiles: RescanFilesConfig{MaxFileSize: &zero}}},
+	} {
+		if err := c.Validate(); err == nil {
+			t.Errorf("case %d: expected validation error, got nil", i)
+		}
+	}
+
+	good := Config{Server: ServerConfig{RescanFiles: RescanFilesConfig{MaxFileSize: &ok}}}
+	if err := good.Validate(); err != nil {
+		t.Errorf("valid rescan_files block should pass, got %v", err)
+	}
+}

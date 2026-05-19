@@ -19,6 +19,7 @@ import (
 	"github.com/radimsem/remindb/pkg/config"
 	"github.com/radimsem/remindb/pkg/diff"
 	"github.com/radimsem/remindb/pkg/emitter"
+	"github.com/radimsem/remindb/pkg/mcp/rescanlog"
 	"github.com/radimsem/remindb/pkg/mcp/rescanstat"
 	"github.com/radimsem/remindb/pkg/parser"
 	"github.com/radimsem/remindb/pkg/store"
@@ -44,6 +45,7 @@ type RescanLoop struct {
 	ignore            *ignore.Matcher
 	compileOpts       []compiler.Option
 	status            *rescanstat.Status
+	rescanLog         *rescanlog.Sink
 	onChange          func()
 }
 
@@ -58,7 +60,7 @@ func (r *RescanLoop) notifyChange() {
 	}
 }
 
-func NewRescanLoop(st *store.Store, dir string, interval time.Duration, cc config.CompileConfig, logger *slog.Logger, status *rescanstat.Status) (*RescanLoop, error) {
+func NewRescanLoop(st *store.Store, dir string, interval time.Duration, cc config.CompileConfig, logger *slog.Logger, status *rescanstat.Status, rescanLog *rescanlog.Sink) (*RescanLoop, error) {
 	if interval <= 0 {
 		interval = defaultRescanInterval
 	}
@@ -88,6 +90,7 @@ func NewRescanLoop(st *store.Store, dir string, interval time.Duration, cc confi
 		ignore:            matcher,
 		compileOpts:       compiler.ConfigOptions(cc),
 		status:            status,
+		rescanLog:         rescanLog,
 	}, nil
 }
 
@@ -172,7 +175,15 @@ func (r *RescanLoop) scan(ctx context.Context) {
 	now := r.now()
 
 	snap := rescanstat.Snapshot{RunAt: now.Unix()}
-	defer func() { r.status.Set(int64(r.interval/time.Second), snap) }()
+	defer func() {
+		r.status.Set(int64(r.interval/time.Second), snap)
+
+		if r.rescanLog != nil {
+			if err := r.rescanLog.Append(snap); err != nil {
+				r.logger.Warn("rescan: failed to persist tick", "err", err)
+			}
+		}
+	}()
 
 	walkErr := r.walkFn(r.dir, func(path string, d os.DirEntry, err error) error {
 		if err != nil {
