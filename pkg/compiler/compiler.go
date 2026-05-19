@@ -14,6 +14,7 @@ import (
 
 	"github.com/radimsem/remindb/internal/fileext"
 	"github.com/radimsem/remindb/internal/ignore"
+	"github.com/radimsem/remindb/internal/loghelper"
 	"github.com/radimsem/remindb/internal/redaction"
 	"github.com/radimsem/remindb/internal/tempfile"
 	"github.com/radimsem/remindb/pkg/config"
@@ -131,10 +132,7 @@ func Compile(ctx context.Context, st *store.Store, opts ...Option) (*Result, err
 		opt(&o)
 	}
 
-	logger := o.logger
-	if logger == nil {
-		logger = slog.Default()
-	}
+	logger := loghelper.OrDefault(o.logger)
 
 	ctx, cancel := withTimeout(ctx, o.timeout)
 	defer cancel()

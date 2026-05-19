@@ -15,6 +15,7 @@ import (
 	"sync"
 
 	"github.com/radimsem/remindb/internal/contentid"
+	"github.com/radimsem/remindb/internal/loghelper"
 	"github.com/radimsem/remindb/pkg/config"
 	"github.com/radimsem/remindb/pkg/mcp/jsonlsink"
 )
@@ -64,9 +65,7 @@ type Ledger struct {
 
 // New opens (and compacts) the ledger under <workspace>/.remindb/sessions.
 func New(workspace string, logger *slog.Logger) (*Ledger, error) {
-	if logger == nil {
-		logger = slog.New(slog.DiscardHandler)
-	}
+	logger = loghelper.OrDiscard(logger)
 	dir := filepath.Join(workspace, config.DirName, subDir)
 
 	// growth bounded by compact(), not rotation

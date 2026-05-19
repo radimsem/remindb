@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"github.com/radimsem/remindb/internal/contentid"
+	"github.com/radimsem/remindb/internal/loghelper"
 	"github.com/radimsem/remindb/pkg/config"
 	"github.com/radimsem/remindb/pkg/store"
 )
@@ -49,9 +50,7 @@ func NewTracker(s NodeStore, dir string, bootstrap Config, logger *slog.Logger) 
 		return nil, fmt.Errorf("invalid config: %w", err)
 	}
 
-	if logger == nil {
-		logger = slog.New(slog.DiscardHandler)
-	}
+	logger = loghelper.OrDiscard(logger)
 	return &Tracker{
 		store:            s,
 		bootstrap:        bootstrap,

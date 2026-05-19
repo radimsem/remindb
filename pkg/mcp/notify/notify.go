@@ -9,6 +9,7 @@ import (
 	"time"
 
 	mcp "github.com/modelcontextprotocol/go-sdk/mcp"
+	"github.com/radimsem/remindb/internal/loghelper"
 	"github.com/radimsem/remindb/pkg/config"
 	"github.com/radimsem/remindb/pkg/mcp/resources"
 )
@@ -31,9 +32,7 @@ type Publisher struct {
 }
 
 func NewPublisher(cfg config.ResourcesConfig, logger *slog.Logger) (*Publisher, error) {
-	if logger == nil {
-		logger = slog.New(slog.DiscardHandler)
-	}
+	logger = loghelper.OrDiscard(logger)
 
 	def := DefaultDebounce
 	if cfg.Debounce != nil {
