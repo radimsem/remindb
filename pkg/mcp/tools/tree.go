@@ -3,11 +3,11 @@ package tools
 import (
 	"context"
 	"fmt"
-	"path/filepath"
 	"strings"
 	"time"
 
 	gomcp "github.com/modelcontextprotocol/go-sdk/mcp"
+	"github.com/radimsem/remindb/internal/treewalk"
 	"github.com/radimsem/remindb/pkg/store"
 )
 
@@ -19,10 +19,7 @@ type TreeInput struct {
 func (d *Deps) HandleTree(ctx context.Context, _ *gomcp.CallToolRequest, input TreeInput) (_ *gomcp.CallToolResult, _ any, err error) {
 	defer d.logCall(ctx, "MemoryTree", &err, time.Now(), "root", input.Root, "depth", input.Depth)
 
-	maxDepth := input.Depth
-	if maxDepth <= 0 {
-		maxDepth = 5
-	}
+	maxDepth := treewalk.ClampDepth(input.Depth, 5, treewalk.MaxDepth)
 
 	all, err := d.Store.GetAllNodes(ctx)
 	if err != nil {
@@ -39,6 +36,7 @@ func (d *Deps) HandleTree(ctx context.Context, _ *gomcp.CallToolRequest, input T
 				break
 			}
 		}
+
 		if root == nil {
 			return nil, nil, fmt.Errorf("failed to get root: node %s not found", input.Root)
 		}
@@ -49,7 +47,7 @@ func (d *Deps) HandleTree(ctx context.Context, _ *gomcp.CallToolRequest, input T
 
 	var b strings.Builder
 	for _, root := range roots {
-		writeTreeNode(&b, childMap, root, "", compileRoot, 0, maxDepth)
+		writeTree(&b, childMap, root, compileRoot, maxDepth)
 	}
 
 	if b.Len() == 0 {
@@ -62,33 +60,21 @@ func (d *Deps) HandleTree(ctx context.Context, _ *gomcp.CallToolRequest, input T
 	}, nil, nil
 }
 
-func writeTreeNode(b *strings.Builder, children map[string][]*store.Node, n *store.Node, parentSource, compileRoot string, depth, maxDepth int) {
-	indent := strings.Repeat("  ", depth)
-	fmt.Fprintf(b, "%s[%s] %s (id=%s", indent, n.NodeType, n.Label, n.ID)
+func writeTree(b *strings.Builder, children map[string][]*store.Node, root *store.Node, compileRoot string, maxDepth int) {
+	treewalk.Walk[struct{}](children, root, maxDepth, func(n, parent *store.Node, depth int, descend func() []struct{}) struct{} {
+		indent := strings.Repeat("  ", depth)
+		fmt.Fprintf(b, "%s[%s] %s (id=%s", indent, n.NodeType, n.Label, n.ID)
 
-	if n.SourceFile != parentSource {
-		fmt.Fprintf(b, " file=%s", relSourcePath(n.SourceFile, compileRoot))
-	}
-	fmt.Fprintf(b, " temp=%.2f tok=%d)\n", n.Temperature, n.TokenCount)
+		parentSource := ""
+		if parent != nil {
+			parentSource = parent.SourceFile
+		}
+		if n.SourceFile != parentSource {
+			fmt.Fprintf(b, " file=%s", treewalk.RelativeTo(n.SourceFile, compileRoot))
+		}
+		fmt.Fprintf(b, " temp=%.2f tok=%d)\n", n.Temperature, n.TokenCount)
 
-	if depth >= maxDepth {
-		return
-	}
-
-	for _, child := range children[n.ID] {
-		writeTreeNode(b, children, child, n.SourceFile, compileRoot, depth+1, maxDepth)
-	}
-}
-
-func relSourcePath(source, compileRoot string) string {
-	if compileRoot == "" || !filepath.IsAbs(source) {
-		return source
-	}
-
-	rel, err := filepath.Rel(compileRoot, source)
-	if err != nil || strings.HasPrefix(rel, "..") {
-		return source
-	}
-
-	return rel
+		descend()
+		return struct{}{}
+	})
 }

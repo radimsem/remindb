@@ -5,11 +5,11 @@ import (
 	"encoding/json"
 	"fmt"
 	"net/url"
-	"path/filepath"
 	"strconv"
 	"strings"
 
 	gomcp "github.com/modelcontextprotocol/go-sdk/mcp"
+	"github.com/radimsem/remindb/internal/treewalk"
 	"github.com/radimsem/remindb/pkg/store"
 )
 
@@ -33,40 +33,24 @@ type treeEnvelope struct {
 	Roots []*treeNode `json:"roots"`
 }
 
-// Make an absolute source path relative to the compile root, mirroring MemoryTree.
-func relSource(source, compileRoot string) string {
-	if compileRoot == "" || !filepath.IsAbs(source) {
-		return source
-	}
+func buildTreeJSON(children map[string][]*store.Node, root *store.Node, compileRoot string, maxDepth int) *treeNode {
+	return treewalk.Walk[*treeNode](children, root, maxDepth, func(n, _ *store.Node, _ int, descend func() []*treeNode) *treeNode {
+		kids := descend()
+		if kids == nil {
+			kids = []*treeNode{}
+		}
 
-	rel, err := filepath.Rel(compileRoot, source)
-	if err != nil || strings.HasPrefix(rel, "..") {
-		return source
-	}
-
-	return rel
-}
-
-func buildTreeNode(children map[string][]*store.Node, n *store.Node, compileRoot string, level, maxDepth int) *treeNode {
-	tn := &treeNode{
-		ID:          n.ID,
-		Type:        n.NodeType,
-		Label:       n.Label,
-		Depth:       n.Depth,
-		Tokens:      n.TokenCount,
-		Temperature: n.Temperature,
-		Source:      relSource(n.SourceFile, compileRoot),
-		Children:    []*treeNode{},
-	}
-
-	if maxDepth > 0 && level >= maxDepth {
-		return tn
-	}
-
-	for _, c := range children[n.ID] {
-		tn.Children = append(tn.Children, buildTreeNode(children, c, compileRoot, level+1, maxDepth))
-	}
-	return tn
+		return &treeNode{
+			ID:          n.ID,
+			Type:        n.NodeType,
+			Label:       n.Label,
+			Depth:       n.Depth,
+			Tokens:      n.TokenCount,
+			Temperature: n.Temperature,
+			Source:      treewalk.RelativeTo(n.SourceFile, compileRoot),
+			Children:    kids,
+		}
+	})
 }
 
 func (d *Deps) treeBody(ctx context.Context, rootID string, maxDepth int) ([]byte, error) {
@@ -96,7 +80,7 @@ func (d *Deps) treeBody(ctx context.Context, rootID string, maxDepth int) ([]byt
 
 	env := treeEnvelope{Roots: make([]*treeNode, 0, len(roots))}
 	for _, r := range roots {
-		env.Roots = append(env.Roots, buildTreeNode(children, r, compileRoot, 0, maxDepth))
+		env.Roots = append(env.Roots, buildTreeJSON(children, r, compileRoot, maxDepth))
 	}
 
 	body, err := json.Marshal(env)
