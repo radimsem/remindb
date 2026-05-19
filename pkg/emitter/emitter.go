@@ -81,7 +81,11 @@ func Emit(ctx context.Context, st *store.Store, opts ...Option) error {
 			}
 		}
 
-		snapID, err := st.CreateSnapshotTx(ctx, tx, o.cursorHash, o.message, o.compileRoot)
+		snapID, err := st.CreateSnapshotTx(ctx, tx,
+			store.WithCursorHash(o.cursorHash),
+			store.WithMessage(o.message),
+			store.WithCompileRoot(o.compileRoot),
+		)
 		if err != nil {
 			return fmt.Errorf("failed to create: snapshot: %w", err)
 		}

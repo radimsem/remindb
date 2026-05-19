@@ -230,7 +230,7 @@ func TestRun_Phase1_Hit(t *testing.T) {
 		t.Fatalf("Run: %v", err)
 	}
 
-	related, err := st.GetRelatedNodes(ctx, src.ID, store.DirectionOut, 1, 0, 10)
+	related, err := st.GetRelatedNodes(ctx, src.ID, store.WithDirection(store.DirectionOut), store.WithMaxDepth(1), store.WithLimit(10))
 	if err != nil {
 		t.Fatalf("GetRelatedNodes: %v", err)
 	}
@@ -336,7 +336,7 @@ func TestRun_Phase2_RetriesPendingAndMoves(t *testing.T) {
 		t.Errorf("pending should be empty, got %+v", pending)
 	}
 
-	related, _ := st.GetRelatedNodes(ctx, src.ID, store.DirectionOut, 1, 0, 10)
+	related, _ := st.GetRelatedNodes(ctx, src.ID, store.WithDirection(store.DirectionOut), store.WithMaxDepth(1), store.WithLimit(10))
 	if len(related) != 1 || related[0].Node.ID != target.ID {
 		t.Fatalf("related = %+v, want [%s]", related, target.ID)
 	}

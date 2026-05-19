@@ -58,16 +58,44 @@ type Registry struct {
 	sessions map[*gomcp.ServerSession]*meta
 }
 
-// NewRegistry tracks live sessions; l (may be nil) persists their metrics.
-func NewRegistry(srv *gomcp.Server, transport, listen string, l *ledger.Ledger, logger *slog.Logger) *Registry {
-	logger = loghelper.OrDiscard(logger)
+type Option func(*options)
+
+type options struct {
+	transport string
+	listen    string
+	ledger    *ledger.Ledger
+	logger    *slog.Logger
+}
+
+func WithTransport(t string) Option {
+	return func(o *options) { o.transport = t }
+}
+
+func WithListen(addr string) Option {
+	return func(o *options) { o.listen = addr }
+}
+
+func WithLedger(l *ledger.Ledger) Option {
+	return func(o *options) { o.ledger = l }
+}
+
+func WithLogger(l *slog.Logger) Option {
+	return func(o *options) { o.logger = l }
+}
+
+// NewRegistry tracks live sessions; the ledger (may be nil) persists their metrics.
+func NewRegistry(srv *gomcp.Server, opts ...Option) *Registry {
+	o := options{transport: "stdio"}
+	for _, opt := range opts {
+		opt(&o)
+	}
 
 	return &Registry{
 		srv:       srv,
-		transport: transport,
-		listen:    listen,
-		ledger:    l,
-		logger:    logger,
+		transport: o.transport,
+		listen:    o.listen,
+		ledger:    o.ledger,
+		logger:    loghelper.OrDiscard(o.logger),
 		sessions:  make(map[*gomcp.ServerSession]*meta),
 	}
 }

@@ -85,7 +85,7 @@ func TestConcurrent_SnapshotIDsMonotonic(t *testing.T) {
 			for i := range per {
 				hash := fmt.Sprintf("h%d_%013d", idx, i)
 				err := st.Tx(ctx, func(tx *sql.Tx) error {
-					id, err := st.CreateSnapshotTx(ctx, tx, hash, "concurrent", "")
+					id, err := st.CreateSnapshotTx(ctx, tx, WithCursorHash(hash), WithMessage("concurrent"))
 					if err != nil {
 						return err
 					}

@@ -13,6 +13,7 @@ import (
 	"github.com/radimsem/remindb/pkg/config"
 	"github.com/radimsem/remindb/pkg/logbuf"
 	remindb "github.com/radimsem/remindb/pkg/mcp"
+	"github.com/radimsem/remindb/pkg/mcp/rescan"
 	"github.com/radimsem/remindb/pkg/mcp/rescanlog"
 	"github.com/radimsem/remindb/pkg/mcp/rescanstat"
 	"github.com/radimsem/remindb/pkg/mcp/sessionlog"
@@ -174,14 +175,19 @@ func runServe(cmd *cobra.Command, _ []string) error {
 			return err
 		}
 
-		rescan, err := remindb.NewRescanLoop(st, sourceDir, rescanInterval, workspaceCfg.Compile, logger, rescanStatus, rescanLog)
+		rescanLoop, err := rescan.New(st, sourceDir, rescanInterval,
+			rescan.WithCompileConfig(workspaceCfg.Compile),
+			rescan.WithLogger(logger),
+			rescan.WithStatus(rescanStatus),
+			rescan.WithRescanLog(rescanLog),
+		)
 		if err != nil {
 			return err
 		}
-		rescan.SetChangeObserver(srv.NotifyRescan)
+		rescanLoop.SetChangeObserver(srv.NotifyRescan)
 
 		g.Go(func() error {
-			rescan.Run(ctx)
+			rescanLoop.Run(ctx)
 			return nil
 		})
 	}

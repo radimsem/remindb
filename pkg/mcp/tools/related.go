@@ -43,7 +43,12 @@ func (d *Deps) HandleRelated(ctx context.Context, _ *gomcp.CallToolRequest, inpu
 
 	depth := treewalk.ClampDepth(input.Depth, defaultRelatedDepth, maxRelatedDepth)
 
-	related, err := d.Store.GetRelatedNodes(ctx, input.Anchor, direction, depth, input.WeightMin, relatedQueryLimit)
+	related, err := d.Store.GetRelatedNodes(ctx, input.Anchor,
+		store.WithDirection(direction),
+		store.WithMaxDepth(depth),
+		store.WithWeightMin(input.WeightMin),
+		store.WithLimit(relatedQueryLimit),
+	)
 	if err != nil {
 		return nil, nil, fmt.Errorf("failed to fetch: related nodes: %w", err)
 	}

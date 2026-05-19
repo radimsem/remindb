@@ -1101,7 +1101,7 @@ func TestHandleRelate_ResolvedHit(t *testing.T) {
 		t.Errorf("text = %q, want contains 'resolved'", text)
 	}
 
-	related, _ := st.GetRelatedNodes(ctx, src.ID, store.DirectionOut, 1, 0, 10)
+	related, _ := st.GetRelatedNodes(ctx, src.ID, store.WithDirection(store.DirectionOut), store.WithMaxDepth(1), store.WithLimit(10))
 	if len(related) != 1 || related[0].Node.ID != tgt.ID {
 		t.Fatalf("related = %+v, want [%s]", related, tgt.ID)
 	}
@@ -1291,7 +1291,7 @@ func TestHandleRelate_TargetIDMissGoesPending(t *testing.T) {
 	}
 
 	// No relations row should have been created.
-	related, _ := st.GetRelatedNodes(ctx, src.ID, store.DirectionOut, 1, 0, 10)
+	related, _ := st.GetRelatedNodes(ctx, src.ID, store.WithDirection(store.DirectionOut), store.WithMaxDepth(1), store.WithLimit(10))
 	if len(related) != 0 {
 		t.Errorf("got %d related, want 0 (target_id miss must not silently pick a label match)", len(related))
 	}
@@ -1394,7 +1394,7 @@ func TestHandleRelate_ManualEdgeSurvivesResolverRun(t *testing.T) {
 		t.Fatalf("relations.Run: %v", err)
 	}
 
-	related, _ := st.GetRelatedNodes(ctx, src.ID, store.DirectionOut, 1, 0, 10)
+	related, _ := st.GetRelatedNodes(ctx, src.ID, store.WithDirection(store.DirectionOut), store.WithMaxDepth(1), store.WithLimit(10))
 	if len(related) != 1 {
 		t.Fatalf("manual edge lost after resolver run: %+v", related)
 	}
