@@ -8,21 +8,6 @@ import (
 	"testing"
 )
 
-func newDoctorStore(t *testing.T) *Store {
-	t.Helper()
-
-	st, err := Open(":memory:")
-	if err != nil {
-		t.Fatalf("Open: %v", err)
-	}
-	t.Cleanup(func() { _ = st.Close() })
-
-	if err := st.Migrate(context.Background()); err != nil {
-		t.Fatalf("Migrate: %v", err)
-	}
-	return st
-}
-
 func insertNodeRaw(t *testing.T, st *Store, id, parentID string) {
 	t.Helper()
 
@@ -41,7 +26,7 @@ func insertNodeRaw(t *testing.T, st *Store, id, parentID string) {
 }
 
 func TestCountsOnFreshDB(t *testing.T) {
-	st := newDoctorStore(t)
+	st := openTestDB(t)
 	ctx := context.Background()
 
 	for _, tc := range []struct {
@@ -65,7 +50,7 @@ func TestCountsOnFreshDB(t *testing.T) {
 }
 
 func TestFTSIntegrityCheckPassesOnFreshDB(t *testing.T) {
-	st := newDoctorStore(t)
+	st := openTestDB(t)
 	ctx := context.Background()
 
 	insertNodeRaw(t, st, "n0000000001", "")
@@ -77,7 +62,7 @@ func TestFTSIntegrityCheckPassesOnFreshDB(t *testing.T) {
 }
 
 func TestRebuildFTSResolvesIntegrityFailure(t *testing.T) {
-	st := newDoctorStore(t)
+	st := openTestDB(t)
 	ctx := context.Background()
 
 	insertNodeRaw(t, st, "n0000000001", "")
@@ -105,7 +90,7 @@ func TestRebuildFTSResolvesIntegrityFailure(t *testing.T) {
 }
 
 func TestPromoteOrphansToRoots(t *testing.T) {
-	st := newDoctorStore(t)
+	st := openTestDB(t)
 	ctx := context.Background()
 
 	if _, err := st.db.Exec(`PRAGMA foreign_keys=OFF`); err != nil {
@@ -140,7 +125,7 @@ func TestPromoteOrphansToRoots(t *testing.T) {
 }
 
 func TestDeleteDanglingDiffs(t *testing.T) {
-	st := newDoctorStore(t)
+	st := openTestDB(t)
 	ctx := context.Background()
 
 	if _, err := st.db.Exec(`PRAGMA foreign_keys=OFF`); err != nil {
@@ -173,7 +158,7 @@ func TestDeleteDanglingDiffs(t *testing.T) {
 }
 
 func TestRepointHeadCursorEmptySnapshots(t *testing.T) {
-	st := newDoctorStore(t)
+	st := openTestDB(t)
 	ctx := context.Background()
 
 	if _, err := st.db.Exec(`PRAGMA foreign_keys=OFF`); err != nil {
@@ -206,7 +191,7 @@ func TestRepointHeadCursorEmptySnapshots(t *testing.T) {
 }
 
 func TestRepointHeadCursorWithSnapshots(t *testing.T) {
-	st := newDoctorStore(t)
+	st := openTestDB(t)
 	ctx := context.Background()
 
 	if _, err := st.db.Exec(`INSERT INTO snapshots (cursor_hash) VALUES ('hash1'), ('hash2'), ('hash3')`); err != nil {
@@ -253,7 +238,7 @@ func TestEmbeddedMigrationVersions(t *testing.T) {
 }
 
 func TestAppliedMatchesEmbedded(t *testing.T) {
-	st := newDoctorStore(t)
+	st := openTestDB(t)
 	ctx := context.Background()
 
 	applied, err := st.AppliedMigrationVersions(ctx)

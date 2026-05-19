@@ -5,25 +5,10 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/radimsem/remindb/internal/testutil"
 	"github.com/radimsem/remindb/pkg/inspect"
 	"github.com/radimsem/remindb/pkg/store"
 )
-
-func openTestStore(t *testing.T) *store.Store {
-	t.Helper()
-
-	st, err := store.Open(":memory:")
-	if err != nil {
-		t.Fatalf("Open: %v", err)
-	}
-
-	if err := st.Migrate(context.Background()); err != nil {
-		t.Fatalf("Migrate: %v", err)
-	}
-
-	t.Cleanup(func() { _ = st.Close() })
-	return st
-}
 
 func testNode(id, parent, nodeType string) *store.Node {
 	return &store.Node{
@@ -35,7 +20,7 @@ func testNode(id, parent, nodeType string) *store.Node {
 }
 
 func TestCollect_Empty(t *testing.T) {
-	st := openTestStore(t)
+	st := testutil.OpenTestDB(t)
 	ctx := context.Background()
 
 	s, err := inspect.Collect(ctx, st)
@@ -52,7 +37,7 @@ func TestCollect_Empty(t *testing.T) {
 }
 
 func TestCollect_PopulatesAllFields(t *testing.T) {
-	st := openTestStore(t)
+	st := testutil.OpenTestDB(t)
 	ctx := context.Background()
 
 	n1 := testNode("aaaaaaaa", "", "heading")
@@ -113,7 +98,7 @@ func TestCollect_PopulatesAllFields(t *testing.T) {
 }
 
 func TestCollect_RelationCountIncludesPending(t *testing.T) {
-	st := openTestStore(t)
+	st := testutil.OpenTestDB(t)
 	ctx := context.Background()
 
 	for _, n := range []*store.Node{

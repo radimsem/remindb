@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"testing"
 
+	"github.com/radimsem/remindb/internal/testutil"
 	"github.com/radimsem/remindb/pkg/store"
 )
 
@@ -16,25 +17,9 @@ func graphNode_(id string) *store.Node {
 	}
 }
 
-func openGraphStore(t *testing.T) *store.Store {
-	t.Helper()
-
-	st, err := store.Open(":memory:")
-	if err != nil {
-		t.Fatalf("Open: %v", err)
-	}
-
-	if err := st.Migrate(context.Background()); err != nil {
-		t.Fatalf("Migrate: %v", err)
-	}
-	t.Cleanup(func() { _ = st.Close() })
-
-	return st
-}
-
 // Fixture: parsed n1→n2, manual n2→n3, pending n1→"Unresolved"; n4 is orphan.
 func TestHandleGraph_ParsedManualPending(t *testing.T) {
-	st := openGraphStore(t)
+	st := testutil.OpenTestDB(t)
 	ctx := context.Background()
 
 	for _, id := range []string{"aaaaaaaaaa1", "bbbbbbbbbb1", "cccccccccc1", "dddddddddd1"} {
@@ -107,7 +92,7 @@ func TestHandleGraph_ParsedManualPending(t *testing.T) {
 }
 
 func TestHandleGraph_EmptyDBStableShape(t *testing.T) {
-	st := openGraphStore(t)
+	st := testutil.OpenTestDB(t)
 	d := &Deps{Store: st}
 
 	body, err := d.graphBody(context.Background())

@@ -12,6 +12,7 @@ import (
 
 	gomcp "github.com/modelcontextprotocol/go-sdk/mcp"
 	"github.com/radimsem/remindb/internal/redaction"
+	"github.com/radimsem/remindb/internal/testutil"
 	"github.com/radimsem/remindb/pkg/compiler"
 	"github.com/radimsem/remindb/pkg/config"
 	"github.com/radimsem/remindb/pkg/query"
@@ -23,15 +24,7 @@ import (
 func setup(t *testing.T) (*Deps, *store.Store) {
 	t.Helper()
 
-	st, err := store.Open(":memory:")
-	if err != nil {
-		t.Fatalf("Open: %v", err)
-	}
-
-	if err := st.Migrate(context.Background()); err != nil {
-		t.Fatalf("Migrate: %v", err)
-	}
-	t.Cleanup(func() { _ = st.Close() })
+	st := testutil.OpenTestDB(t)
 
 	tracker, err := temperature.NewTracker(st, "", temperature.DefaultConfig(), nil)
 	if err != nil {
