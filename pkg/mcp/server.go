@@ -152,7 +152,12 @@ func NewServer(st *store.Store, tracker *temperature.Tracker, cfg temperature.Co
 		flush = time.Duration(*fi)
 	}
 
-	sessions := session.NewRegistry(mcpSrv, transport, listen, sessLedger, logger)
+	sessions := session.NewRegistry(mcpSrv,
+		session.WithTransport(transport),
+		session.WithListen(listen),
+		session.WithLedger(sessLedger),
+		session.WithLogger(logger),
+	)
 	mcpSrv.AddReceivingMiddleware(sessions.Middleware)
 
 	s := &Server{
