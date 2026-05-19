@@ -16,6 +16,7 @@ import (
 
 	"github.com/radimsem/remindb/internal/contentid"
 	"github.com/radimsem/remindb/pkg/config"
+	"github.com/radimsem/remindb/pkg/mcp/jsonlsink"
 )
 
 const (
@@ -55,6 +56,7 @@ type ClientLedger struct {
 
 type Ledger struct {
 	dir    string
+	inner  *jsonlsink.Sink
 	logger *slog.Logger
 
 	mu sync.Mutex
@@ -65,13 +67,15 @@ func New(workspace string, logger *slog.Logger) (*Ledger, error) {
 	if logger == nil {
 		logger = slog.New(slog.DiscardHandler)
 	}
-
 	dir := filepath.Join(workspace, config.DirName, subDir)
-	if err := os.MkdirAll(dir, 0o755); err != nil {
-		return nil, fmt.Errorf("failed to create: sessions dir: %w", err)
+
+	// growth bounded by compact(), not rotation
+	inner, err := jsonlsink.New(dir, 0)
+	if err != nil {
+		return nil, err
 	}
 
-	l := &Ledger{dir: dir, logger: logger}
+	l := &Ledger{dir: dir, inner: inner, logger: logger}
 	l.compact()
 
 	return l, nil
@@ -125,21 +129,11 @@ func (l *Ledger) Append(r Record) error {
 	}
 
 	line = append(line, '\n')
-	path := filepath.Join(l.dir, fileName(r.Client, r.Transport))
 
 	l.mu.Lock()
 	defer l.mu.Unlock()
 
-	f, err := os.OpenFile(path, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0o644)
-	if err != nil {
-		return fmt.Errorf("failed to open: session ledger %s: %w", path, err)
-	}
-	defer func() { _ = f.Close() }()
-
-	if _, err := f.Write(line); err != nil {
-		return fmt.Errorf("failed to write: session ledger %s: %w", path, err)
-	}
-	return nil
+	return l.inner.Append(fileName(r.Client, r.Transport), line)
 }
 
 // Clients aggregates every client file, collapsing each by session_id.

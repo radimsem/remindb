@@ -10,13 +10,12 @@ import (
 	"io"
 	"log/slog"
 	"maps"
-	"os"
 	"path/filepath"
 	"strings"
-	"sync"
 	"time"
 
 	"github.com/radimsem/remindb/pkg/config"
+	"github.com/radimsem/remindb/pkg/mcp/jsonlsink"
 )
 
 const (
@@ -49,20 +48,17 @@ func FromContext(ctx context.Context) string {
 }
 
 type Sink struct {
-	dir         string
-	maxFileSize int64
-
-	mu sync.Mutex
+	inner *jsonlsink.Sink
 }
 
 // New creates <workspace>/.remindb/logs and returns a sink bounded by maxFileSize bytes.
 func New(workspace string, maxFileSize int64) (*Sink, error) {
-	dir := Dir(workspace)
-	if err := os.MkdirAll(dir, 0o755); err != nil {
-		return nil, fmt.Errorf("failed to create: session logs dir: %w", err)
+	inner, err := jsonlsink.New(Dir(workspace), maxFileSize)
+	if err != nil {
+		return nil, err
 	}
 
-	return &Sink{dir: dir, maxFileSize: maxFileSize}, nil
+	return &Sink{inner: inner}, nil
 }
 
 // Dir returns the per-session log directory under workspace.
@@ -72,33 +68,7 @@ func Dir(workspace string) string {
 
 // Write appends line to the file keyed by sessionID, rotating once when the cap is reached.
 func (s *Sink) Write(sessionID string, line []byte) error {
-	path := filepath.Join(s.dir, Slug(sessionID)+".log")
-
-	s.mu.Lock()
-	defer s.mu.Unlock()
-
-	// Single-generation rotation: the prior .1 is intentionally discarded.
-	fi, statErr := os.Stat(path)
-	overCap := statErr == nil && fi.Size() > 0 &&
-		int64(len(line)) <= s.maxFileSize &&
-		fi.Size()+int64(len(line)) > s.maxFileSize
-
-	if overCap {
-		if err := os.Rename(path, path+".1"); err != nil {
-			return fmt.Errorf("failed to rotate: session log %s: %w", path, err)
-		}
-	}
-
-	f, err := os.OpenFile(path, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0o644)
-	if err != nil {
-		return fmt.Errorf("failed to open: session log %s: %w", path, err)
-	}
-	defer func() { _ = f.Close() }()
-
-	if _, err := f.Write(line); err != nil {
-		return fmt.Errorf("failed to write: session log %s: %w", path, err)
-	}
-	return nil
+	return s.inner.Append(Slug(sessionID)+".log", line)
 }
 
 // Slug reduces a session id to its filesystem-safe logfile stem; ids are UUID/hex in practice.

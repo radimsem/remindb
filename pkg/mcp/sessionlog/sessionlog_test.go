@@ -147,9 +147,9 @@ func TestSink_RotatesAtCap(t *testing.T) {
 	}
 }
 
-func TestSink_OversizedLineDoesNotInfiniteRotate(t *testing.T) {
+func TestSink_OversizedLineRotatesInsteadOfGrowing(t *testing.T) {
 	ws := t.TempDir()
-	sink, err := New(ws, 8)
+	sink, err := New(ws, 8) // cap smaller than a single record — the old footgun
 	if err != nil {
 		t.Fatalf("New: %v", err)
 	}
@@ -167,11 +167,12 @@ func TestSink_OversizedLineDoesNotInfiniteRotate(t *testing.T) {
 		t.Fatalf("active log missing: %v", err)
 	}
 
-	// Without the guard the active file would hold exactly one line; with it,
-	// successive oversized lines accumulate (rotation only fires once the
-	// file is non-empty and the next line would cross the cap).
-	if fi.Size() <= int64(len(line)) {
-		t.Errorf("active log = %d bytes, want > one line (infinite-rotation regression)", fi.Size())
+	// Fixed centrally in jsonlsink: a lone line larger than the cap no longer silently disables rotation.
+	if fi.Size() != int64(len(line)) {
+		t.Errorf("active log = %d bytes, want %d (one line; growth bounded)", fi.Size(), len(line))
+	}
+	if _, err := os.Stat(base + ".1"); err != nil {
+		t.Errorf("expected rotated .1 to exist: %v", err)
 	}
 }
 
