@@ -12,6 +12,7 @@ import (
 	"github.com/radimsem/remindb/pkg/emitter"
 	"github.com/radimsem/remindb/pkg/mcp/notify"
 	"github.com/radimsem/remindb/pkg/mcp/resources"
+	"github.com/radimsem/remindb/pkg/mcp/sessionlog"
 	"github.com/radimsem/remindb/pkg/parser"
 	"github.com/radimsem/remindb/pkg/query"
 	"github.com/radimsem/remindb/pkg/relations"
@@ -61,7 +62,7 @@ func (d *Deps) touchGraph() {
 	d.Notifier.Touch(resources.GraphURI)
 }
 
-func (d *Deps) logCall(name string, errp *error, start time.Time, attrs ...any) {
+func (d *Deps) logCall(ctx context.Context, name string, errp *error, start time.Time, attrs ...any) {
 	if d.Logger == nil {
 		return
 	}
@@ -71,10 +72,10 @@ func (d *Deps) logCall(name string, errp *error, start time.Time, attrs ...any) 
 
 	if *errp != nil {
 		fields = append(fields, "err", *errp)
-		d.Logger.Error("mcp call failed", fields...)
+		d.Logger.ErrorContext(ctx, sessionlog.MsgToolCallFailed, fields...)
 		return
 	}
-	d.Logger.Debug("mcp call", fields...)
+	d.Logger.DebugContext(ctx, sessionlog.MsgToolCall, fields...)
 }
 
 func (d *Deps) logRedaction(source string, hits []redaction.Hit) {
@@ -99,7 +100,7 @@ func (d *Deps) boostResultNodes(ctx context.Context, result *query.Result) {
 	}
 
 	if err := d.Tracker.RecordAccess(ctx, ids); err != nil && d.Logger != nil {
-		d.Logger.Warn("failed to boost: access", "err", err, "count", len(ids), "ids", ids)
+		d.Logger.WarnContext(ctx, "failed to boost: access", "err", err, "count", len(ids), "ids", ids)
 	}
 }
 

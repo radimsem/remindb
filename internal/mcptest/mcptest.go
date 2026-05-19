@@ -16,6 +16,7 @@ import (
 	"github.com/radimsem/remindb/pkg/logbuf"
 	remindb "github.com/radimsem/remindb/pkg/mcp"
 	"github.com/radimsem/remindb/pkg/mcp/rescanstat"
+	"github.com/radimsem/remindb/pkg/mcp/sessionlog"
 	"github.com/radimsem/remindb/pkg/store"
 	"github.com/radimsem/remindb/pkg/temperature"
 )
@@ -228,6 +229,56 @@ func NewEnvWithSessionLedger(t *testing.T) *Env {
 
 	dir := t.TempDir()
 	srv, err := remindb.NewServer(st, tracker, cfg, remindb.WithSourceDir(dir))
+	if err != nil {
+		t.Fatalf("NewServer: %v", err)
+	}
+
+	serverTransport, clientTransport := mcp.NewInMemoryTransports()
+	ctx := context.Background()
+
+	if _, err := srv.Connect(ctx, serverTransport); err != nil {
+		t.Fatalf("server connect: %v", err)
+	}
+
+	client := mcp.NewClient(&mcp.Implementation{Name: "claude-code", Version: "1.0.0"}, nil)
+	session, err := client.Connect(ctx, clientTransport, nil)
+	if err != nil {
+		t.Fatalf("client connect: %v", err)
+	}
+
+	t.Cleanup(func() { _ = session.Close() })
+
+	return &Env{Session: session, Store: st, WorkspaceDir: dir, srv: srv}
+}
+
+// NewEnvWithSessionLogs wires the production session-log chain: WithSourceDir
+// (so the registry middleware injects the session id) plus a logger whose
+// outermost handler is sessionlog.Handler over an Info-gated discard stream —
+// the same shape cmd/remindb/serve.go builds when session_files is enabled.
+func NewEnvWithSessionLogs(t *testing.T) *Env {
+	t.Helper()
+
+	st := testutil.OpenTestDB(t)
+	cfg := temperature.DefaultConfig()
+
+	dir := t.TempDir()
+	sink, err := sessionlog.New(dir, 1<<20)
+	if err != nil {
+		t.Fatalf("sessionlog.New: %v", err)
+	}
+
+	base := slog.NewTextHandler(io.Discard, &slog.HandlerOptions{Level: slog.LevelInfo})
+	logger := slog.New(sessionlog.NewHandler(base, sink))
+
+	tracker, err := temperature.NewTracker(st, "", cfg, logger)
+	if err != nil {
+		t.Fatalf("NewTracker: %v", err)
+	}
+
+	srv, err := remindb.NewServer(st, tracker, cfg,
+		remindb.WithLogger(logger),
+		remindb.WithSourceDir(dir),
+	)
 	if err != nil {
 		t.Fatalf("NewServer: %v", err)
 	}

@@ -12,6 +12,7 @@ import (
 	gomcp "github.com/modelcontextprotocol/go-sdk/mcp"
 	"github.com/radimsem/remindb/internal/contentid"
 	"github.com/radimsem/remindb/pkg/mcp/ledger"
+	"github.com/radimsem/remindb/pkg/mcp/sessionlog"
 )
 
 const (
@@ -76,13 +77,14 @@ func NewRegistry(srv *gomcp.Server, transport, listen string, l *ledger.Ledger, 
 func (r *Registry) Middleware(next gomcp.MethodHandler) gomcp.MethodHandler {
 	return func(ctx context.Context, method string, req gomcp.Request) (gomcp.Result, error) {
 		if ss, ok := req.GetSession().(*gomcp.ServerSession); ok {
-			r.observe(ss, method)
+			ctx = sessionlog.NewContext(ctx, r.observe(ss, method))
 		}
 		return next(ctx, method, req)
 	}
 }
 
-func (r *Registry) observe(ss *gomcp.ServerSession, method string) {
+// observe records connect/activity/tool-call signals and returns the canonical session id.
+func (r *Registry) observe(ss *gomcp.ServerSession, method string) string {
 	now := time.Now().Unix()
 
 	r.mu.Lock()
@@ -104,6 +106,8 @@ func (r *Registry) observe(ss *gomcp.ServerSession, method string) {
 	if method == methodCallTool {
 		m.toolCalls++
 	}
+
+	return m.id
 }
 
 // Snapshot returns one SessionInfo per live SDK session, pruning stale entries.

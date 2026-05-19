@@ -47,10 +47,16 @@ type ResourcesConfig struct {
 }
 
 type LoggingConfig struct {
-	Level      *string `json:"level,omitempty"`
-	Format     *string `json:"format,omitempty"`
-	OutputPath *string `json:"output_path,omitempty"`
-	BufferSize *int    `json:"buffer_size,omitempty"`
+	Level        *string            `json:"level,omitempty"`
+	Format       *string            `json:"format,omitempty"`
+	OutputPath   *string            `json:"output_path,omitempty"`
+	BufferSize   *int               `json:"buffer_size,omitempty"`
+	SessionFiles SessionFilesConfig `json:"session_files"`
+}
+
+type SessionFilesConfig struct {
+	Enabled     *bool     `json:"enabled,omitempty"`
+	MaxFileSize *ByteSize `json:"max_file_size,omitempty"`
 }
 
 type BudgetsConfig struct {
@@ -296,6 +302,10 @@ func (c Config) Validate() error {
 
 	if fi := sc.Sessions.FlushInterval; fi != nil && *fi <= 0 {
 		return errors.New("server.sessions.flush_interval must be positive")
+	}
+
+	if mfs := sc.Logging.SessionFiles.MaxFileSize; mfs != nil && *mfs <= 0 {
+		return errors.New("server.logging.session_files.max_file_size must be positive")
 	}
 
 	return nil

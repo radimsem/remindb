@@ -623,3 +623,41 @@ func TestValidate_ServerSessionsBlock(t *testing.T) {
 		t.Errorf("valid sessions block should pass, got %v", err)
 	}
 }
+
+func TestLoad_ServerSessionFilesBlock(t *testing.T) {
+	ws := t.TempDir()
+	writeConfig(t, ws, `{"server": {"logging": {"session_files": {"enabled": true, "max_file_size": "4MB"}}}}`)
+
+	cfg, err := Load(ws)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	sf := cfg.Server.Logging.SessionFiles
+	if sf.Enabled == nil || !*sf.Enabled {
+		t.Errorf("enabled = %v, want true", sf.Enabled)
+	}
+	if sf.MaxFileSize == nil || *sf.MaxFileSize != 4<<20 {
+		t.Errorf("max_file_size = %v, want 4MiB", sf.MaxFileSize)
+	}
+}
+
+func TestValidate_ServerSessionFilesBlock(t *testing.T) {
+	neg := ByteSize(-1)
+	zero := ByteSize(0)
+	ok := ByteSize(1 << 20)
+
+	for i, c := range []Config{
+		{Server: ServerConfig{Logging: LoggingConfig{SessionFiles: SessionFilesConfig{MaxFileSize: &neg}}}},
+		{Server: ServerConfig{Logging: LoggingConfig{SessionFiles: SessionFilesConfig{MaxFileSize: &zero}}}},
+	} {
+		if err := c.Validate(); err == nil {
+			t.Errorf("case %d: expected validation error, got nil", i)
+		}
+	}
+
+	good := Config{Server: ServerConfig{Logging: LoggingConfig{SessionFiles: SessionFilesConfig{MaxFileSize: &ok}}}}
+	if err := good.Validate(); err != nil {
+		t.Errorf("valid session_files block should pass, got %v", err)
+	}
+}

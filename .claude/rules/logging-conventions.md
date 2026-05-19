@@ -193,12 +193,14 @@ Tools in `pkg/mcp/tools/` use a deferred helper instead of two log calls (one be
 
 ```go
 func (d *Deps) HandleX(ctx ..., input XInput) (_ *gomcp.CallToolResult, _ any, err error) {
-    defer d.logCall("MemoryX", &err, time.Now(), "anchor", input.Anchor, "budget", input.Budget)
+    defer d.logCall(ctx, "MemoryX", &err, time.Now(), "anchor", input.Anchor, "budget", input.Budget)
     ...
 }
 ```
 
-This is the only sanctioned way to log MCP tool calls. `d.logCall` (in `pkg/mcp/tools/deps.go`) inspects the captured `err` and routes to `Debug` for success or `Error` for failure with the same structured fields. Don't add extra `Info` / `Debug` lines around tool bodies — they desync the trace and double the log volume.
+This is the only sanctioned way to log MCP tool calls. `d.logCall` (in `pkg/mcp/tools/deps.go`) inspects the captured `err` and routes to `DebugContext` for success or `ErrorContext` for failure with the same structured fields. `ctx` is **mandatory** — it carries the session id the registry middleware injected (`sessionlog.NewContext`), which the outermost `sessionlog.Handler` reads to tee the record into `.remindb/logs/<session-id>.log`. For the same reason, in-handler `Warn`/`Error` (e.g. boost failures) use the `*Context` variants (`WarnContext(ctx, …)`), not the bare ones, so they reach the right session file. Don't add extra `Info` / `Debug` lines around tool bodies — they desync the trace and double the log volume.
+
+The per-session sink inherits §4 unconditionally: it formats the *same* payload-free fields the shared handler does, so "never log the payload/body" already covers it — there is no separate session-log redaction step, and none is needed. The session file is opt-in (`server.logging.session_files.enabled`); disabled ⇒ the `sessionlog.Handler` is not in the chain at all and behavior is byte-identical to today.
 
 See `.claude/rules/mcp-tool-conventions.md` §9 for the full attr-selection rule.
 

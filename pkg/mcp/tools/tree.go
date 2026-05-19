@@ -17,7 +17,7 @@ type TreeInput struct {
 }
 
 func (d *Deps) HandleTree(ctx context.Context, _ *gomcp.CallToolRequest, input TreeInput) (_ *gomcp.CallToolResult, _ any, err error) {
-	defer d.logCall("MemoryTree", &err, time.Now(), "root", input.Root, "depth", input.Depth)
+	defer d.logCall(ctx, "MemoryTree", &err, time.Now(), "root", input.Root, "depth", input.Depth)
 
 	maxDepth := input.Depth
 	if maxDepth <= 0 {

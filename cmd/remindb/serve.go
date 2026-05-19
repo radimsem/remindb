@@ -14,6 +14,7 @@ import (
 	"github.com/radimsem/remindb/pkg/logbuf"
 	remindb "github.com/radimsem/remindb/pkg/mcp"
 	"github.com/radimsem/remindb/pkg/mcp/rescanstat"
+	"github.com/radimsem/remindb/pkg/mcp/sessionlog"
 	"github.com/radimsem/remindb/pkg/store"
 	"github.com/radimsem/remindb/pkg/temperature"
 	"github.com/radimsem/remindb/pkg/version"
@@ -29,7 +30,10 @@ var (
 	listen         string
 )
 
-const defaultLogBufferSize = 1000
+const (
+	defaultLogBufferSize         = 1000
+	defaultSessionLogMaxFileSize = 10 << 20 // 10 MiB
+)
 
 var serveCmd = &cobra.Command{
 	Use:   "serve",
@@ -84,6 +88,13 @@ func runServe(cmd *cobra.Command, _ []string) error {
 	}
 	if logFile != nil {
 		defer func() { _ = logFile.Close() }()
+	}
+
+	if sourceDir != "" {
+		logger, err = withSessionLogs(logger, sourceDir, workspaceCfg.Server.Logging.SessionFiles)
+		if err != nil {
+			return err
+		}
 	}
 
 	startCfg := temperature.DefaultConfig().WithOverrides(workspaceCfg.Temperature)
@@ -242,6 +253,25 @@ func newServeLogger(verbose bool, lg config.LoggingConfig) (*slog.Logger, *os.Fi
 	buf := logbuf.NewBuffer(size)
 
 	return slog.New(logbuf.NewHandler(h, buf)), file, buf, nil
+}
+
+// withSessionLogs wraps logger with the outermost per-session file handler when enabled; otherwise returns it unchanged.
+func withSessionLogs(logger *slog.Logger, workspace string, sl config.SessionFilesConfig) (*slog.Logger, error) {
+	if sl.Enabled == nil || !*sl.Enabled {
+		return logger, nil
+	}
+
+	maxFileSize := int64(defaultSessionLogMaxFileSize)
+	if sl.MaxFileSize != nil {
+		maxFileSize = int64(*sl.MaxFileSize)
+	}
+
+	sink, err := sessionlog.New(workspace, maxFileSize)
+	if err != nil {
+		return nil, err
+	}
+
+	return slog.New(sessionlog.NewHandler(logger.Handler(), sink)), nil
 }
 
 func parseLogLevel(s string) slog.Level {

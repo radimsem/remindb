@@ -17,7 +17,7 @@ type FetchInput struct {
 
 func (d *Deps) HandleFetch(ctx context.Context, _ *gomcp.CallToolRequest, input FetchInput) (_ *gomcp.CallToolResult, _ any, err error) {
 	budget := resolveBudget(input.Budget, d.WorkspaceConfig.Budgets.Fetch, 0)
-	defer d.logCall("MemoryFetch", &err, time.Now(), "anchor", input.Anchor, "budget", budget, "depth", input.Depth)
+	defer d.logCall(ctx, "MemoryFetch", &err, time.Now(), "anchor", input.Anchor, "budget", budget, "depth", input.Depth)
 
 	result, err := d.Engine.Fetch(ctx, input.Anchor, budget, input.Depth)
 	if err != nil {
