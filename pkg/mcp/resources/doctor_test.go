@@ -9,6 +9,7 @@ import (
 	"reflect"
 	"testing"
 
+	"github.com/radimsem/remindb/internal/testutil"
 	"github.com/radimsem/remindb/pkg/doctor"
 	"github.com/radimsem/remindb/pkg/store"
 )
@@ -60,7 +61,7 @@ func assertCLIParity(t *testing.T, st *store.Store, got map[string]any, wantStat
 }
 
 func TestHandleDoctor_PassParity(t *testing.T) {
-	st := openGraphStore(t)
+	st := testutil.OpenTestDB(t)
 	d := &Deps{Store: st}
 
 	got := readDoctor(t, d)
@@ -68,18 +69,7 @@ func TestHandleDoctor_PassParity(t *testing.T) {
 }
 
 func TestHandleDoctor_WarnParity(t *testing.T) {
-	dir := t.TempDir()
-	path := filepath.Join(dir, "doctor.db")
-
-	st, err := store.Open(path)
-	if err != nil {
-		t.Fatalf("Open: %v", err)
-	}
-
-	t.Cleanup(func() { _ = st.Close() })
-	if err := st.Migrate(context.Background()); err != nil {
-		t.Fatalf("Migrate: %v", err)
-	}
+	st, path := testutil.OpenTestDBFile(t)
 
 	// A snapshot whose compile_root no longer exists trips stale_compile_root → warn.
 	db, err := sql.Open("sqlite", path)
@@ -88,7 +78,7 @@ func TestHandleDoctor_WarnParity(t *testing.T) {
 	}
 
 	defer func() { _ = db.Close() }()
-	gone := filepath.Join(dir, "vanished")
+	gone := filepath.Join(filepath.Dir(path), "vanished")
 	if _, err := db.Exec(
 		`INSERT INTO snapshots (cursor_hash, parent_id, message, compile_root) VALUES ('h', NULL, 'm', ?)`,
 		gone,

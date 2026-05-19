@@ -3,6 +3,7 @@ package testutil
 import (
 	"context"
 	"fmt"
+	"path/filepath"
 	"strings"
 	"testing"
 
@@ -24,6 +25,24 @@ func OpenTestDB(t *testing.T) *store.Store {
 
 	t.Cleanup(func() { _ = st.Close() })
 	return st
+}
+
+// OpenTestDBFile is OpenTestDB on a file-backed store, returning the db path for reopen/stat tests.
+func OpenTestDBFile(t *testing.T) (*store.Store, string) {
+	t.Helper()
+	path := filepath.Join(t.TempDir(), "test.db")
+
+	st, err := store.Open(path)
+	if err != nil {
+		t.Fatalf("Open: %v", err)
+	}
+
+	if err := st.Migrate(context.Background()); err != nil {
+		t.Fatalf("Migrate: %v", err)
+	}
+
+	t.Cleanup(func() { _ = st.Close() })
+	return st, path
 }
 
 func LogTree(t *testing.T, st *store.Store) {

@@ -5,33 +5,14 @@ import (
 	"context"
 	"database/sql"
 	"encoding/json"
-	"path/filepath"
 	"strings"
 	"testing"
 
-	"github.com/radimsem/remindb/pkg/store"
+	"github.com/radimsem/remindb/internal/testutil"
 )
 
-func newCleanStore(t *testing.T) (*store.Store, string) {
-	t.Helper()
-
-	dir := t.TempDir()
-	path := filepath.Join(dir, "doctor.db")
-
-	st, err := store.Open(path)
-	if err != nil {
-		t.Fatalf("Open: %v", err)
-	}
-	t.Cleanup(func() { _ = st.Close() })
-
-	if err := st.Migrate(context.Background()); err != nil {
-		t.Fatalf("Migrate: %v", err)
-	}
-	return st, path
-}
-
 func TestRunCleanDB(t *testing.T) {
-	st, _ := newCleanStore(t)
+	st, _ := testutil.OpenTestDBFile(t)
 
 	report := Run(context.Background(), st)
 
@@ -66,7 +47,7 @@ func TestRunCleanDB(t *testing.T) {
 }
 
 func TestHealFixesBrokenFTS(t *testing.T) {
-	st, path := newCleanStore(t)
+	st, path := testutil.OpenTestDBFile(t)
 
 	insertSampleNodes(t, path)
 
@@ -99,7 +80,7 @@ func TestHealFixesBrokenFTS(t *testing.T) {
 }
 
 func TestHealIsIdempotent(t *testing.T) {
-	st, _ := newCleanStore(t)
+	st, _ := testutil.OpenTestDBFile(t)
 
 	first := Heal(context.Background(), st)
 	second := Heal(context.Background(), st)
@@ -116,7 +97,7 @@ func TestHealIsIdempotent(t *testing.T) {
 }
 
 func TestReportJSONShape(t *testing.T) {
-	st, _ := newCleanStore(t)
+	st, _ := testutil.OpenTestDBFile(t)
 
 	report := Run(context.Background(), st)
 
@@ -151,7 +132,7 @@ func TestReportJSONShape(t *testing.T) {
 }
 
 func TestReportTextShape(t *testing.T) {
-	st, _ := newCleanStore(t)
+	st, _ := testutil.OpenTestDBFile(t)
 
 	report := Run(context.Background(), st)
 
@@ -254,7 +235,7 @@ func TestWriteTextHeader(t *testing.T) {
 }
 
 func TestWriteTextHeaderHealsToHealthy(t *testing.T) {
-	st, path := newCleanStore(t)
+	st, path := testutil.OpenTestDBFile(t)
 
 	insertSampleNodes(t, path)
 	if err := breakFTSSync(path); err != nil {
