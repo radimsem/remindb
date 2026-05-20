@@ -16,7 +16,7 @@ Match the situation, run the sequence, heed the watch-out; the linked section ha
 | Save / remember something new | `remind` `MemorySearch` first → `MemoryWrite(payload)` | Updating an existing anchor beats a near-duplicate sibling. Structure the payload (headings + lists). | *MemoryWrite*; *Shape rules* |
 | Extend or edit an existing note | `MemoryFetch` → edit text → `MemoryWrite(anchor, payload)` | No append/patch — the whole payload replaces in place; `parent_id`/type/source preserved. | *Update an existing node* |
 | Compact a node from a cold-node warning | `MemoryFetch(anchor)` → `MemorySummarize(node_id, summary)` | Summarize *toward* structure, not a blob. Rebounds temperature to 0.5. | *Summarize a cold node* |
-| Re-sync after source files changed on disk | `MemoryCompile(path)` | Narrow the path — never the whole tree for one file. Honors `.remindb/ignore`. | *Recompile when the source drifts* |
+| Re-sync after source files changed on disk | `MemoryCompile(path)` | Narrow the path — never the whole tree for one file. Honors `.remindb/ignore` and `.remindb/pinned`. | *Recompile when the source drifts* |
 | Connect two existing notes (no `[[Label]]` in source) | `MemoryRelate(source_id, target_label, target_source)` | Snapshot-free. Prefer `target_label`+`target_source` over `target_id` (IDs rotate on sibling reorder). | *MemoryRelate* |
 | Remove a wrong / stale / never-belonged node | `MemoryForget(node_id, mode=strict\|cascade\|reparent)` | Mode picks what shape is left behind. Pinning does **not** protect from deletion. | *MemoryForget* |
 | Undo several recent bad writes at once | `MemoryRollback(snapshot_id[, drop_after])` | Blast radius = every snapshot since target. `drop_after=true` is irreversible. One bad node → `MemoryForget` instead. | *MemoryRollback* |
@@ -240,6 +240,8 @@ remindb__MemoryCompile(path="<file or subdir>", message="<optional snapshot note
 Use when disk changed outside the rescan loop (external edit, disabled watcher, fresh `git pull`). **Prefer narrow paths** — one file is milliseconds; the whole tree is slow and creates a large snapshot. `path` may be absolute or relative; the server re-anchors it to `REMINDB_SOURCE` so the form you pass doesn't fork duplicate nodes (paths outside the root, or with `REMINDB_SOURCE` unset, pass through).
 
 A `.remindb/ignore` at the source root is honored by compile + rescan — gitignore-style subset (literals, `*`/`?`/`[abc]`, trailing `/` dir-only, leading `/` root-anchor, `**` any-segment, `!` negation last-match-wins, `\` escape, `#` comments). Patterns subtract from the supported-extension allow-list; they can't re-include hardcoded skip dirs (`node_modules`, `vendor`, `target`, `dist`, `venv`) or dotfiles. Operators set this once — the agent doesn't author it.
+
+A sibling `.remindb/pinned` (same grammar) pre-seeds the `pinned` column on every node from a matched file at insert time — useful for files an operator wants permanently warm (`README.md`, `**/CONTEXT.md`, security policies). Composes with `.remindb/temperatures.json`: `pinned` says **whether**, `temperatures.json` says **at what temperature**. Existing nodes' pin column is never touched on recompile, so `MemoryPin`/`MemoryUnpin` choices survive. The CLI-only `--reseed-pinned` flag (which forces re-pinning of manually-unpinned nodes) is **not** exposed via `MemoryCompile` — by design, the agent can't reseed its own pin signal.
 
 ## Common traps
 
