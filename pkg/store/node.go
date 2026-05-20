@@ -59,6 +59,7 @@ type Node struct {
 	CreatedAt    int64
 	UpdatedAt    int64
 	Pinned       bool
+	SeedPinned   bool
 	SeedTemp     *float64
 }
 
@@ -198,9 +199,14 @@ func upsertArgs(n *Node) []any {
 		seedTemp = *n.SeedTemp
 	}
 
+	seedPinned := 0
+	if n.SeedPinned {
+		seedPinned = 1
+	}
+
 	return []any{
 		n.ID, parentIDParam(n.ParentID), n.SourceFile, n.NodeType, n.Depth,
-		n.Label, n.Content, n.Format, n.TokenCount, n.ContentHash, seedTemp,
+		n.Label, n.Content, n.Format, n.TokenCount, n.ContentHash, seedTemp, seedPinned,
 	}
 }
 

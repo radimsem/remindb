@@ -77,6 +77,64 @@ func TestUpsertNode_Update(t *testing.T) {
 	}
 }
 
+func TestUpsertNode_SeedPinned_InsertSetsPinned(t *testing.T) {
+	st := openTestDB(t)
+	ctx := context.Background()
+
+	n := testNode("aaaaaaaa", "")
+	n.SeedPinned = true
+	must(t, st.UpsertNode(ctx, n))
+
+	got, err := st.GetNode(ctx, "aaaaaaaa")
+	if err != nil {
+		t.Fatalf("GetNode: %v", err)
+	}
+
+	if !got.Pinned {
+		t.Error("Pinned = false, want true (SeedPinned applied on INSERT)")
+	}
+}
+
+func TestUpsertNode_SeedPinned_UpdateLeavesPinnedAlone(t *testing.T) {
+	st := openTestDB(t)
+	ctx := context.Background()
+
+	n := testNode("aaaaaaaa", "")
+	n.SeedPinned = true
+	must(t, st.UpsertNode(ctx, n))
+
+	n.SeedPinned = false
+	n.Content = "updated"
+	must(t, st.UpsertNode(ctx, n))
+
+	got, err := st.GetNode(ctx, "aaaaaaaa")
+	if err != nil {
+		t.Fatalf("GetNode: %v", err)
+	}
+
+	if !got.Pinned {
+		t.Error("Pinned = false, want true (UPDATE must not touch pinned column)")
+	}
+	if got.Content != "updated" {
+		t.Errorf("Content = %q, want %q (UPDATE applied content change)", got.Content, "updated")
+	}
+}
+
+func TestUpsertNode_NoSeedPinned_DefaultsToFalse(t *testing.T) {
+	st := openTestDB(t)
+	ctx := context.Background()
+
+	must(t, st.UpsertNode(ctx, testNode("aaaaaaaa", "")))
+
+	got, err := st.GetNode(ctx, "aaaaaaaa")
+	if err != nil {
+		t.Fatalf("GetNode: %v", err)
+	}
+	if got.Pinned {
+		t.Error("Pinned = true, want false (no SeedPinned set)")
+	}
+}
+
 func TestGetNodesByFile(t *testing.T) {
 	st := openTestDB(t)
 	ctx := context.Background()

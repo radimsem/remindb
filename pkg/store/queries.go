@@ -94,8 +94,8 @@ const (
 
 	qUpsertNode = `
 		INSERT INTO nodes (id, parent_id, source_file, node_type, depth,
-				label, content, format, token_count, content_hash, temperature)
-		VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, COALESCE(?11, 0.5))
+				label, content, format, token_count, content_hash, temperature, pinned)
+		VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, COALESCE(?11, 0.5), COALESCE(?12, 0))
 		ON CONFLICT(id) DO UPDATE SET
 			parent_id = excluded.parent_id,
 			source_file = excluded.source_file,

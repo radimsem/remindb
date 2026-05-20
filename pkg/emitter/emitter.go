@@ -156,5 +156,6 @@ func nodeFromContext(cn *parser.ContextNode) *store.Node {
 		TokenCount:  cn.TokenCount,
 		ContentHash: cn.ContentHash,
 		SeedTemp:    cn.Temperature,
+		SeedPinned:  cn.SeedPinned,
 	}
 }
