@@ -13,8 +13,8 @@ import (
 	"golang.org/x/sync/errgroup"
 
 	"github.com/radimsem/remindb/internal/fileext"
-	"github.com/radimsem/remindb/internal/ignore"
 	"github.com/radimsem/remindb/internal/loghelper"
+	"github.com/radimsem/remindb/internal/pathmatch"
 	"github.com/radimsem/remindb/internal/redaction"
 	"github.com/radimsem/remindb/internal/tempfile"
 	"github.com/radimsem/remindb/pkg/config"
@@ -41,7 +41,7 @@ type options struct {
 	compileRoot string
 	temps       map[string]*float64
 	logger      *slog.Logger
-	ignore      *ignore.Matcher
+	ignore      *pathmatch.Matcher
 	redactor    *redaction.Redactor
 	maxFileSize int64
 	maxParallel int
@@ -71,7 +71,7 @@ func WithLogger(l *slog.Logger) Option {
 	return func(o *options) { o.logger = l }
 }
 
-func WithIgnore(m *ignore.Matcher) Option {
+func WithIgnore(m *pathmatch.Matcher) Option {
 	return func(o *options) {
 		o.ignore = m
 		o.ignoreSet = true
@@ -261,9 +261,9 @@ func CompileDir(ctx context.Context, st *store.Store, dir, message string, opts 
 
 	matcher := o.ignore
 	if !o.ignoreSet {
-		m, err := ignore.Load(absDir)
+		m, err := pathmatch.LoadIgnore(absDir)
 		if err != nil {
-			return nil, fmt.Errorf("failed to load: %s: %w", ignore.Path, err)
+			return nil, fmt.Errorf("failed to load: %s: %w", pathmatch.IgnorePath, err)
 		}
 
 		matcher = m

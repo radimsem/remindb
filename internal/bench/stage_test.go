@@ -5,7 +5,7 @@ import (
 	"path/filepath"
 	"testing"
 
-	"github.com/radimsem/remindb/internal/ignore"
+	"github.com/radimsem/remindb/internal/pathmatch"
 	"github.com/radimsem/remindb/pkg/config"
 )
 
@@ -28,11 +28,11 @@ func TestCopySourceTree_RespectsIgnore(t *testing.T) {
 	writeFile(t, src, "kept.md", "# Kept\n")
 	writeFile(t, src, "session.jsonl", `{"event":"chat"}`)
 	writeFile(t, src, "sessions/log.json", `{"id":1}`)
-	writeFile(t, src, ignore.Path, "*.jsonl\nsessions/\n")
+	writeFile(t, src, pathmatch.IgnorePath, "*.jsonl\nsessions/\n")
 
-	matcher, err := ignore.Load(src)
+	matcher, err := pathmatch.LoadIgnore(src)
 	if err != nil {
-		t.Fatalf("ignore.Load: %v", err)
+		t.Fatalf("pathmatch.LoadIgnore: %v", err)
 	}
 
 	if err := copySourceTree(src, dst, matcher); err != nil {

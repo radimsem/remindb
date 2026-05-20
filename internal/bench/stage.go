@@ -8,7 +8,7 @@ import (
 	"path/filepath"
 
 	"github.com/radimsem/remindb/internal/fileext"
-	"github.com/radimsem/remindb/internal/ignore"
+	"github.com/radimsem/remindb/internal/pathmatch"
 	"github.com/radimsem/remindb/pkg/compiler"
 	"github.com/radimsem/remindb/pkg/config"
 	"github.com/radimsem/remindb/pkg/store"
@@ -34,9 +34,9 @@ func stageBench(ctx context.Context, sourceDir string) (*benchStage, error) {
 		return nil, fmt.Errorf("failed to resolve: %s: %w", sourceDir, err)
 	}
 
-	matcher, err := ignore.Load(userDir)
+	matcher, err := pathmatch.LoadIgnore(userDir)
 	if err != nil {
-		return nil, fmt.Errorf("failed to load: %s: %w", ignore.Path, err)
+		return nil, fmt.Errorf("failed to load: %s: %w", pathmatch.IgnorePath, err)
 	}
 
 	tmpRoot, err := os.MkdirTemp("", "remindb-bench-*")
@@ -97,7 +97,7 @@ func copyFile(src, dst string) error {
 }
 
 // Mirror every parsable file from source dir into dst.
-func copySourceTree(src, dst string, matcher *ignore.Matcher) error {
+func copySourceTree(src, dst string, matcher *pathmatch.Matcher) error {
 	return filepath.WalkDir(src, func(path string, d os.DirEntry, err error) error {
 		if err != nil {
 			return err

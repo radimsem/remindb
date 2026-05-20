@@ -15,8 +15,8 @@ import (
 
 	"github.com/radimsem/remindb/internal/contentid"
 	"github.com/radimsem/remindb/internal/fileext"
-	"github.com/radimsem/remindb/internal/ignore"
 	"github.com/radimsem/remindb/internal/loghelper"
+	"github.com/radimsem/remindb/internal/pathmatch"
 	"github.com/radimsem/remindb/pkg/compiler"
 	"github.com/radimsem/remindb/pkg/config"
 	"github.com/radimsem/remindb/pkg/diff"
@@ -69,7 +69,7 @@ type Loop struct {
 	walkFn            func(root string, fn fs.WalkDirFunc) error
 	modTimes          map[string]time.Time
 	logger            *slog.Logger
-	ignore            *ignore.Matcher
+	ignore            *pathmatch.Matcher
 	compileOpts       []compiler.Option
 	status            *rescanstat.Status
 	rescanLog         *rescanlog.Sink
@@ -101,9 +101,9 @@ func New(st *store.Store, dir string, interval time.Duration, opts ...Option) (*
 		status = rescanstat.New()
 	}
 
-	matcher, err := ignore.Load(dir)
+	matcher, err := pathmatch.LoadIgnore(dir)
 	if err != nil {
-		return nil, fmt.Errorf("failed to load: %s: %w", ignore.Path, err)
+		return nil, fmt.Errorf("failed to load: %s: %w", pathmatch.IgnorePath, err)
 	}
 
 	return &Loop{

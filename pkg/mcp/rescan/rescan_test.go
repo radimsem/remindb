@@ -14,7 +14,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/radimsem/remindb/internal/ignore"
+	"github.com/radimsem/remindb/internal/pathmatch"
 	"github.com/radimsem/remindb/internal/testutil"
 	"github.com/radimsem/remindb/pkg/compiler"
 	"github.com/radimsem/remindb/pkg/config"
@@ -531,7 +531,7 @@ func TestRescanLoop_RespectsIgnore(t *testing.T) {
 	dir := t.TempDir()
 	writeFile(t, dir, "kept.md", "# Kept\n")
 	writeFile(t, dir, "session.jsonl", `{"event":"chat"}`)
-	writeFile(t, dir, ignore.Path, "*.jsonl\n")
+	writeFile(t, dir, pathmatch.IgnorePath, "*.jsonl\n")
 
 	st := testutil.OpenTestDB(t)
 	r := mustRescan(t, st, dir, time.Minute, nil)
@@ -551,15 +551,15 @@ func TestRescanLoop_RespectsIgnore(t *testing.T) {
 
 func TestNewRescanLoop_FailsOnMalformedIgnore(t *testing.T) {
 	dir := t.TempDir()
-	writeFile(t, dir, ignore.Path, "a//b\n")
+	writeFile(t, dir, pathmatch.IgnorePath, "a//b\n")
 
 	st := testutil.OpenTestDB(t)
 	_, err := New(st, dir, time.Minute)
 	if err == nil {
 		t.Fatal("expected error for malformed ignore file")
 	}
-	if !strings.Contains(err.Error(), ignore.Path) {
-		t.Errorf("error should mention %s, got: %v", ignore.Path, err)
+	if !strings.Contains(err.Error(), pathmatch.IgnorePath) {
+		t.Errorf("error should mention %s, got: %v", pathmatch.IgnorePath, err)
 	}
 }
 

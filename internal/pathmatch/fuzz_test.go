@@ -1,4 +1,4 @@
-package ignore
+package pathmatch
 
 import "testing"
 

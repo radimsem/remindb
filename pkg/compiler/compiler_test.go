@@ -12,7 +12,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/radimsem/remindb/internal/ignore"
+	"github.com/radimsem/remindb/internal/pathmatch"
 	"github.com/radimsem/remindb/internal/tempfile"
 	"github.com/radimsem/remindb/internal/testutil"
 	"github.com/radimsem/remindb/pkg/config"
@@ -49,7 +49,7 @@ func writeIgnoreFile(t *testing.T, dir, content string) {
 		t.Fatal(err)
 	}
 
-	if err := os.WriteFile(filepath.Join(stateDir, ignore.FileName), []byte(content), 0o644); err != nil {
+	if err := os.WriteFile(filepath.Join(stateDir, pathmatch.IgnoreFileName), []byte(content), 0o644); err != nil {
 		t.Fatal(err)
 	}
 }
@@ -439,8 +439,8 @@ func TestCompileDir_MalformedIgnore(t *testing.T) {
 	if err == nil {
 		t.Fatal("expected error for malformed ignore file")
 	}
-	if !strings.Contains(err.Error(), ignore.Path) {
-		t.Errorf("error should mention %s, got: %v", ignore.Path, err)
+	if !strings.Contains(err.Error(), pathmatch.IgnorePath) {
+		t.Errorf("error should mention %s, got: %v", pathmatch.IgnorePath, err)
 	}
 }
 
