@@ -13,6 +13,7 @@ import (
 
 	gomcp "github.com/modelcontextprotocol/go-sdk/mcp"
 	"github.com/radimsem/remindb/internal/mcptest"
+	"github.com/radimsem/remindb/internal/pathmatch"
 	"github.com/radimsem/remindb/internal/testutil"
 	"github.com/radimsem/remindb/pkg/config"
 	remindb "github.com/radimsem/remindb/pkg/mcp"
@@ -2473,5 +2474,56 @@ func TestMcp_SessionLogsResource(t *testing.T) {
 	// 3. An unknown session id is a clean error, never a panic.
 	if _, err := env.Session.ReadResource(ctx, &gomcp.ReadResourceParams{URI: "remindb://sessions/logs/does-not-exist"}); err == nil {
 		t.Error("reading an unknown session id should error")
+	}
+}
+
+func TestMcp_MemoryCompile_HonorsPinnedSidecar(t *testing.T) {
+	env := mcptest.NewEnv(t)
+
+	dir := t.TempDir()
+	if err := os.MkdirAll(filepath.Join(dir, config.DirName), 0o755); err != nil {
+		t.Fatal(err)
+	}
+
+	if err := os.WriteFile(filepath.Join(dir, config.DirName, pathmatch.PinnedFileName), []byte("doc.md\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, "doc.md"), []byte("# Doc\n\nBody.\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, "loose.md"), []byte("# Loose\n\nBody.\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	env.CallTool(t, "MemoryCompile", map[string]any{
+		"path":    dir,
+		"message": "mcp-pinned",
+	})
+
+	ctx := context.Background()
+
+	doc, err := env.Store.GetNodesByFile(ctx, "doc.md")
+	if err != nil {
+		t.Fatalf("GetNodesByFile doc.md: %v", err)
+	}
+
+	if len(doc) == 0 {
+		t.Fatal("no nodes for doc.md after MemoryCompile")
+	}
+	for i, n := range doc {
+		if !n.Pinned {
+			t.Errorf("doc.md node[%d].Pinned = false, want true (matched .remindb/pinned)", i)
+		}
+	}
+
+	loose, err := env.Store.GetNodesByFile(ctx, "loose.md")
+	if err != nil {
+		t.Fatalf("GetNodesByFile loose.md: %v", err)
+	}
+
+	for i, n := range loose {
+		if n.Pinned {
+			t.Errorf("loose.md node[%d].Pinned = true, want false (not matched)", i)
+		}
 	}
 }
