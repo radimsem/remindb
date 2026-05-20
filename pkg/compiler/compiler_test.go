@@ -54,6 +54,19 @@ func writeIgnoreFile(t *testing.T, dir, content string) {
 	}
 }
 
+func writePinnedFile(t *testing.T, dir, content string) {
+	t.Helper()
+
+	stateDir := filepath.Join(dir, config.DirName)
+	if err := os.MkdirAll(stateDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+
+	if err := os.WriteFile(filepath.Join(stateDir, pathmatch.PinnedFileName), []byte(content), 0o644); err != nil {
+		t.Fatal(err)
+	}
+}
+
 func TestCompile(t *testing.T) {
 	st := testutil.OpenTestDB(t)
 	ctx := context.Background()
@@ -65,6 +78,7 @@ func TestCompile(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Compile: %v", err)
 	}
+
 	if result.Added == 0 {
 		t.Error("expected nodes added")
 	}
@@ -680,6 +694,42 @@ func assertAllTempsEqual(t *testing.T, got []float64, want float64) {
 	}
 }
 
+func nodePinned(t *testing.T, ctx context.Context, st *store.Store, sourceFile string) []bool {
+	t.Helper()
+
+	nodes, err := st.GetNodesByFile(ctx, sourceFile)
+	if err != nil {
+		t.Fatalf("GetNodesByFile %s: %v", sourceFile, err)
+	}
+	if len(nodes) == 0 {
+		t.Fatalf("no nodes for %s", sourceFile)
+	}
+
+	out := make([]bool, len(nodes))
+	for i, n := range nodes {
+		out[i] = n.Pinned
+	}
+	return out
+}
+
+func setNodePinned(t *testing.T, ctx context.Context, st *store.Store, id string, pinned bool) {
+	t.Helper()
+
+	if err := st.SetPinned(ctx, id, pinned, nil); err != nil {
+		t.Fatalf("SetPinned %s: %v", id, err)
+	}
+}
+
+func assertAllPinned(t *testing.T, got []bool, want bool) {
+	t.Helper()
+
+	for i, g := range got {
+		if g != want {
+			t.Errorf("node[%d].Pinned = %v, want %v", i, g, want)
+		}
+	}
+}
+
 func TestCompileDir_ReseedTemperatures_OverridesUnchanged(t *testing.T) {
 	st := testutil.OpenTestDB(t)
 	ctx := context.Background()
@@ -800,6 +850,244 @@ func TestCompileDir_ReseedTemperatures_NoNewSnapshot(t *testing.T) {
 		t.Errorf("SnapshotCount delta = %d, want 0 (reseed-only run must not emit)", got)
 	}
 	assertAllTempsEqual(t, nodeTemps(t, ctx, st, "doc.md"), 0.9)
+}
+
+func TestCompileDir_PinnedSidecar_SetsOnInsert(t *testing.T) {
+	st := testutil.OpenTestDB(t)
+	ctx := context.Background()
+	dir := t.TempDir()
+
+	writePinnedFile(t, dir, "doc.md\n")
+	writeFile(t, dir, "doc.md", "# Hi\n\nBody one.\n\nBody two.\n")
+
+	if _, err := CompileDir(ctx, st, dir, "v1"); err != nil {
+		t.Fatalf("CompileDir: %v", err)
+	}
+
+	assertAllPinned(t, nodePinned(t, ctx, st, "doc.md"), true)
+}
+
+func TestCompileDir_PinnedSidecar_NoSidecar_AllUnpinned(t *testing.T) {
+	st := testutil.OpenTestDB(t)
+	ctx := context.Background()
+	dir := t.TempDir()
+
+	writeFile(t, dir, "doc.md", "# Hi\n\nBody.\n")
+
+	if _, err := CompileDir(ctx, st, dir, "v1"); err != nil {
+		t.Fatalf("CompileDir: %v", err)
+	}
+
+	assertAllPinned(t, nodePinned(t, ctx, st, "doc.md"), false)
+}
+
+func TestCompileDir_PinnedSidecar_NonMatchingFileNotPinned(t *testing.T) {
+	st := testutil.OpenTestDB(t)
+	ctx := context.Background()
+	dir := t.TempDir()
+
+	writePinnedFile(t, dir, "doc.md\n")
+	writeFile(t, dir, "doc.md", "# A\n\nAlpha.\n")
+	writeFile(t, dir, "other.md", "# B\n\nBeta.\n")
+
+	if _, err := CompileDir(ctx, st, dir, "v1"); err != nil {
+		t.Fatalf("CompileDir: %v", err)
+	}
+
+	assertAllPinned(t, nodePinned(t, ctx, st, "doc.md"), true)
+	assertAllPinned(t, nodePinned(t, ctx, st, "other.md"), false)
+}
+
+func TestCompileDir_PinnedSidecar_PreservesUnpinAcrossRecompile(t *testing.T) {
+	st := testutil.OpenTestDB(t)
+	ctx := context.Background()
+	dir := t.TempDir()
+
+	writePinnedFile(t, dir, "doc.md\n")
+	writeFile(t, dir, "doc.md", "# Hi\n\nBody one.\n\nBody two.\n")
+
+	if _, err := CompileDir(ctx, st, dir, "v1"); err != nil {
+		t.Fatalf("CompileDir v1: %v", err)
+	}
+
+	nodes, err := st.GetNodesByFile(ctx, "doc.md")
+	if err != nil {
+		t.Fatalf("GetNodesByFile: %v", err)
+	}
+
+	if len(nodes) < 2 {
+		t.Fatalf("want >=2 nodes, got %d", len(nodes))
+	}
+	setNodePinned(t, ctx, st, nodes[0].ID, false)
+
+	if _, err := CompileDir(ctx, st, dir, "v2"); err != nil {
+		t.Fatalf("CompileDir v2: %v", err)
+	}
+
+	got, err := st.GetNode(ctx, nodes[0].ID)
+	if err != nil {
+		t.Fatalf("GetNode: %v", err)
+	}
+	if got.Pinned {
+		t.Error("manually-unpinned node was re-pinned on recompile (default flow must preserve MemoryUnpin)")
+	}
+}
+
+func TestCompileDir_PinnedSidecar_NegationExcludes(t *testing.T) {
+	st := testutil.OpenTestDB(t)
+	ctx := context.Background()
+	dir := t.TempDir()
+
+	writePinnedFile(t, dir, "*.md\n!skip.md\n")
+	writeFile(t, dir, "doc.md", "# Hi\n\nBody.\n")
+	writeFile(t, dir, "skip.md", "# Skip\n\nBody.\n")
+
+	if _, err := CompileDir(ctx, st, dir, "v1"); err != nil {
+		t.Fatalf("CompileDir: %v", err)
+	}
+
+	assertAllPinned(t, nodePinned(t, ctx, st, "doc.md"), true)
+	assertAllPinned(t, nodePinned(t, ctx, st, "skip.md"), false)
+}
+
+func TestCompileDir_ReseedPinned_OverridesUnpinned(t *testing.T) {
+	st := testutil.OpenTestDB(t)
+	ctx := context.Background()
+	dir := t.TempDir()
+
+	writePinnedFile(t, dir, "doc.md\n")
+	writeFile(t, dir, "doc.md", "# Hi\n\nBody one.\n\nBody two.\n")
+
+	if _, err := CompileDir(ctx, st, dir, "v1"); err != nil {
+		t.Fatalf("CompileDir v1: %v", err)
+	}
+
+	nodes, err := st.GetNodesByFile(ctx, "doc.md")
+	if err != nil {
+		t.Fatalf("GetNodesByFile: %v", err)
+	}
+	for _, n := range nodes {
+		setNodePinned(t, ctx, st, n.ID, false)
+	}
+
+	if _, err := CompileDir(ctx, st, dir, "v2", WithReseedPinned()); err != nil {
+		t.Fatalf("CompileDir v2: %v", err)
+	}
+
+	assertAllPinned(t, nodePinned(t, ctx, st, "doc.md"), true)
+}
+
+func TestCompileDir_ReseedPinned_NoNewSnapshot(t *testing.T) {
+	st := testutil.OpenTestDB(t)
+	ctx := context.Background()
+	dir := t.TempDir()
+
+	writePinnedFile(t, dir, "doc.md\n")
+	writeFile(t, dir, "doc.md", "# Hi\n\nBody.\n")
+
+	if _, err := CompileDir(ctx, st, dir, "v1"); err != nil {
+		t.Fatalf("CompileDir v1: %v", err)
+	}
+
+	nodes, err := st.GetNodesByFile(ctx, "doc.md")
+	if err != nil {
+		t.Fatalf("GetNodesByFile: %v", err)
+	}
+	for _, n := range nodes {
+		setNodePinned(t, ctx, st, n.ID, false)
+	}
+
+	before, err := st.GetStats(ctx)
+	if err != nil {
+		t.Fatalf("GetStats before: %v", err)
+	}
+
+	if _, err := CompileDir(ctx, st, dir, "v2", WithReseedPinned()); err != nil {
+		t.Fatalf("CompileDir v2: %v", err)
+	}
+
+	after, err := st.GetStats(ctx)
+	if err != nil {
+		t.Fatalf("GetStats after: %v", err)
+	}
+
+	if got := after.SnapshotCount - before.SnapshotCount; got != 0 {
+		t.Errorf("SnapshotCount delta = %d, want 0 (reseed-pinned must not emit)", got)
+	}
+	assertAllPinned(t, nodePinned(t, ctx, st, "doc.md"), true)
+}
+
+func TestCompileDir_ReseedBoth_AppliesPinAndTempPerNode(t *testing.T) {
+	st := testutil.OpenTestDB(t)
+	ctx := context.Background()
+	dir := t.TempDir()
+
+	writePinnedFile(t, dir, "doc.md\n")
+	writeTempfile(t, dir, `{"doc.md": 0.9}`)
+	writeFile(t, dir, "doc.md", "# Hi\n\nBody.\n")
+
+	if _, err := CompileDir(ctx, st, dir, "v1"); err != nil {
+		t.Fatalf("CompileDir v1: %v", err)
+	}
+
+	nodes, err := st.GetNodesByFile(ctx, "doc.md")
+	if err != nil {
+		t.Fatalf("GetNodesByFile: %v", err)
+	}
+
+	for _, n := range nodes {
+		setNodePinned(t, ctx, st, n.ID, false)
+	}
+	setAllTemps(t, ctx, st, "doc.md", 0.3)
+	writeTempfile(t, dir, `{"doc.md": 0.1}`)
+
+	if _, err := CompileDir(ctx, st, dir, "v2", WithReseedPinned(), WithReseedTemperatures()); err != nil {
+		t.Fatalf("CompileDir v2: %v", err)
+	}
+
+	got, err := st.GetNodesByFile(ctx, "doc.md")
+	if err != nil {
+		t.Fatalf("GetNodesByFile after: %v", err)
+	}
+
+	for i, n := range got {
+		if !n.Pinned {
+			t.Errorf("node[%d].Pinned = false, want true (combined reseed)", i)
+		}
+
+		if n.Temperature != 0.1 {
+			t.Errorf("node[%d].Temperature = %g, want 0.1 (combined reseed)", i, n.Temperature)
+		}
+	}
+}
+
+func TestCompileFile_PinnedSidecar_HonorsFromFileParent(t *testing.T) {
+	st := testutil.OpenTestDB(t)
+	ctx := context.Background()
+	dir := t.TempDir()
+
+	writePinnedFile(t, dir, "doc.md\n")
+	docPath := writeFile(t, dir, "doc.md", "# Hi\n\nBody.\n")
+
+	if _, err := CompileFile(ctx, st, docPath, "v1"); err != nil {
+		t.Fatalf("CompileFile: %v", err)
+	}
+
+	assertAllPinned(t, nodePinned(t, ctx, st, "doc.md"), true)
+}
+
+func TestCompileFile_PinnedSidecar_NoSidecar_Unpinned(t *testing.T) {
+	st := testutil.OpenTestDB(t)
+	ctx := context.Background()
+	dir := t.TempDir()
+
+	docPath := writeFile(t, dir, "doc.md", "# Hi\n\nBody.\n")
+
+	if _, err := CompileFile(ctx, st, docPath, "v1"); err != nil {
+		t.Fatalf("CompileFile: %v", err)
+	}
+
+	assertAllPinned(t, nodePinned(t, ctx, st, "doc.md"), false)
 }
 
 func TestCompile_WikilinkResolvesCrossFile(t *testing.T) {

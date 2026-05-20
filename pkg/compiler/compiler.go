@@ -2,6 +2,7 @@ package compiler
 
 import (
 	"context"
+	"database/sql"
 	"errors"
 	"fmt"
 	"log/slog"
@@ -40,15 +41,19 @@ type options struct {
 	message     string
 	compileRoot string
 	temps       map[string]*float64
+	pins        map[string]bool
 	logger      *slog.Logger
 	ignore      *pathmatch.Matcher
+	pinned      *pathmatch.Matcher
 	redactor    *redaction.Redactor
 	maxFileSize int64
 	maxParallel int
 	timeout     time.Duration
 	ignoreSet   bool
+	pinnedSet   bool
 	fullRescan  bool
 	reseedTemps bool
+	reseedPins  bool
 }
 
 func WithPaths(p []string) Option {
@@ -67,6 +72,10 @@ func WithTemps(t map[string]*float64) Option {
 	return func(o *options) { o.temps = t }
 }
 
+func WithPins(p map[string]bool) Option {
+	return func(o *options) { o.pins = p }
+}
+
 func WithLogger(l *slog.Logger) Option {
 	return func(o *options) { o.logger = l }
 }
@@ -78,12 +87,23 @@ func WithIgnore(m *pathmatch.Matcher) Option {
 	}
 }
 
+func WithPinned(m *pathmatch.Matcher) Option {
+	return func(o *options) {
+		o.pinned = m
+		o.pinnedSet = true
+	}
+}
+
 func WithFullRescan() Option {
 	return func(o *options) { o.fullRescan = true }
 }
 
 func WithReseedTemperatures() Option {
 	return func(o *options) { o.reseedTemps = true }
+}
+
+func WithReseedPinned() Option {
+	return func(o *options) { o.reseedPins = true }
 }
 
 func WithRedactor(r *redaction.Redactor) Option {
@@ -182,6 +202,9 @@ func Compile(ctx context.Context, st *store.Store, opts ...Option) (*Result, err
 			if t := o.temps[p]; t != nil {
 				seedTemp(nodes, t)
 			}
+			if o.pins[p] {
+				seedPin(nodes)
+			}
 
 			results[i] = nodes
 			return nil
@@ -244,6 +267,13 @@ func seedTemp(nodes []*parser.ContextNode, t *float64) {
 	}
 }
 
+func seedPin(nodes []*parser.ContextNode) {
+	for _, n := range nodes {
+		n.SeedPinned = true
+		seedPin(n.Children)
+	}
+}
+
 func CompileDir(ctx context.Context, st *store.Store, dir, message string, opts ...Option) (*Result, error) {
 	var o options
 	for _, opt := range opts {
@@ -267,6 +297,16 @@ func CompileDir(ctx context.Context, st *store.Store, dir, message string, opts 
 		}
 
 		matcher = m
+	}
+
+	pinMatcher := o.pinned
+	if !o.pinnedSet {
+		m, err := pathmatch.LoadPinned(absDir)
+		if err != nil {
+			return nil, fmt.Errorf("failed to load: %s: %w", pathmatch.PinnedPath, err)
+		}
+
+		pinMatcher = m
 	}
 
 	var paths []string
@@ -313,12 +353,15 @@ func CompileDir(ctx context.Context, st *store.Store, dir, message string, opts 
 		return nil, err
 	}
 
+	pins := resolvePins(absDir, paths, pinMatcher)
+
 	all := append([]Option{}, opts...)
 	all = append(all,
 		WithPaths(paths),
 		WithMessage(message),
 		WithCompileRoot(absDir),
 		WithTemps(temps),
+		WithPins(pins),
 		WithFullRescan(),
 	)
 
@@ -327,16 +370,83 @@ func CompileDir(ctx context.Context, st *store.Store, dir, message string, opts 
 		return nil, err
 	}
 
-	if o.reseedTemps && len(temps) > 0 {
-		if err := reseedTemperatures(ctx, st, absDir, temps); err != nil {
-			return nil, fmt.Errorf("failed to reseed temperatures: %w", err)
-		}
+	if err := reseed(ctx, st, absDir, temps, pins, o.reseedTemps, o.reseedPins); err != nil {
+		return nil, err
 	}
 	return result, nil
 }
 
-// Bypasses the emitter so the temperature update does not create a new snapshot.
+// Apply reseed flags without emitting a snapshot; combined flags share one Tx.
+func reseed(ctx context.Context, st *store.Store, compileRoot string, temps map[string]*float64, pins map[string]bool, reseedTemps, reseedPins bool) error {
+	wantTemps := reseedTemps && len(temps) > 0
+	wantPins := reseedPins && len(pins) > 0
+
+	switch {
+	case wantTemps && wantPins:
+		return reseedBothTx(ctx, st, compileRoot, temps, pins)
+	case wantTemps:
+		return reseedTemperatures(ctx, st, compileRoot, temps)
+	case wantPins:
+		return reseedPinned(ctx, st, compileRoot, pins)
+	}
+	return nil
+}
+
 func reseedTemperatures(ctx context.Context, st *store.Store, compileRoot string, temps map[string]*float64) error {
+	byTemp, err := groupByTemp(compileRoot, temps)
+	if err != nil {
+		return err
+	}
+
+	for temp, paths := range byTemp {
+		if err := st.ResetTemperaturesByFiles(ctx, paths, temp); err != nil {
+			return fmt.Errorf("failed to reseed temperatures: %w", err)
+		}
+	}
+	return nil
+}
+
+func reseedPinned(ctx context.Context, st *store.Store, compileRoot string, pins map[string]bool) error {
+	paths, err := pinPathsRel(compileRoot, pins)
+	if err != nil {
+		return err
+	}
+
+	if err := st.ResetPinnedByFiles(ctx, paths); err != nil {
+		return fmt.Errorf("failed to reseed pinned: %w", err)
+	}
+	return nil
+}
+
+func reseedBothTx(ctx context.Context, st *store.Store, compileRoot string, temps map[string]*float64, pins map[string]bool) error {
+	byTemp, err := groupByTemp(compileRoot, temps)
+	if err != nil {
+		return err
+	}
+
+	pinPaths, err := pinPathsRel(compileRoot, pins)
+	if err != nil {
+		return err
+	}
+
+	err = st.Tx(ctx, func(tx *sql.Tx) error {
+		if err := st.ResetPinnedByFilesTx(ctx, tx, pinPaths); err != nil {
+			return err
+		}
+		for temp, paths := range byTemp {
+			if err := st.ResetTemperaturesByFilesTx(ctx, tx, paths, temp); err != nil {
+				return err
+			}
+		}
+		return nil
+	})
+	if err != nil {
+		return fmt.Errorf("failed to reseed pinned + temperatures: %w", err)
+	}
+	return nil
+}
+
+func groupByTemp(compileRoot string, temps map[string]*float64) (map[float64][]string, error) {
 	byTemp := make(map[float64][]string, len(temps))
 
 	for path, t := range temps {
@@ -346,17 +456,26 @@ func reseedTemperatures(ctx context.Context, st *store.Store, compileRoot string
 
 		rel, err := filepath.Rel(compileRoot, path)
 		if err != nil {
-			return fmt.Errorf("failed to resolve: relative path for %s: %w", path, err)
+			return nil, fmt.Errorf("failed to resolve: relative path for %s: %w", path, err)
 		}
+
 		byTemp[*t] = append(byTemp[*t], rel)
 	}
 
-	for temp, paths := range byTemp {
-		if err := st.ResetTemperaturesByFiles(ctx, paths, temp); err != nil {
-			return err
+	return byTemp, nil
+}
+
+func pinPathsRel(compileRoot string, pins map[string]bool) ([]string, error) {
+	out := make([]string, 0, len(pins))
+
+	for path := range pins {
+		rel, err := filepath.Rel(compileRoot, path)
+		if err != nil {
+			return nil, fmt.Errorf("failed to resolve: relative path for %s: %w", path, err)
 		}
+		out = append(out, rel)
 	}
-	return nil
+	return out, nil
 }
 
 // Compile a single file; compile root anchors at the file's parent directory.
@@ -370,13 +489,52 @@ func CompileFile(ctx context.Context, st *store.Store, path, message string, opt
 		return nil, fmt.Errorf("%w: %q", parser.ErrUnsupportedExt, filepath.Ext(path))
 	}
 
+	fileDir := filepath.Dir(absPath)
+
+	var o options
+	for _, opt := range opts {
+		opt(&o)
+	}
+
+	pinMatcher := o.pinned
+	if !o.pinnedSet {
+		m, err := pathmatch.LoadPinned(fileDir)
+		if err != nil {
+			return nil, fmt.Errorf("failed to load: %s: %w", pathmatch.PinnedPath, err)
+		}
+
+		pinMatcher = m
+	}
+
+	pins := resolvePins(fileDir, []string{absPath}, pinMatcher)
+
 	all := append([]Option{}, opts...)
 	all = append(all,
 		WithPaths([]string{path}),
 		WithMessage(message),
-		WithCompileRoot(filepath.Dir(absPath)),
+		WithCompileRoot(fileDir),
+		WithPins(pins),
 	)
 	return Compile(ctx, st, all...)
+}
+
+func resolvePins(dir string, paths []string, m *pathmatch.Matcher) map[string]bool {
+	if m == nil {
+		return nil
+	}
+
+	pins := make(map[string]bool, len(paths))
+	for _, p := range paths {
+		rel, err := filepath.Rel(dir, p)
+		if err != nil {
+			continue
+		}
+
+		if m.Match(filepath.ToSlash(rel), false) {
+			pins[p] = true
+		}
+	}
+	return pins
 }
 
 func resolveTemps(dir string, paths []string) (map[string]*float64, error) {
