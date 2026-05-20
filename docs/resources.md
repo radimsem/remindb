@@ -52,11 +52,39 @@ Static resources answer "what is the state of the whole database". The templated
 
 ```json
 {
-  "db_path": "/repo/.remindb/memory.db", "db_bytes": 196608,
-  "nodes":       { "total": 142, "by_type": { "heading": 38, "text": 96, "code": 8 }, "tokens": 18450 },
-  "snapshots":   { "count": 7, "head_id": 7, "cursor_hash": "9f3c1a7e", "latest_message": "write:aB3", "latest_age_s": 42 },
-  "temperature": { "avg": 0.37, "median": 0.31, "hot": 12, "cold": 48, "pinned": 3 },
-  "relations":   { "total": 27, "by_origin": { "parsed": 22, "manual": 5 }, "pending": 4 },
+  "db_path": "/repo/.remindb/memory.db",
+  "db_bytes": 196608,
+  "nodes": {
+    "total": 142,
+    "by_type": {
+      "heading": 38,
+      "text": 96,
+      "code": 8
+    },
+    "tokens": 18450
+  },
+  "snapshots": {
+    "count": 7,
+    "head_id": 7,
+    "cursor_hash": "9f3c1a7e",
+    "latest_message": "write:aB3",
+    "latest_age_s": 42
+  },
+  "temperature": {
+    "avg": 0.37,
+    "median": 0.31,
+    "hot": 12,
+    "cold": 48,
+    "pinned": 3
+  },
+  "relations": {
+    "total": 27,
+    "by_origin": {
+      "parsed": 22,
+      "manual": 5
+    },
+    "pending": 4
+  },
   "fts_rows": 142
 }
 ```
@@ -182,9 +210,16 @@ The shape is **locked** — clients depend on these keys. Notes:
 
 ```json
 {
-  "summary": { "avg": 0.29, "median": 0.30, "hot": 1, "cold": 2, "pinned": 1,
-               "cold_threshold": 0.1, "hot_threshold": 0.5 },
-  "nodes":   [ { "id": "aB3", "label": "Auth design", "temperature": 0.8, "pinned": false } ]
+  "summary": {
+    "avg": 0.29,
+    "median": 0.30,
+    "hot": 1,
+    "cold": 2,
+    "pinned": 1,
+    "cold_threshold": 0.1,
+    "hot_threshold": 0.5
+  },
+  "nodes": [ { "id": "aB3", "label": "Auth design", "temperature": 0.8, "pinned": false } ]
 }
 ```
 

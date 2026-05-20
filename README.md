@@ -37,7 +37,7 @@ Raw markdown is the wrong shape for memory. Not because it can't hold the words 
 
 Each point is a summary — the full reasoning, with the tradeoffs, lives in [`docs/`](./docs/).
 
-**A tree the agent can index, not skim.** One `MemoryTree` call returns a typed, labeled, token-counted hierarchy — `ls -la` for memory instead of `ls`-ing a folder and reading every file to orient. → **[The node tree](./docs/node-tree.md)**
+**An ICR the agent can index, not skim.** `MemoryTree` returns the Intermediate Context Representation — typed, labeled, token-counted — in one call instead of a directory walk and a pile of file reads. → **[The node tree](./docs/node-tree.md)**
 
 **Hot vs. cold, like a real cache.** Every node has a temperature that rises when it's read and decays over time. Hot nodes rank higher in search; cold ones stop crowding the top without ever being deleted. → **[Temperature](./docs/temperature.md)**
 
@@ -163,6 +163,27 @@ A `Memory*` tool suite, registered once, surfaced to any MCP-capable agent (Clau
 | **`MemoryPin`** | Protects a node from temperature decay and the cold-summarize loop — for reference material that must not age out. |
 | **`MemoryUnpin`** | Releases a pin, returning the node to normal decay. |
 
+### Resources
+
+Resources give desktop clients and dashboards passive read access to database state. Unlike the `Memory*` tools, they never boost temperature, take locks, or emit snapshots — a heatmap that warmed the nodes it displayed would measure its own rendering.
+
+| Resource | Description |
+|----------|-------------|
+| `remindb://overview` | Database stats as JSON — the `MemoryStats` equivalent for renderers. |
+| `remindb://files` | Compiled source files grouped by compile root, with per-file node and token counts. |
+| `remindb://tree` | Full node hierarchy as nested JSON. `tree/{rootId}{?depth}` for a bounded subtree. |
+| `remindb://graph` | Relations graph — resolved edges, pending wiki-link targets, and the node set they reference. |
+| `remindb://snapshots` | Version history. `snapshots{?limit}` for the newest N; `snapshots/{id}/diffs` for one snapshot's diffs. |
+| `remindb://temperature` | Per-node temperature heatmap, with the cut thresholds used to classify hot and cold. |
+| `remindb://doctor` | Health-check report as JSON (same data as `remindb doctor --json`). |
+| `remindb://logs` | Recent server log records from the in-memory ring buffer. |
+| `remindb://sessions` | Active MCP client sessions on this process. |
+| `remindb://sessions/history` | Durable per-client connection ledger across restarts. `sessions/history/{hash}` for one client. |
+| `remindb://sessions/logs` | Per-session logfile index. `sessions/logs/{id}` for one session's structured tool-call trace. |
+| `remindb://rescan` | Latest source-rescan tick result. |
+
+Several are subscribable — clients can receive push notifications on state changes instead of polling. The full resource contract, envelope shapes, and subscription events are in [`docs/resources.md`](./docs/resources.md).
+
 ### Agent integrations
 
 Five plugin folders ship with the repo, one per supported coding agent. Each has a manifest matching that agent's spec, an MCP stanza, and a README with install commands, env-var conventions, and a worked example that compiles the agent's own memory folder into remindb.
@@ -211,7 +232,28 @@ Or HTTP, when you want one long-running server that multiple agent sessions (a l
 }
 ```
 
-On startup the agent sees the full `Memory*` tool suite alongside its usual toolbox. A reasonable first prompt:
+On startup the agent sees the full `Memory*` tool suite alongside its usual toolbox.
+
+Run this once when you first point `serve` at a new workspace. The agent reads the configuration reference and proposes a `.remindb/` setup for your project:
+
+```
+Fetch https://raw.githubusercontent.com/radimsem/remindb/main/docs/configuration.md,
+then do the following for this workspace:
+
+1. Walk the directory. Note which files are stable reference material (READMEs, specs,
+   ADRs, architecture docs), which are generated artifacts, and which change constantly.
+2. Propose .remindb/ignore patterns for build outputs, dependencies, test fixtures,
+   and anything that would add noise without adding signal.
+3. For the stable reference files, propose .remindb/pinned entries so they never age out.
+4. Suggest initial temperatures in .remindb/temperatures.json — higher for files you'll
+   read often, lower for archives or rarely-touched config.
+5. Draft a .remindb/config.json with a decay rate, budget defaults, and rescan interval
+   that fit how this workspace is actually used.
+
+Show me the plan before writing anything to disk.
+```
+
+Once that's done, the everyday orientation call is simple:
 
 ```
 /remind Call MemoryTree to orient. Then call MemorySearch for "<topic>" with budget 1000

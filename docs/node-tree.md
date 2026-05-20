@@ -1,11 +1,11 @@
-# The node tree
+# The node tree (ICR)
 
 > An agent shouldn't have to `ls` a folder and read every file just to remember what's in it.
 
 [← back to README](../README.md) · related: [search](./search.md) · [temperature](./temperature.md) · [versioning](./versioning.md)
 
 <p align="center">
-  <img src="../assets/node-tree.svg" alt="Markdown and HTML compiled into one typed context tree" width="100%" />
+  <img src="../assets/node-tree.svg" alt="Source files compiled into an ICR — a typed, labeled node tree" width="100%" />
 </p>
 
 ## The problem
@@ -16,9 +16,9 @@ That's the wrong shape for memory. A folder is a pile. Memory should be an index
 
 ## What I built instead
 
-When remindb compiles your notes, it doesn't store them as files. It parses them into a tree of **typed nodes**. One `MemoryTree` call hands the agent the whole index — no directory walk, no file reads.
+When remindb compiles your notes, it builds an **ICR** — an Intermediate Context Representation — rather than copying files into the database. Think of how a compiler turns source code into bytecode: your source files stay untouched, but the agent reasons over the structured form. One `MemoryTree` call hands the agent the whole ICR: no directory walk, no file reads.
 
-Each node is one unit of meaning with a fixed set of fields:
+Each node in the ICR is one unit of meaning with a fixed set of fields:
 
 - An **11-char base62 ID** (`3kGXxidmWBp`), content-addressed with xxhash64. It's the anchor for every follow-up call. Nobody guesses it or edits it — the content decides it.
 - A **`parent_id`**. Nodes form a tree, so structure survives the trip from Markdown into SQLite.
@@ -49,4 +49,4 @@ Think of it as `ls -la` for memory. One call, a scannable index, every entry alr
 
 ## Why typed nodes, not raw text
 
-A heading is not a paragraph is not a table. Storing them all as "text" throws away the one thing that makes memory navigable. Because every node carries its type and its place in the tree, the agent can decide *whether* to fetch a region before paying to read it — and the [search](./search.md), [TOON encoding](./toon-encoding.md), and [versioning](./versioning.md) layers all key off the same structure.
+A heading is not a paragraph is not a table. Storing them all as "text" throws away the one thing that makes memory navigable. Because the ICR preserves structure — every node carries its type and its place in the tree — the agent can decide *whether* to fetch a region before paying to read it. The [search](./search.md), [TOON encoding](./toon-encoding.md), and [versioning](./versioning.md) layers all key off the same ICR structure.
