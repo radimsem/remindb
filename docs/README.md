@@ -20,7 +20,7 @@ Start here if you want to understand the design rather than just use it.
 ## Running it
 
 - **[CLI reference](./cli.md)** — every subcommand: `compile`, `serve`, `inspect`, `bench`, `doctor`, `update`.
-- **[Configuration](./configuration.md)** — the `.remindb/` directory: `config.json` feature blocks, `ignore`, `temperatures.json`.
+- **[Configuration](./configuration.md)** — the `.remindb/` directory: `config.json` feature blocks, `ignore`, `temperatures.json`, `pinned`.
 
 ## Contributing to the docs
 

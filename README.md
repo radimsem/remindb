@@ -136,7 +136,7 @@ The README is the trailer. The manual is in [`docs/`](./docs/) — each page ope
 |------|--------------|
 | [Architecture](./docs/architecture.md) | The layer-by-layer map: parser → transformer → emitter → store, then query → mcp. |
 | [CLI reference](./docs/cli.md) | Every subcommand — `compile`, `serve`, `inspect`, `bench`, `doctor`, `update` — with flags. |
-| [Configuration](./docs/configuration.md) | The `.remindb/` directory: `config.json` feature blocks, `ignore`, `temperatures.json`. |
+| [Configuration](./docs/configuration.md) | The `.remindb/` directory: `config.json` feature blocks, `ignore`, `temperatures.json`, `pinned`. |
 | [The node tree](./docs/node-tree.md) · [Temperature](./docs/temperature.md) · [Versioning](./docs/versioning.md) · [Search](./docs/search.md) · [TOON](./docs/toon-encoding.md) · [MathML → LaTeX](./docs/mathml-latex.md) · [Knowledge graph](./docs/knowledge-graph.md) | The feature deep-dives linked from *What you get*. |
 
 ## MCP tools

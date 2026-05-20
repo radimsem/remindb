@@ -11,11 +11,12 @@ remindb keeps its workspace-level state in a `.remindb/` directory at the source
 | `.remindb/config.json` | Runtime configuration (knobs and feature blocks). |
 | `.remindb/ignore` | Gitignore-style exclude patterns. |
 | `.remindb/temperatures.json` | Per-path initial-temperature overrides. |
+| `.remindb/pinned` | Gitignore-style pin pre-seed patterns. |
 | `.remindb/sessions/` | Machine-managed per-client session ledger ([below](#session-ledger-remindbsessions)). |
 | `.remindb/logs/` | Opt-in per-session tool-call/error logfiles ([below](#session-logfiles-remindblogs)). |
 | `.remindb/rescan.jsonl` | Opt-in durable source-rescan tick history ([below](#rescan-history-remindbrescanjsonl)). |
 
-The three files are optional; missing → defaults. The whole directory is skipped during source walks, so its contents never end up as memory nodes.
+The four files are optional; missing → defaults. The whole directory is skipped during source walks, so its contents never end up as memory nodes.
 
 ## Runtime config: `.remindb/config.json`
 
@@ -144,6 +145,24 @@ Slash-keys and nested objects mix freely — `"src/api/routes.yaml"` and `{"src"
 Two keys that resolve to the same leaf with disagreeing values fail at load time with the offending path named. A missing file is silently skipped; everything starts at the engine default of `0.50`. Supported: numbers in `[0, 1]`, nested objects, slash-keys, `*` glob at any level, leading `./` and trailing `/` (both normalized). Anything else — out-of-range numbers, string values, leading `/`, `..` segments, empty segments from `//` — fails the command at startup with the offending key named.
 
 By default, edits here reach only the nodes whose source files *also* changed in the same compile. That's deliberate: agent activity (`MemoryFetch` boosts, the decay tick) shouldn't be wiped silently every time the workspace is recompiled. Pass `remindb compile <dir> --reseed-temperatures` when you mean it — the flag overrides stored temperatures for every node whose source file is keyed here, regardless of whether its content changed. The reseed pass is a temperature update, not a content change, so it does **not** create a new snapshot. It applies to directory compiles only; single-file compiles ignore it, and the `MemoryCompile` MCP tool doesn't expose it (an agent can't use it to overwrite its own temperature signal).
+
+## Pre-seeding pins with `.remindb/pinned`
+
+Drop a `.remindb/pinned` at the source root to mark files whose nodes should be born pinned at compile time. The grammar is identical to `.remindb/ignore` (same parser, same patterns, comments, blank lines, negation, anchoring, directory-only suffix). A matched file's **every node** — file root and every descendant — lands with `pinned=1` on the INSERT path, just like a matched entry in `.remindb/temperatures.json` flows through `seedTemp`. Read on `compile`, the `serve` rescan loop, the `MemoryCompile` tool, and `bench` staging.
+
+```
+# .remindb/pinned
+README.md
+src/api/
+**/CONTEXT.md
+!src/api/deprecated.json
+```
+
+It composes with `.remindb/temperatures.json`: `pinned` says **whether**, `temperatures.json` says **at what temperature**. A matched file with no entry in `temperatures.json` pins at the engine default (0.50); a matched file with an entry pins at that temperature.
+
+By default, pin pre-seeding applies only to nodes **whose source files changed** in the same compile — existing nodes' `pinned` column is **never touched** on the UPDATE path, so `MemoryPin` and `MemoryUnpin` choices survive every recompile. Negation (`!path`) excludes a file from the pin set; it is **never** an auto-unpin signal — to unpin, the operator (or agent) calls `MemoryUnpin`.
+
+Pass `remindb compile <dir> --reseed-pinned` when you want the patterns reapplied to every existing node from a matching file, overwriting prior `MemoryUnpin` choices. Like `--reseed-temperatures`, the reseed pass is a metadata update — it does **not** create a new snapshot — and applies to directory compiles only. The two flags are independent; combining them applies pin and temperature atomically per node (single SQLite transaction). The `MemoryCompile` MCP tool doesn't expose the reseed flag (an agent can't use it to overwrite its own pin signal).
 
 ## Session ledger: `.remindb/sessions/`
 

@@ -31,6 +31,7 @@ remindb compile ./notes --reseed-temperatures # force .remindb/temperatures.json
 | `--db PATH` | Target database. Default: derived from the source directory name, else `memory.db`. |
 | `-m, --message` | Snapshot message (defaults to `compile:<path>`). |
 | `--reseed-temperatures` | Push `.remindb/temperatures.json` values through to nodes whose source files didn't change on disk. Directory compiles only; no new snapshot. See [configuration → pre-seeding temperatures](./configuration.md#pre-seeding-temperatures-with-remindbtemperaturesjson). |
+| `--reseed-pinned` | Re-apply pin status from `.remindb/pinned` to every node from a matching file, overriding prior `MemoryUnpin` choices. Directory compiles only; no new snapshot. Combine with `--reseed-temperatures` for an atomic-per-node pin + temperature reseed. See [configuration → pre-seeding pins](./configuration.md#pre-seeding-pins-with-remindbpinned). |
 
 ## `serve`
 
