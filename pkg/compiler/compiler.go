@@ -353,7 +353,7 @@ func CompileDir(ctx context.Context, st *store.Store, dir, message string, opts 
 		return nil, err
 	}
 
-	pins := resolvePins(absDir, paths, pinMatcher)
+	pins := ResolvePins(absDir, paths, pinMatcher)
 
 	all := append([]Option{}, opts...)
 	all = append(all,
@@ -506,7 +506,7 @@ func CompileFile(ctx context.Context, st *store.Store, path, message string, opt
 		pinMatcher = m
 	}
 
-	pins := resolvePins(fileDir, []string{absPath}, pinMatcher)
+	pins := ResolvePins(fileDir, []string{absPath}, pinMatcher)
 
 	all := append([]Option{}, opts...)
 	all = append(all,
@@ -518,7 +518,7 @@ func CompileFile(ctx context.Context, st *store.Store, path, message string, opt
 	return Compile(ctx, st, all...)
 }
 
-func resolvePins(dir string, paths []string, m *pathmatch.Matcher) map[string]bool {
+func ResolvePins(dir string, paths []string, m *pathmatch.Matcher) map[string]bool {
 	if m == nil {
 		return nil
 	}

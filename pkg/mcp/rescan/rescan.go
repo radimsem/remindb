@@ -70,6 +70,7 @@ type Loop struct {
 	modTimes          map[string]time.Time
 	logger            *slog.Logger
 	ignore            *pathmatch.Matcher
+	pinned            *pathmatch.Matcher
 	compileOpts       []compiler.Option
 	status            *rescanstat.Status
 	rescanLog         *rescanlog.Sink
@@ -106,6 +107,11 @@ func New(st *store.Store, dir string, interval time.Duration, opts ...Option) (*
 		return nil, fmt.Errorf("failed to load: %s: %w", pathmatch.IgnorePath, err)
 	}
 
+	pinMatcher, err := pathmatch.LoadPinned(dir)
+	if err != nil {
+		return nil, fmt.Errorf("failed to load: %s: %w", pathmatch.PinnedPath, err)
+	}
+
 	return &Loop{
 		store:             st,
 		dir:               dir,
@@ -118,6 +124,7 @@ func New(st *store.Store, dir string, interval time.Duration, opts ...Option) (*
 		modTimes:          make(map[string]time.Time),
 		logger:            logger,
 		ignore:            matcher,
+		pinned:            pinMatcher,
 		compileOpts:       compiler.ConfigOptions(o.compileConfig),
 		status:            status,
 		rescanLog:         o.rescanLog,
@@ -296,11 +303,15 @@ func (r *Loop) scan(ctx context.Context) {
 		return
 	}
 
+	pins := compiler.ResolvePins(r.dir, changed, r.pinned)
+
 	copts := append([]compiler.Option{
 		compiler.WithPaths(changed),
 		compiler.WithMessage("rescan"),
 		compiler.WithCompileRoot(r.dir),
 		compiler.WithLogger(r.logger),
+		compiler.WithPins(pins),
+		compiler.WithPinned(r.pinned),
 	}, r.compileOpts...)
 
 	result, err := compiler.Compile(ctx, r.store, copts...)
