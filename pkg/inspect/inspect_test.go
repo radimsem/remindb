@@ -23,7 +23,7 @@ func TestCollect_Empty(t *testing.T) {
 	st := testutil.OpenTestDB(t)
 	ctx := context.Background()
 
-	s, err := inspect.Collect(ctx, st)
+	s, err := inspect.Collect(ctx, st, 0.5, 0.1)
 	if err != nil {
 		t.Fatalf("Collect: %v", err)
 	}
@@ -69,7 +69,7 @@ func TestCollect_PopulatesAllFields(t *testing.T) {
 		t.Fatalf("UpsertRelation: %v", err)
 	}
 
-	s, err := inspect.Collect(ctx, st)
+	s, err := inspect.Collect(ctx, st, 0.5, 0.1)
 	if err != nil {
 		t.Fatalf("Collect: %v", err)
 	}
@@ -125,7 +125,7 @@ func TestCollect_RelationCountIncludesPending(t *testing.T) {
 		}
 	}
 
-	s, err := inspect.Collect(ctx, st)
+	s, err := inspect.Collect(ctx, st, 0.5, 0.1)
 	if err != nil {
 		t.Fatalf("Collect: %v", err)
 	}

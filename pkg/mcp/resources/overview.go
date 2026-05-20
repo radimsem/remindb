@@ -91,7 +91,7 @@ func newOverviewEnvelope(s *inspect.Stats) overviewEnvelope {
 }
 
 func (d *Deps) HandleOverview(ctx context.Context, _ *gomcp.ReadResourceRequest) (*gomcp.ReadResourceResult, error) {
-	stats, err := inspect.Collect(ctx, d.Store)
+	stats, err := inspect.Collect(ctx, d.Store, d.HotThreshold, d.ColdThreshold)
 	if err != nil {
 		return nil, fmt.Errorf("failed to collect: stats: %w", err)
 	}

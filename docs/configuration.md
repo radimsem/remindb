@@ -39,6 +39,7 @@ A single JSON object of feature blocks. Unknown top-level or nested keys are rej
     "enabled": true,
     "decay_rate": 0.03,
     "access_boost": 0.2,
+    "hot_threshold": 0.7,
     "cold_threshold": 0.08,
     "notify_threshold": 0.07,
     "summarize_rebound": 0.6,

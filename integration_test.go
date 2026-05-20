@@ -719,7 +719,7 @@ func TestPinnedSidecarWorkflow(t *testing.T) {
 		t.Error("manually-unpinned node was re-pinned on default recompile (must preserve MemoryUnpin)")
 	}
 
-	statsBefore, err := st.GetStats(ctx)
+	statsBefore, err := st.GetStats(ctx, 0.5, 0.1)
 	if err != nil {
 		t.Fatalf("GetStats before reseed: %v", err)
 	}
@@ -736,7 +736,7 @@ func TestPinnedSidecarWorkflow(t *testing.T) {
 		t.Error("--reseed-pinned did not re-apply pin to manually-unpinned node")
 	}
 
-	statsAfter, err := st.GetStats(ctx)
+	statsAfter, err := st.GetStats(ctx, 0.5, 0.1)
 	if err != nil {
 		t.Fatalf("GetStats after reseed: %v", err)
 	}
@@ -915,7 +915,7 @@ func TestCrossFormatSearch(t *testing.T) {
 	logSearchResult(t, "cross-format remindb", nameResult)
 
 	// Verify stats reflect all three formats.
-	stats, err := st.GetStats(ctx)
+	stats, err := st.GetStats(ctx, 0.5, 0.1)
 	if err != nil {
 		t.Fatalf("GetStats: %v", err)
 	}

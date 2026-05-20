@@ -206,7 +206,7 @@ The shape is **locked** — clients depend on these keys. Notes:
 
 ## The `temperature` envelope
 
-`remindb://temperature` is the heatmap source for a UI that draws node attention. Every node lands in **one** `nodes` array — hot, cold, and pinned together, not split — so the renderer classifies each node itself from `temperature` against the cut points the `summary` echoes. The aggregate `summary` mirrors `MemoryStats`' temperature block (`avg`, `median`, `hot`, `cold`, `pinned`) with one deliberate difference: `cold` is counted against the **live configured** threshold (`.remindb/config.json` → `temperature.cold_threshold`, resolved through `temperature.Config`), not a hardcoded constant, so the heatmap and the cold-node notifier agree on what "cold" means. `hot_threshold` is the fixed `0.5` presentation cut — there is no configurable hot threshold (a future one would be a `pkg/temperature.Config` field, governed by the tune-temperature-policy skill).
+`remindb://temperature` is the heatmap source for a UI that draws node attention. Every node lands in **one** `nodes` array — hot, cold, and pinned together, not split — so the renderer classifies each node itself from `temperature` against the cut points the `summary` echoes. The aggregate `summary` mirrors `MemoryStats`' temperature block (`avg`, `median`, `hot`, `cold`, `pinned`) with both thresholds sourced from the **live configured** values (`.remindb/config.json` → `temperature.cold_threshold` / `temperature.hot_threshold`, resolved through `temperature.Config`), not hardcoded constants — so the heatmap and the cold/hot counts always agree with what the notifier and inspector report.
 
 ```json
 {

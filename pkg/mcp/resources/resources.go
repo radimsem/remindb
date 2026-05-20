@@ -24,6 +24,7 @@ var Subscribable = map[string]string{
 
 type Deps struct {
 	Store         *store.Store
+	HotThreshold  float64
 	ColdThreshold float64
 	LogBuffer     *logbuf.Buffer
 	Sessions      *session.Registry

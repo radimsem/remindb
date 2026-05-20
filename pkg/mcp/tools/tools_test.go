@@ -377,7 +377,7 @@ func TestHandleWrite_ScrubsSecret(t *testing.T) {
 		t.Fatal("empty content — tool should still succeed on redaction")
 	}
 
-	stats, err := st.GetStats(ctx)
+	stats, err := st.GetStats(ctx, 0.5, 0.1)
 	if err != nil {
 		t.Fatalf("GetStats: %v", err)
 	}
@@ -468,7 +468,7 @@ func TestHandleCompile_AnchorsToSourceDir(t *testing.T) {
 		t.Fatalf("initial CompileDir: %v", err)
 	}
 
-	before, err := st.GetStats(ctx)
+	before, err := st.GetStats(ctx, 0.5, 0.1)
 	if err != nil {
 		t.Fatalf("GetStats before: %v", err)
 	}
@@ -486,7 +486,7 @@ func TestHandleCompile_AnchorsToSourceDir(t *testing.T) {
 		t.Fatalf("HandleCompile: %v", err)
 	}
 
-	after, err := st.GetStats(ctx)
+	after, err := st.GetStats(ctx, 0.5, 0.1)
 	if err != nil {
 		t.Fatalf("GetStats after: %v", err)
 	}

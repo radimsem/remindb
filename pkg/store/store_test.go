@@ -1052,7 +1052,7 @@ func TestGetStats(t *testing.T) {
 	ctx := context.Background()
 
 	// Empty DB.
-	stats, err := st.GetStats(ctx)
+	stats, err := st.GetStats(ctx, 0.5, 0.1)
 	if err != nil {
 		t.Fatalf("GetStats: %v", err)
 	}
@@ -1072,7 +1072,7 @@ func TestGetStats(t *testing.T) {
 	must(t, st.UpdateTemperature(ctx, "cccccccc", 0.4))
 	must(t, st.SetPinned(ctx, "aaaaaaaa", true, nil))
 
-	stats, err = st.GetStats(ctx)
+	stats, err = st.GetStats(ctx, 0.5, 0.1)
 	if err != nil {
 		t.Fatalf("GetStats: %v", err)
 	}

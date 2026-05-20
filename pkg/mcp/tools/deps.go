@@ -29,6 +29,8 @@ type Deps struct {
 	Logger           *slog.Logger
 	SourceDir        string
 	WorkspaceConfig  config.Config
+	HotThreshold     float64
+	ColdThreshold    float64
 	SummarizeRebound float64
 	Notifier         *notify.Publisher
 }

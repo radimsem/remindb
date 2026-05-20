@@ -10,6 +10,7 @@ import (
 type Config struct {
 	DecayRate        float64
 	AccessBoost      float64
+	HotThreshold     float64
 	ColdThreshold    float64
 	NotifyThreshold  float64
 	SummarizeRebound float64
@@ -23,6 +24,7 @@ func DefaultConfig() Config {
 	return Config{
 		DecayRate:        0.05,
 		AccessBoost:      0.15,
+		HotThreshold:     0.5,
 		ColdThreshold:    0.1,
 		NotifyThreshold:  0.1,
 		SummarizeRebound: 0.5,
@@ -43,6 +45,9 @@ func (c Config) WithOverrides(o config.TemperatureConfig) Config {
 	}
 	if o.AccessBoost != nil {
 		c.AccessBoost = *o.AccessBoost
+	}
+	if o.HotThreshold != nil {
+		c.HotThreshold = *o.HotThreshold
 	}
 	if o.ColdThreshold != nil {
 		c.ColdThreshold = *o.ColdThreshold
@@ -76,6 +81,12 @@ func (c Config) Validate() error {
 
 	if !inUnit(c.AccessBoost) {
 		return fmt.Errorf("AccessBoost must be in [0, 1], got %g", c.AccessBoost)
+	}
+	if !inUnit(c.HotThreshold) {
+		return fmt.Errorf("HotThreshold must be in [0, 1], got %g", c.HotThreshold)
+	}
+	if c.HotThreshold <= c.ColdThreshold {
+		return fmt.Errorf("HotThreshold must be > ColdThreshold, got hot=%g cold=%g", c.HotThreshold, c.ColdThreshold)
 	}
 	if !inUnit(c.ColdThreshold) {
 		return fmt.Errorf("ColdThreshold must be in [0, 1], got %g", c.ColdThreshold)

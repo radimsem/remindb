@@ -98,6 +98,7 @@ type TemperatureConfig struct {
 	Enabled          *bool     `json:"enabled,omitempty"`
 	DecayRate        *float64  `json:"decay_rate,omitempty"`
 	AccessBoost      *float64  `json:"access_boost,omitempty"`
+	HotThreshold     *float64  `json:"hot_threshold,omitempty"`
 	ColdThreshold    *float64  `json:"cold_threshold,omitempty"`
 	NotifyThreshold  *float64  `json:"notify_threshold,omitempty"`
 	SummarizeRebound *float64  `json:"summarize_rebound,omitempty"`

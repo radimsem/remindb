@@ -24,6 +24,8 @@ type Stats struct {
 	SnapshotCount        int
 	AvgTemp              float64
 	MedianTemp           float64
+	HotThreshold         float64
+	ColdThreshold        float64
 	HotCount             int
 	ColdCount            int
 	PinnedCount          int
@@ -37,8 +39,8 @@ type Stats struct {
 }
 
 // Collect every stat surfaced by inspect and MemoryStats from the given store.
-func Collect(ctx context.Context, st *store.Store) (*Stats, error) {
-	core, err := st.GetStats(ctx)
+func Collect(ctx context.Context, st *store.Store, hotThreshold, coldThreshold float64) (*Stats, error) {
+	core, err := st.GetStats(ctx, hotThreshold, coldThreshold)
 	if err != nil {
 		return nil, fmt.Errorf("failed to get: stats: %w", err)
 	}
@@ -65,6 +67,8 @@ func Collect(ctx context.Context, st *store.Store) (*Stats, error) {
 		SnapshotCount:        core.SnapshotCount,
 		AvgTemp:              core.AvgTemp,
 		MedianTemp:           core.MedianTemp,
+		HotThreshold:         hotThreshold,
+		ColdThreshold:        coldThreshold,
 		HotCount:             core.HotCount,
 		ColdCount:            core.ColdCount,
 		PinnedCount:          core.PinnedCount,

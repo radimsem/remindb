@@ -12,8 +12,6 @@ import (
 
 const TemperatureURI = "remindb://temperature"
 
-const hotThreshold = 0.5
-
 type tempSummary struct {
 	Avg           float64 `json:"avg"`
 	Median        float64 `json:"median"`
@@ -36,7 +34,7 @@ type temperatureResourceEnvelope struct {
 	Nodes   []tempNode  `json:"nodes"`
 }
 
-func newTemperatureEnvelope(all []*store.Node, coldThreshold float64) temperatureResourceEnvelope {
+func newTemperatureEnvelope(all []*store.Node, coldThreshold, hotThreshold float64) temperatureResourceEnvelope {
 	env := temperatureResourceEnvelope{
 		Summary: tempSummary{ColdThreshold: coldThreshold, HotThreshold: hotThreshold},
 		Nodes:   make([]tempNode, 0, len(all)),
@@ -81,7 +79,7 @@ func (d *Deps) HandleTemperature(ctx context.Context, _ *gomcp.ReadResourceReque
 		return nil, fmt.Errorf("failed to get: temperature nodes: %w", err)
 	}
 
-	body, err := json.Marshal(newTemperatureEnvelope(all, d.ColdThreshold))
+	body, err := json.Marshal(newTemperatureEnvelope(all, d.ColdThreshold, d.HotThreshold))
 	if err != nil {
 		return nil, fmt.Errorf("failed to marshal: temperature: %w", err)
 	}

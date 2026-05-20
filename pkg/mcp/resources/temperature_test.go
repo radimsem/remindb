@@ -20,7 +20,7 @@ func temperatureFixture() []*store.Node {
 func eqf(a, b float64) bool { return math.Abs(a-b) < 1e-9 }
 
 func TestNewTemperatureEnvelope_SummaryMirrorsStats(t *testing.T) {
-	env := newTemperatureEnvelope(temperatureFixture(), 0.1)
+	env := newTemperatureEnvelope(temperatureFixture(), 0.1, 0.5)
 	s := env.Summary
 
 	if !eqf(s.Avg, 0.2925) {
@@ -47,7 +47,7 @@ func TestNewTemperatureEnvelope_SummaryMirrorsStats(t *testing.T) {
 
 // The configured cold threshold must flow through, not a hardcoded 0.1.
 func TestNewTemperatureEnvelope_ColdThresholdIsConfigurable(t *testing.T) {
-	env := newTemperatureEnvelope(temperatureFixture(), 0.4)
+	env := newTemperatureEnvelope(temperatureFixture(), 0.4, 0.5)
 
 	if env.Summary.Cold != 3 {
 		t.Errorf("cold=%d, want 3 (temp < 0.4: 0.02, 0.05, 0.30)", env.Summary.Cold)
@@ -57,8 +57,21 @@ func TestNewTemperatureEnvelope_ColdThresholdIsConfigurable(t *testing.T) {
 	}
 }
 
+// The configured hot threshold must flow through, not a hardcoded 0.5.
+func TestNewTemperatureEnvelope_HotThresholdIsConfigurable(t *testing.T) {
+	env := newTemperatureEnvelope(temperatureFixture(), 0.1, 0.7)
+
+	// temps: 0.02, 0.05, 0.30, 0.80 → only 0.80 >= 0.7
+	if env.Summary.Hot != 1 {
+		t.Errorf("hot=%d, want 1 (temp >= 0.7: only 0.80)", env.Summary.Hot)
+	}
+	if !eqf(env.Summary.HotThreshold, 0.7) {
+		t.Errorf("hot_threshold=%v, want 0.7 (configured value)", env.Summary.HotThreshold)
+	}
+}
+
 func TestNewTemperatureEnvelope_NodesUnifiedAndComplete(t *testing.T) {
-	env := newTemperatureEnvelope(temperatureFixture(), 0.1)
+	env := newTemperatureEnvelope(temperatureFixture(), 0.1, 0.5)
 
 	if len(env.Nodes) != 4 {
 		t.Fatalf("len(nodes)=%d, want 4 (hot, cold, pinned all in one array)", len(env.Nodes))
@@ -80,7 +93,7 @@ func TestNewTemperatureEnvelope_NodesUnifiedAndComplete(t *testing.T) {
 }
 
 func TestNewTemperatureEnvelope_Empty(t *testing.T) {
-	env := newTemperatureEnvelope(nil, 0.1)
+	env := newTemperatureEnvelope(nil, 0.1, 0.5)
 
 	if env.Nodes == nil {
 		t.Error("nodes must be non-nil (marshals as [], not null)")
@@ -91,7 +104,7 @@ func TestNewTemperatureEnvelope_Empty(t *testing.T) {
 	if !eqf(env.Summary.Avg, 0) || !eqf(env.Summary.Median, 0) {
 		t.Errorf("empty summary must be zero: %+v", env.Summary)
 	}
-	if !eqf(env.Summary.ColdThreshold, 0.1) {
-		t.Errorf("cold_threshold=%v, want 0.1 even when empty", env.Summary.ColdThreshold)
+	if !eqf(env.Summary.ColdThreshold, 0.1) || !eqf(env.Summary.HotThreshold, 0.5) {
+		t.Errorf("thresholds echoed wrong on empty: cold=%v hot=%v", env.Summary.ColdThreshold, env.Summary.HotThreshold)
 	}
 }

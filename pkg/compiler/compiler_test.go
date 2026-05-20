@@ -832,7 +832,7 @@ func TestCompileDir_ReseedTemperatures_NoNewSnapshot(t *testing.T) {
 
 	setAllTemps(t, ctx, st, "doc.md", 0.3)
 
-	before, err := st.GetStats(ctx)
+	before, err := st.GetStats(ctx, 0.5, 0.1)
 	if err != nil {
 		t.Fatalf("GetStats before: %v", err)
 	}
@@ -841,7 +841,7 @@ func TestCompileDir_ReseedTemperatures_NoNewSnapshot(t *testing.T) {
 		t.Fatalf("CompileDir v2: %v", err)
 	}
 
-	after, err := st.GetStats(ctx)
+	after, err := st.GetStats(ctx, 0.5, 0.1)
 	if err != nil {
 		t.Fatalf("GetStats after: %v", err)
 	}
@@ -997,7 +997,7 @@ func TestCompileDir_ReseedPinned_NoNewSnapshot(t *testing.T) {
 		setNodePinned(t, ctx, st, n.ID, false)
 	}
 
-	before, err := st.GetStats(ctx)
+	before, err := st.GetStats(ctx, 0.5, 0.1)
 	if err != nil {
 		t.Fatalf("GetStats before: %v", err)
 	}
@@ -1006,7 +1006,7 @@ func TestCompileDir_ReseedPinned_NoNewSnapshot(t *testing.T) {
 		t.Fatalf("CompileDir v2: %v", err)
 	}
 
-	after, err := st.GetStats(ctx)
+	after, err := st.GetStats(ctx, 0.5, 0.1)
 	if err != nil {
 		t.Fatalf("GetStats after: %v", err)
 	}

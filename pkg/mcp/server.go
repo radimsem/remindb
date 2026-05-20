@@ -181,6 +181,8 @@ func NewServer(st *store.Store, tracker *temperature.Tracker, cfg temperature.Co
 		Logger:           logger,
 		SourceDir:        o.sourceDir,
 		WorkspaceConfig:  o.workspaceConfig,
+		HotThreshold:     cfg.HotThreshold,
+		ColdThreshold:    cfg.ColdThreshold,
 		SummarizeRebound: cfg.SummarizeRebound,
 		Notifier:         pub,
 	}
@@ -191,7 +193,7 @@ func NewServer(st *store.Store, tracker *temperature.Tracker, cfg temperature.Co
 	}
 
 	registerTools(s.mcp, deps)
-	resources.Register(s.mcp, &resources.Deps{Store: st, ColdThreshold: cfg.ColdThreshold, LogBuffer: o.logBuffer, Sessions: sessions, Ledger: sessLedger, RescanStatus: o.rescanStatus, SessionLogDir: sessionLogDir})
+	resources.Register(s.mcp, &resources.Deps{Store: st, HotThreshold: cfg.HotThreshold, ColdThreshold: cfg.ColdThreshold, LogBuffer: o.logBuffer, Sessions: sessions, Ledger: sessLedger, RescanStatus: o.rescanStatus, SessionLogDir: sessionLogDir})
 	return s, nil
 }
 

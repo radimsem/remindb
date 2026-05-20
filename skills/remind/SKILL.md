@@ -37,7 +37,7 @@ The smallest unit of memory is a **node**:
 - `label` — scannable title (first meaningful line, ≤80 chars).
 - `node_type` — `heading`, `list`, `kv`, `table`, `preamble`, `text`, `code`, `embed`. Hints shape, not behavior. `embed` = external HTML resource (image/video/audio/iframe). Inline `<svg>`/`<canvas>` → `code` with `format` = tag name. MathML → `code` with `format` = `latex` (converted) or `mathml` (raw kept). The `format` column records the medium.
 - `token_count` — estimated cl100k-base tokens; the query layer honors budgets by it. Already reflects automatic per-node compaction (TOON for uniform data, LaTeX for MathML — see `memoize`), so a node can cost far fewer tokens than its raw bytes. That's compaction, not truncation — content is whole.
-- `temperature` ∈ `[0.0, 1.0]` — warmth. Reads boost `+0.15` (capped at 1.0). A tick (default 5 min) decays everything by `factor = exp(-0.05 × elapsed_hours)` (~5%/hr). Two thresholds, both default `0.1`, **independent knobs**: `ColdThreshold` drives the cold-set *query* + search ranking floor; `NotifyThreshold` drives the cold-node *push*. A deployment can tune them separately.
+- `temperature` ∈ `[0.0, 1.0]` — warmth. Reads boost `+0.15` (capped at 1.0). A tick (default 5 min) decays everything by `factor = exp(-0.05 × elapsed_hours)` (~5%/hr). Three configurable thresholds: `HotThreshold` (default `0.5`) marks nodes as hot for heatmap/stats; `ColdThreshold` (default `0.1`) drives the cold-set *query* + search ranking floor; `NotifyThreshold` (default `0.1`) drives the cold-node *push*. All three can be tuned independently via `.remindb/config.json` → `temperature`. `HotThreshold` must be > `ColdThreshold`.
 
 ### Snapshots
 
@@ -288,7 +288,7 @@ All three keys are always present (`{"nodes":[],"edges":[],"pending":[]}` on an 
 
 `parent_id` is `null` for a root snapshot (never `0`); at most one snapshot is `is_head`. `snapshots`/`diffs` are always present (`[]` on an empty DB); a bad `{id}` or non-positive `?limit` is an error, not an empty body. It mirrors `MemoryHistory`/`MemoryDelta` for rendering — use those tools when you want the access to warm nodes.
 
-`remindb://temperature` — the heatmap view: every node in one `nodes` array (hot, cold, pinned all together — the renderer classifies from `temperature` vs the echoed cut points), plus an aggregate `summary`. Hot/cold counts mirror `MemoryStats`, except `cold` uses the **live configured** `cold_threshold` (`.remindb/config.json` → `temperature.cold_threshold`), not a hardcoded one; `hot_threshold` is the fixed `0.5` presentation cut:
+`remindb://temperature` — the heatmap view: every node in one `nodes` array (hot, cold, pinned all together — the renderer classifies from `temperature` vs the echoed cut points), plus an aggregate `summary`. Both thresholds are sourced from the **live configured** values (`.remindb/config.json` → `temperature.cold_threshold` / `temperature.hot_threshold`), not hardcoded constants:
 
 ```json
 { "summary": { "avg": 0.29, "median": 0.30, "hot": 1, "cold": 2, "pinned": 1,
