@@ -262,19 +262,22 @@ The `query` string in `MemorySearch` is the one exception to "no user content" �
 
 ## 10. Update the Right Public Skill On Every Tool Change ★
 
-Two public skills under `skills/` form the client contract for what tools exist and how to call them. Pick the right one (or both) when you add, rename, or change semantics of a tool — the change must land in the same commit (or the immediate follow-up — see `.claude/rules/git-versioning.md` §2).
+Two tool-catalog skills under `skills/` form the client contract for what tools exist and how to call them. Both follow **progressive disclosure**: a compact `SKILL.md` router plus a `references/` subdir holding the depth. Pick the right one (or both) when you add, rename, or change semantics of a tool — the change must land in the same commit (or the immediate follow-up — see `.claude/rules/git-versioning.md` §2).
 
-| Tool kind | Skill to update |
-|---|---|
-| Read tools (`MemoryTree`, `MemorySearch`, `MemoryFetch`, `MemoryDelta`, `MemoryHistory`, `MemoryRelated`) | **`skills/remind/SKILL.md`** |
-| Write tools (`MemoryWrite`, `MemorySummarize`, `MemoryCompile`, `MemoryRelate`, `MemoryRollback`) | **`skills/memoize/SKILL.md`** |
-| A tool whose change crosses the boundary (e.g., new shared concept, mental-model field, threshold name) | **Both** — `remind` owns the mental model, `memoize` owns the write workflow that depends on it |
+| Tool kind | SKILL.md to update | Where the depth lives (`references/`) |
+|---|---|---|
+| Read tools (`MemoryTree`, `MemorySearch`, `MemoryFetch`, `MemoryDelta`, `MemoryHistory`, `MemoryRelated`) | **`skills/remind/SKILL.md`** | `fts5-syntax` (search), `snapshots-diffs` (delta/diff/history), `relations` (`MemoryRelated`), `resources` (`remindb://…`) |
+| Write tools (`MemoryWrite`, `MemorySummarize`, `MemoryCompile`, `MemoryRelate`, `MemoryRollback`) | **`skills/memoize/SKILL.md`** | `parser-mapping` (md→node + compaction), `lifecycle` (forget/rollback/pin/summarize/recompile), `wiki-links` (`MemoryRelate` + `[[Label]]`) |
+| A tool whose change crosses the boundary (e.g., new shared concept, mental-model field, threshold name) | **Both** — `remind` owns the mental model, `memoize` owns the write workflow that depends on it | the matching `references/*.md` on each side |
 
 For each affected skill:
 
-- Add or remove the tool from the frontmatter `description` list.
-- Update the opening / inventory paragraph to reflect the new surface.
-- Add at least one example call into the relevant pattern section.
+- Add or remove the tool from the frontmatter `description` list (keep it mechanism-level; the broad "remember/recall" intent belongs to the `remember` router, not `remind`/`memoize`).
+- Update the SKILL.md router (playbook table + inventory line) to reflect the new surface.
+- Put the mechanics where they belong: a one-liner + example in SKILL.md if it's a core router concept, otherwise the full detail in the matching `references/*.md`. Don't reinflate SKILL.md past its `scripts/check-skills.sh` line budget.
+- Run `make check-skills` — it gates frontmatter, line budgets, no relative `../../` links, and that every `references/` link resolves.
+
+The two router skills (`remember` front door, `remindb-setup` connectivity) are **not** tool catalogs — they need touching only when the *set* of tools or the connection/config story changes, not on a per-tool semantics edit.
 
 Tool exists in code but invisible to its public skill = invisible to future Claude sessions. The skills are part of the deployed surface, not auxiliary docs.
 
@@ -312,7 +315,7 @@ type Deps struct {
 
 Keep the no-boost/no-lock/no-snapshot guarantee structural: `resources.Deps` carries no `Tracker` and no emitter, so the invariant can't be broken by forgetting a convention. Resource handlers wrap errors per §8 (`failed to <verb>:` + `%w`) and return JSON via a typed envelope marshalled with `encoding/json` — never inline string-building, never a duplicate of a stat/query the tool layer already computes (`overview` is a pure projection of `inspect.Collect`, the same source `MemoryStats` formats as text).
 
-Adding, renaming, or reshaping a resource updates **`skills/remind/SKILL.md`** (resources are a read-surface concept) and **`docs/resources.md`** (the locked URI scheme + envelope) in the same commit, exactly as §10 requires for tools.
+Adding, renaming, or reshaping a resource updates **`skills/remind/references/resources.md`** (the resource envelopes live there now — `skills/remind/SKILL.md` keeps only the one-line pointer) and **`docs/resources.md`** (the locked URI scheme + envelope) in the same commit, exactly as §10 requires for tools.
 
 ---
 
@@ -331,7 +334,9 @@ Adding, renaming, or reshaping a resource updates **`skills/remind/SKILL.md`** (
 - Adding/renaming/removing a tool without updating its public skill (`skills/remind/SKILL.md` for read tools, `skills/memoize/SKILL.md` for write tools, both when the change crosses the read/write boundary).
 - Wrapping `Store.OpMu` in helper methods like `LockOp` / `UnlockOp` (memory: "no wrapper methods around sync primitives").
 - A resource that boosts temperature, takes `Store.OpMu`, emits a snapshot, or carries a `Tracker`/emitter in its `Deps` (§11).
-- Adding/renaming/reshaping a resource without updating `skills/remind/SKILL.md` and `docs/resources.md` in the same commit.
+- Adding/renaming/reshaping a resource without updating `skills/remind/references/resources.md` and `docs/resources.md` in the same commit.
+- Adding/renaming/removing a tool without updating the matching `references/*.md` depth (not just SKILL.md) and running `make check-skills`.
+- Reinflating a tool-catalog SKILL.md past its `scripts/check-skills.sh` line budget instead of pushing depth into `references/`.
 
 ---
 

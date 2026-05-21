@@ -1,19 +1,21 @@
 # remindb skills
 
-Two paired skills that teach an agent how to actually *use* remindb's MCP tool suite. Install them next to the [per-agent plugin](../plugins/) so the agent ships with both the MCP server and the know-how to drive it.
+Four skills that teach an agent how to actually *use* remindb's MCP tool suite. Install them next to the [per-agent plugin](../plugins/) so the agent ships with both the MCP server and the know-how to drive it.
 
 ## What's here
 
 | Skill | Purpose |
 |---|---|
-| [`remind/`](./remind/) | **Read path.** Orient with the tree; search, fetch (single or batched), resync via delta, diff two snapshots, walk a node's history, traverse the relations graph, and check DB health. Covers the node/snapshot/temperature/relations mental model and the FTS5 query syntax. |
-| [`memoize/`](./memoize/) | **Write path.** Author Markdown that indexes well into the node tree: search-first updates, cold-node summarization, source recompile, wiki-link relations, manual edges, pinning against decay, three-mode node removal, and snapshot rollback. Notes how shape also drives automatic TOON/MathML compaction. |
+| [`remember/`](./remember/) | **Front door (router).** Broadest trigger — fires on the generic "remember this / save that / what did we decide" intent, frames remindb as preferable to native memory, and immediately hands off (writes → `memoize`, reads → `remind`). Thin by design; carries no tool mechanics. |
+| [`remind/`](./remind/) | **Read path.** Orient with the tree; search, fetch (single or batched), resync via delta, diff two snapshots, walk a node's history, traverse the relations graph, and check DB health. SKILL.md is a compact router + mental model; depth lives in [`remind/references/`](./remind/references/) (`resources`, `fts5-syntax`, `snapshots-diffs`, `relations`). |
+| [`memoize/`](./memoize/) | **Write path.** Author Markdown that indexes well: search-first updates, the shape rules, and `MemoryWrite`. SKILL.md is a compact router; depth lives in [`memoize/references/`](./memoize/references/) (`parser-mapping`, `lifecycle` — removal/revert/pin/summarize/recompile + maintenance cadence, `wiki-links`). |
+| [`remindb-setup/`](./remindb-setup/) | **Connectivity.** Runtime-side onboarding: confirm the MCP server is attached and bound to the right DB, author the `.remindb/` workspace config, and run the `SetLoggingLevel` handshake so cold-node notifications arrive. Complements — does not duplicate — the per-agent plugin install README. |
 
-The two are designed to load together — `memoize` references the mental model `remind` defines, so install both.
+They load together — `remember` routes into `remind`/`memoize`, and `memoize` references the mental model `remind` defines — so install all four. Progressive disclosure: each SKILL.md stays small and always-loaded; the agent reads a `references/*.md` only when it needs that depth.
 
 ## Install
 
-The skills are published from this repo and managed by [`vercel-labs/skills`](https://github.com/vercel-labs/skills). Every supported agent has a native skill loader, so one command installs both into the right place for your agent:
+The skills are published from this repo and managed by [`vercel-labs/skills`](https://github.com/vercel-labs/skills). Every supported agent has a native skill loader, so one command installs all four (with their `references/` subdirs) into the right place for your agent:
 
 ```bash
 npx skills@latest add radimsem/remindb/skills -a claude-code

@@ -113,7 +113,7 @@ remindb update --force
 
 ### Skills
 
-The public skills live under [`skills/remind/`](skills/remind/SKILL.md) and [`skills/memoize/`](skills/memoize/SKILL.md). They're refreshed by [`vercel-labs/skills`](https://github.com/vercel-labs/skills).
+The public skills live under [`skills/`](skills/): [`remember`](skills/remember/SKILL.md) (the plain-language front door), [`remind`](skills/remind/SKILL.md) (read path), [`memoize`](skills/memoize/SKILL.md) (write path), and [`remindb-setup`](skills/remindb-setup/SKILL.md) (connectivity/config). `remind` and `memoize` use progressive disclosure — a compact `SKILL.md` plus on-demand `references/`. They're refreshed by [`vercel-labs/skills`](https://github.com/vercel-labs/skills).
 
 First-time install (or after adding a new agent):
 

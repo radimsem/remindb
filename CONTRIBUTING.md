@@ -65,7 +65,7 @@ If you're not using an agent at all, the rules in `.claude/rules/` are the sourc
 
 Two skill folders live side by side; don't confuse them.
 
-- **`skills/remind/`, `skills/memoize/`** — *public* skills shipped to MCP clients. They teach end-user agents how to call the `Memory*` tools (read path and write path respectively). Edit these when the MCP tool surface changes.
+- **`skills/{remember,remind,memoize,remindb-setup}/`** — *public* skills shipped to MCP clients. They teach end-user agents how to call the `Memory*` tools: `remember` is the broad-trigger front door, `remind` the read path, `memoize` the write path, `remindb-setup` the connectivity/config onboarding. `remind` and `memoize` keep depth in their `references/` subdirs (progressive disclosure). Edit these when the MCP tool surface changes, and run `make check-skills`.
 - **`.claude/skills/`** — *private* skills for contributors. Workflow checklists for adding parsers, tools, queries, fuzz targets, etc. Edit these when you want to teach future contributors how to do a thing.
 
 ### Workflow shortcuts
@@ -178,8 +178,8 @@ If you touch X, update Y. CI won't catch a desynced public skill or stale README
 
 | Touched | Update |
 |---|---|
-| MCP tool added / renamed / removed | `skills/remind/SKILL.md` (read tools) or `skills/memoize/SKILL.md` (write tools); both if the change is shared. README's MCP tools table. |
-| Temperature config (`pkg/temperature/Config`) | Both public skills — `skills/remind/` documents the mental model, `skills/memoize/` documents the workflow it triggers. `docs/temperature.md` if the user-facing behavior shifts. |
+| MCP tool added / renamed / removed | `skills/remind/` (read tools) or `skills/memoize/` (write tools) — SKILL.md router *and* the matching `references/*.md` depth; both skills if the change is shared. Run `make check-skills`. README's MCP tools table. |
+| Temperature config (`pkg/temperature/Config`) | Both public skills — `skills/remind/SKILL.md` documents the mental-model numerics, `skills/memoize/references/lifecycle.md` documents the summarization workflow it triggers. `docs/temperature.md` if the user-facing behavior shifts. |
 | New parser format | README's "Why I built this" formats list (currently *Markdown, HTML, JSON, YAML, TOON*). |
 | CLI flag added / removed / renamed | `docs/cli.md`. Each plugin README in `plugins/` that demos the flag. |
 | New migration | `docs/architecture.md` Store row if the schema description shifts. The `add-store-query` skill if a new convention emerged. |
