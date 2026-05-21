@@ -100,7 +100,7 @@ All three keys are always present (`{"nodes":[],"edges":[],"pending":[]}` on an 
   ] }
 ```
 
-`status` is the worst check status across the report (`fail` beats `warn` beats `pass`); `checks` is always present and ordered. It reuses `pkg/doctor` directly — no duplicated check logic — and, like every resource, warms nothing.
+`status` is the worst check status across the report (`fail` beats `warn` beats `pass`); `checks` is always present and ordered. It runs the same checks the `remindb doctor` CLI does — no duplicated logic — and, like every resource, warms nothing.
 
 `remindb://logs` — the recent server log records from a bounded in-memory ring buffer, for a desktop log console. `records` is always present (`[]` before anything is logged), ordered oldest-first (**newest last**); `dropped` counts records evicted once the buffer filled past its capacity (`server.logging.buffer_size`, default 1000):
 

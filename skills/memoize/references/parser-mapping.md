@@ -2,7 +2,7 @@
 
 Reference for `memoize`. Load when you need the exact block→node mapping or the automatic compaction rules behind a node's `token_count`.
 
-Grounded in `pkg/parser/markdown.go`. Block-level only — inline emphasis, links, and code spans flatten into the parent's content and aren't addressable.
+remindb's Markdown parser is **block-level only** — inline emphasis, links, and code spans flatten into the parent's content and aren't addressable.
 
 | Markdown block | Becomes | Notes |
 |---|---|---|
