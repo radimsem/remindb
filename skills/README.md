@@ -15,14 +15,20 @@ They load together — `remember` routes into `remind`/`memoize`, and `memoize` 
 
 ## Install
 
-The skills are published from this repo and managed by [`vercel-labs/skills`](https://github.com/vercel-labs/skills). Every supported agent has a native skill loader, so one command installs all four (with their `references/` subdirs) into the right place for your agent:
+The skills are published from this repo and managed by [`vercel-labs/skills`](https://github.com/vercel-labs/skills). One command installs all four (with their `references/` subdirs) — globally for every detected agent, or scoped to one:
 
 ```bash
+# Global — install for all detected agents at once
+npx skills@latest add radimsem/remindb/skills
+```
+
+```bash
+# Scoped — install for one agent
 npx skills@latest add radimsem/remindb/skills -a claude-code
 # -a codex | gemini-cli | opencode | openclaw | ...
 ```
 
-Run it again with a different `-a <agent>` to add the skills for another agent. This is the *skills* half of setup; the [`plugins/<agent>/`](../plugins/) folders install the MCP server itself — you want both.
+Run the scoped form again with a different `-a <agent>` to add the skills for another agent. This is the *skills* half of setup; the [`plugins/<agent>/`](../plugins/) folders install the MCP server itself — you want both.
 
 ## Updating
 

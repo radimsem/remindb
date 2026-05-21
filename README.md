@@ -115,9 +115,15 @@ remindb update --force
 
 The public skills live under [`skills/`](skills/): [`remember`](skills/remember/SKILL.md) (the plain-language front door), [`remind`](skills/remind/SKILL.md) (read path), [`memoize`](skills/memoize/SKILL.md) (write path), and [`remindb-setup`](skills/remindb-setup/SKILL.md) (connectivity/config). `remind` and `memoize` use progressive disclosure — a compact `SKILL.md` plus on-demand `references/`. They're refreshed by [`vercel-labs/skills`](https://github.com/vercel-labs/skills).
 
-First-time install (or after adding a new agent):
+First-time install — globally (every detected agent), or scoped to one agent:
 
 ```bash
+# Global — install for all detected agents at once
+npx skills@latest add radimsem/remindb/skills
+```
+
+```bash
+# Scoped — install for one agent
 npx skills@latest add radimsem/remindb/skills -a claude-code
 # -a codex | gemini-cli | opencode | openclaw | hermes-agent | ...
 ```
@@ -244,11 +250,13 @@ Once the binary and the plugin are installed, configure the workspace from insid
 
 It authors `.remindb/` (`ignore`/`pinned`/`temperatures.json`/`config.json`), offers to reseed temperatures and pins onto existing nodes, and tells you when a restart is needed to apply `config.json` changes.
 
-Once that's done, the everyday orientation call is simple:
+Once that's done, talking to your memory is plain language — the **`/remember`** front door routes recall to `remind` and saves to `memoize`, so you never name a tool:
 
 ```
-/remind Call MemoryTree to orient. Then call MemorySearch for "<topic>" with budget 1000
-and MemoryFetch on the top hit. Explain what you learned and which files it came from.
+/remember what did we decide about <topic>? Pull it from memory — don't re-read the files.
+```
+
+It searches the node tree, fetches the top hits under a token budget, and answers from memory, citing which file each fact came from — instead of grepping and re-reading prose it has already seen. The same door takes saves: `/remember note that <fact>` routes to a structured write.
 ```
 
 ## Benchmarks
