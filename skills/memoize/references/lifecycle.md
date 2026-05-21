@@ -4,14 +4,15 @@ Reference for `memoize`. Load when removing/reverting nodes, protecting them fro
 
 ## Maintenance cadence — when to reach for each
 
-The write tools fall into a rhythm. Use this to decide which to run, not just how:
+Which tool to run (pick by intent; the *how* is below):
 
-- **On every "remember this"** → `MemoryWrite` (search-first). The default.
-- **On a `remindb.temperature` warning** → `MemorySummarize` the listed nodes. The notification is the trigger; don't summarize proactively unless a node is genuinely stale.
-- **When source files changed on disk** (external edit, `git pull`, disabled watcher) → `MemoryCompile` the narrow path. The background rescan usually handles this; compile manually only when you can't wait for the next tick or rescan is off.
-- **When a node must never cool** (invariant, canonical summary) → `MemoryPin`, sparingly. Over-pinning kills the cold-set signal.
-- **When a node is wrong / stale / never belonged** → `MemoryForget` (one node) — *not* an empty overwrite.
-- **When several recent writes left the graph bad** → `MemoryRollback` to a known-good snapshot. One bad node → `MemoryForget` instead (smaller blast radius).
+- **Save structural / multi-part memory** → write a file under `$REMINDB_SOURCE` → rescan compiles it (or `MemoryCompile` if rescan is off). `MemoryWrite` would flatten it — see `write-paths.md`.
+- **Single text update to an anchor, or a new flat fact** → `MemoryWrite` (search-first for the anchor).
+- **`remindb.temperature` warning** → `MemorySummarize` the listed nodes. The notification is the trigger; don't summarize proactively unless a node is genuinely stale.
+- **Source files changed on disk** (external edit, `git pull`, disabled watcher) → `MemoryCompile` the narrow path. Rescan usually handles it; compile manually only when you can't wait or rescan is off.
+- **A node must never cool** (invariant, canonical summary) → `MemoryPin`, sparingly. Over-pinning kills the cold-set signal.
+- **A node is wrong / stale / never belonged** → `MemoryForget` (one node) — *not* an empty overwrite.
+- **Several recent writes left the graph bad** → `MemoryRollback` to a known-good snapshot. One bad node → `MemoryForget` (smaller blast radius).
 
 ## MemoryForget — explicit node removal
 
@@ -43,7 +44,7 @@ remindb__MemoryRollback(snapshot_id=42, drop_after=true)
 
 **Restored** to target values: node content + hash; metadata (`parent_id`, `source_file`, `node_type`, `depth`, `label`, `format`, `token_count` — reparents/renames revert); tree shape (deleted nodes reappear, since-created removed); FTS5 (via triggers). **Not restored:** temperature / access count / last-accessed (access history, not content); pinned state (recreated nodes start unpinned); relations + pending relations (sideband — a `MemoryRelate` edge made between target and HEAD stays; one deleted with its endpoint re-resolves via pending on the next compile if the endpoint returns).
 
-**Pre-migration limit:** a target older than `0005_diff_metadata` carries NULL old-metadata for `OpRem` events in range — those nodes can't be reconstructed; rollback **skips** them with a per-node warning (`pre-migration OpRem; node metadata unavailable`). Treat as actionable — recreate via `MemoryWrite` if important. Newer diffs always capture full metadata.
+**Pre-migration limit:** a target older than `0005_diff_metadata` carries NULL old-metadata for `OpRem` events in range — those nodes can't be reconstructed; rollback **skips** them with a per-node warning (`pre-migration OpRem; node metadata unavailable`). Treat as actionable — recreate it if important (structural content → its source file + recompile; a flat fact → `MemoryWrite`). Newer diffs always capture full metadata.
 
 **Atomicity:** the whole flow (mutations, snapshot, diffs, cursor advance, optional prune) runs in one `Store.Tx` — a crash/cancel rolls back cleanly. This is why `MemoryRollback` bypasses `emitter.Emit` (two transactions for emit + prune would leave a real failure window). Choose rollback over `MemoryForget` for multiple bad writes / a polluted compile / privacy-sensitive content (`drop_after=true`); use `MemoryForget` for a single bad node.
 
@@ -76,19 +77,19 @@ remindb__MemorySummarize(node_id="<id>", summary="…")                  # repla
 remindb__MemorySummarize(node_id="<id>", summary="…", temperature=0.7) # override when high-value
 ```
 
-`MemorySummarize`: replaces content, recomputes `token_count`, rewrites label to `"Summary: <first line>"` (≤70 chars incl. prefix); **preserves `node_type`, `parent_id`, source**; **bumps temperature to `SummarizeRebound` (default 0.5)** so it leaves the cold set immediately (optional `temperature` ∈ `[0,1]` overrides); snapshots (prior wording recoverable via `MemoryHistory`).
+`MemorySummarize`: replaces content **in place** (like `MemoryWrite`, the `summary` is **not** parsed), recomputes `token_count`, rewrites label to `"Summary: <first line>"` (≤70 chars incl. prefix); **preserves `node_type`, `parent_id`, `format`, source**; **bumps temperature to `SummarizeRebound` (default 0.5)** so it leaves the cold set immediately (optional `temperature` ∈ `[0,1]` overrides); snapshots (prior wording recoverable via `MemoryHistory`).
 
-Same shape rules apply to the `summary` — give it headings/a list; a dense paragraph is what you're compacting *away from*. The summary should index *better* than the original, not just be shorter. Notifications dedup per `ColdNotifyTTL` (default 1 hour); the next reminder only arrives if the node decays back below `ColdThreshold`. When a deployment sets `temperature.enabled: false` the ticker is frozen — no cold notifications fire, so this handoff simply never triggers until temperature is re-enabled (you can still summarize proactively).
+It rewrites **one node's content** — it won't fan a summary into a subtree. So compact, don't restructure: a tight paragraph or a short `- ` list (still one node, but its items stay scannable in FTS5) reading *denser* than the original. If a cold node is large enough to truly *need* splitting into a subtree, that's the compile plane (edit its source file → recompile), not `MemorySummarize`. Notifications dedup per `ColdNotifyTTL` (default 1 hour); the next reminder only arrives if the node decays back below `ColdThreshold`. With `temperature.enabled: false` the ticker is frozen — no cold notifications fire, so this handoff never triggers until temperature is re-enabled (you can still summarize proactively).
 
 ## Recompile when the source drifts
 
-`MemoryCompile` snapshots — same write semantics as `MemoryWrite`.
+`MemoryCompile` is the **compile plane**: it runs files through the parser into the structured node tree (unlike `MemoryWrite`'s flat node), diffs against stored state, and emits **only changed nodes** in one snapshot.
 
 ```
 remindb__MemoryCompile(path="<file or subdir>", message="<optional snapshot note>")
 ```
 
-Use when disk changed outside the rescan loop (external edit, disabled watcher, fresh `git pull`). **Prefer narrow paths** — one file is milliseconds; the whole tree is slow and creates a large snapshot. `path` may be absolute or relative; the server re-anchors it to `REMINDB_SOURCE` so the form you pass doesn't fork duplicate nodes (paths outside the root, or with `REMINDB_SOURCE` unset, pass through).
+Use when disk changed outside the rescan loop (external edit, disabled watcher, fresh `git pull`) — or right after you authored a memory file and rescan is off. **Prefer narrow paths** — one file is milliseconds; the whole tree is slow and creates a large snapshot. `path` may be absolute or relative; the server re-anchors it to `REMINDB_SOURCE` so the form you pass doesn't fork duplicate nodes (paths outside the root, or with `REMINDB_SOURCE` unset, pass through).
 
 A `.remindb/ignore` at the source root is honored by compile + rescan — gitignore-style subset (literals, `*`/`?`/`[abc]`, trailing `/` dir-only, leading `/` root-anchor, `**` any-segment, `!` negation last-match-wins, `\` escape, `#` comments). Patterns subtract from the supported-extension allow-list; they can't re-include hardcoded skip dirs (`node_modules`, `vendor`, `target`, `dist`, `venv`) or dotfiles. Operators set this once — the agent doesn't author it.
 

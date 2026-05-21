@@ -1,10 +1,10 @@
 # Wiki-links and manual relations
 
-Reference for `memoize`. Load when authoring `[[Label]]` cross-references in a payload or connecting two existing nodes with `MemoryRelate`.
+Reference for `memoize`. Load when authoring `[[Label]]` cross-references in a **compiled file** or connecting two existing nodes with `MemoryRelate`.
 
-## Authoring wiki-links — graph relations in your payload
+## Authoring wiki-links — graph relations in compiled content
 
-A `[[Label]]` in a Markdown/HTML payload becomes a **parsed edge** (see `remind`'s relations reference). The parser strips resolver params from the stored content and captures them as edge metadata; readers see the clean normalized `[[Label]]`.
+A `[[Label]]` becomes a **parsed edge** only on the **compile plane** — in a file under `$REMINDB_SOURCE` that the parser processes (see `references/write-paths.md`). It does **not** resolve in a `MemoryWrite` payload (that never parses — the `[[Label]]` would sit as literal text in one flat node). On compile, the parser strips resolver params from the stored content and captures them as edge metadata; readers see the clean normalized `[[Label]]`.
 
 ```
 [[Architecture]]                                # bare label

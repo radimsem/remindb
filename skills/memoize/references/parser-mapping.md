@@ -1,8 +1,8 @@
 # How the parser maps Markdown to nodes
 
-Reference for `memoize`. Load when you need the exact block→node mapping or the automatic compaction rules behind a node's `token_count`.
+Reference for `memoize`. Load when authoring a **file for the compile plane** (see `references/write-paths.md`) and you need the exact block→node mapping or the automatic compaction rules behind a node's `token_count`.
 
-remindb's Markdown parser is **block-level only** — inline emphasis, links, and code spans flatten into the parent's content and aren't addressable.
+This applies to **compiled files only** — `MemoryWrite` payloads never reach the parser (they store as one flat `text` node). remindb's Markdown parser is **block-level only** — inline emphasis, links, and code spans flatten into the parent's content and aren't addressable.
 
 | Markdown block | Becomes | Notes |
 |---|---|---|
