@@ -1158,10 +1158,13 @@ func TestRewriteQuery(t *testing.T) {
 		in   string
 		want string
 	}{
-		{"hello", "hello"},
+		{"hello", `"hello"`},
 		{"", ""},
-		{"hello world", "hello OR world"},
-		{"snapshot tests mock", "snapshot OR tests OR mock"},
+		{"hello world", `"hello" OR "world"`},
+		{"snapshot tests mock", `"snapshot" OR "tests" OR "mock"`},
+		// Bare terms with internal punctuation are quoted, not leaked to FTS5.
+		{"ZEBRA-4471", `"ZEBRA-4471"`},
+		{"rate-limit cache", `"rate-limit" OR "cache"`},
 		// FTS5 operators pass through unchanged.
 		{"snapshot OR tests", "snapshot OR tests"},
 		{"snapshot AND tests", "snapshot AND tests"},
@@ -1208,6 +1211,36 @@ func TestSearchMultiWord(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Search: %v", err)
 	}
+	if len(results) != 1 {
+		t.Errorf("len = %d, want 1", len(results))
+	}
+}
+
+func TestSearchPunctuation(t *testing.T) {
+	st := openTestDB(t)
+	ctx := context.Background()
+
+	n := testNode("aaaaaaaa", "")
+	n.Content = "tracking error code ZEBRA-4471 in the rate-limit cache"
+	n.Label = "punctuated"
+	must(t, st.UpsertNode(ctx, n))
+
+	// Single-token punctuated query: pre-fix this leaked into FTS5 as
+	// `no such column: 4471`. It must match the literal, never error.
+	results, err := st.Search(ctx, "ZEBRA-4471", 10)
+	if err != nil {
+		t.Fatalf("Search(ZEBRA-4471): %v", err)
+	}
+	if len(results) != 1 {
+		t.Errorf("len = %d, want 1", len(results))
+	}
+
+	// Multi-word punctuated query OR-joins without erroring.
+	results, err = st.Search(ctx, "rate-limit cache", 10)
+	if err != nil {
+		t.Fatalf("Search(rate-limit cache): %v", err)
+	}
+
 	if len(results) != 1 {
 		t.Errorf("len = %d, want 1", len(results))
 	}

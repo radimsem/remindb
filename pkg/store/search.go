@@ -65,10 +65,13 @@ func rewriteQuery(q string) string {
 		}
 	}
 
+	// Quote each term so internal punctuation (hyphens, dots) matches as a
+	// literal phrase instead of leaking into FTS5 as an operator.
 	terms := strings.Fields(q)
-	if len(terms) <= 1 {
-		return q
+	quoted := make([]string, len(terms))
+	for i, t := range terms {
+		quoted[i] = `"` + t + `"`
 	}
 
-	return strings.Join(terms, " OR ")
+	return strings.Join(quoted, " OR ")
 }
