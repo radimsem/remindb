@@ -22,7 +22,7 @@ Pipeline: `parser → transformer → emitter → store`. Read side: `query → 
 - `cmd/remindb/` — CLI: `serve`, `compile`, `inspect`, `bench`, `doctor`, `update`
 - `migrations/` — `0001_init.sql`, `0002_*.sql`, applied via embed.FS in `migrations.go`
 - `internal/` — bench, contentid, fileext, ignore, mcptest, tempfile, testutil, tokens
-- `skills/{remember,remind,memoize,remindb-setup}/` — **public** skills shipped to MCP clients (distinct from `.claude/skills/`): `remember` is the broad-trigger router, `remind` the read path + mental model, `memoize` the write path + Markdown-shape rules, `remindb-setup` the connectivity/config onboarding. `remind` and `memoize` push depth into their `references/` subdirs (progressive disclosure); SKILL.md stays a compact router. Structural gate: `scripts/check-skills.sh` (`make check-skills`)
+- `skills/{remember,remind,memoize,remindb-setup}/` — **public** skills shipped to MCP clients (distinct from `.claude/skills/`): `remember` is the broad-trigger router, `remind` the read path + mental model, `memoize` the write path + Markdown-shape rules, `remindb-setup` the `/remindb-setup [automode]` setup wizard. `remind`, `memoize`, and `remindb-setup` push depth into their `references/` subdirs (progressive disclosure); SKILL.md stays a compact router/spine. Structural gate: `scripts/check-skills.sh` (`make check-skills`)
 - `docs/` — **public** end-user manual: `architecture.md` / `cli.md` / `configuration.md` (reference) plus one deep-dive per feature; editable diagram sources in `assets/excalidraw/`, exported `assets/*.svg`
 - `plugins/` — per-agent plugin folders (claude-code, gemini-cli, codex, opencode, openclaw)
 - Top-level: `integration_test.go`, `mcp_integration_test.go`, `bench_test.go`

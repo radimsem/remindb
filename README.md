@@ -235,24 +235,14 @@ Or HTTP, when you want one long-running server that multiple agent sessions (a l
 
 On startup the agent sees the full `Memory*` tool suite alongside its usual toolbox.
 
-Run this once when you first point `serve` at a new workspace. The agent reads the configuration reference and proposes a `.remindb/` setup for your project:
+Once the binary and the plugin are installed, configure the workspace from inside a session with the **`remindb-setup`** skill (installed via `npx skills add`, above) — no copy-paste prompt needed:
 
 ```
-Fetch https://raw.githubusercontent.com/radimsem/remindb/main/docs/configuration.md,
-then do the following for this workspace:
-
-1. Walk the directory. Note which files are stable reference material (READMEs, specs,
-   ADRs, architecture docs), which are generated artifacts, and which change constantly.
-2. Propose .remindb/ignore patterns for build outputs, dependencies, test fixtures,
-   and anything that would add noise without adding signal.
-3. For the stable reference files, propose .remindb/pinned entries so they never age out.
-4. Suggest initial temperatures in .remindb/temperatures.json — higher for files you'll
-   read often, lower for archives or rarely-touched config.
-5. Draft a .remindb/config.json with a decay rate, budget defaults, and rescan interval
-   that fit how this workspace is actually used.
-
-Show me the plan before writing anything to disk.
+/remindb-setup            # interactive — walks you through the .remindb/ config
+/remindb-setup automode   # hands-off — the agent infers the whole setup itself
 ```
+
+It authors `.remindb/` (`ignore`/`pinned`/`temperatures.json`/`config.json`), offers to reseed temperatures and pins onto existing nodes, and tells you when a restart is needed to apply `config.json` changes.
 
 Once that's done, the everyday orientation call is simple:
 
