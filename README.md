@@ -119,7 +119,7 @@ First-time install (or after adding a new agent):
 
 ```bash
 npx skills@latest add radimsem/remindb/skills -a claude-code
-# -a codex | gemini-cli | opencode | openclaw | ...
+# -a codex | gemini-cli | opencode | openclaw | hermes-agent | ...
 ```
 
 Refresh later:
@@ -141,7 +141,7 @@ The README is the trailer. The manual is in [`docs/`](./docs/) — each page ope
 
 ## MCP tools
 
-A `Memory*` tool suite, registered once, surfaced to any MCP-capable agent (Claude Code, Codex, Gemini CLI, OpenCode, OpenClaw, …). The read path is documented in the [`remind`](./skills/remind/) skill, the write path in [`memoize`](./skills/memoize/).
+A `Memory*` tool suite, registered once, surfaced to any MCP-capable agent (Claude Code, Codex, Gemini CLI, OpenCode, OpenClaw, Hermes Agent, …). The read path is documented in the [`remind`](./skills/remind/) skill, the write path in [`memoize`](./skills/memoize/).
 
 | Tool | Purpose |
 |------|---------|
@@ -186,7 +186,7 @@ Several are subscribable — clients can receive push notifications on state cha
 
 ### Agent integrations
 
-Five plugin folders ship with the repo, one per supported coding agent. Each has a manifest matching that agent's spec, an MCP stanza, and a README with install commands, env-var conventions, and a worked example that compiles the agent's own memory folder into remindb.
+Six plugin folders ship with the repo, one per supported agent host. Five are short declarative manifests matching the host's plugin spec; the Hermes Agent one is a Python `MemoryProvider` implementation that spawns `remindb serve` as a subprocess. Each folder has a README with install commands, env-var conventions, and a worked example.
 
 | Agent | Folder | Install docs |
 |-------|--------|--------------|
@@ -195,6 +195,7 @@ Five plugin folders ship with the repo, one per supported coding agent. Each has
 | Codex | [`plugins/codex/`](./plugins/codex/) | [plugins/codex/README.md](./plugins/codex/README.md) |
 | OpenCode | [`plugins/opencode/`](./plugins/opencode/) | [plugins/opencode/README.md](./plugins/opencode/README.md) |
 | OpenClaw | [`plugins/openclaw/`](./plugins/openclaw/) | [plugins/openclaw/README.md](./plugins/openclaw/README.md) |
+| Hermes Agent | [`plugins/hermes-agent/memory/remindb/`](./plugins/hermes-agent/memory/remindb/) | [plugins/hermes-agent/memory/remindb/README.md](./plugins/hermes-agent/memory/remindb/README.md) |
 
 > [!TIP]
 > **Pair the plugin with the two companion skills** — [`remind`](./skills/remind/) (read path) and [`memoize`](./skills/memoize/) (write path). They teach the agent the MCP tool suite so you don't re-explain it each session. Per-agent install instructions live in [`skills/README.md`](./skills/).

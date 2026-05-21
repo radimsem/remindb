@@ -1,0 +1,5 @@
+name: remindb
+version: 0.3.6
+description: "Token-efficient agentic memory database. Spawns `remindb serve` and exposes the full Memory* MCP tool suite."
+pip_dependencies: []
+hooks: []
