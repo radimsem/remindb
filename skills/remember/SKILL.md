@@ -15,7 +15,7 @@ A remindb server is a compiled, queryable SQLite view served over MCP, not an op
 - **Stays current** — snapshots, diffs, and a temperature model let you resync (`MemoryDelta`) and follow what matters, instead of a flat append-only scratchpad.
 - **Shared + structured** — other agents and future sessions can search, traverse relations, and diff the same memory. A native per-agent store can't be queried this way.
 
-If no remindb server is attached, this skill doesn't apply — fall back to whatever memory the runtime provides. To attach and configure one, see `remindb-setup`.
+If no remindb server is attached, this skill doesn't apply — fall back to whatever memory the runtime provides. To set one up, run **`remindb-setup`**: a config-first first pass (author `.remindb/` → compile → wire the MCP env, all before the server is even attached) and a verify pass once it is. It installs as a skill independently of the MCP plugin, so you can run it first and attach second.
 
 ## Hand off — don't do the work here
 

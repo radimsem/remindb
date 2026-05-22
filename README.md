@@ -241,14 +241,14 @@ Or HTTP, when you want one long-running server that multiple agent sessions (a l
 
 On startup the agent sees the full `Memory*` tool suite alongside its usual toolbox.
 
-Once the binary and the plugin are installed, configure the workspace from inside a session with the **`remindb-setup`** skill (installed via `npx skills add`, above) — no copy-paste prompt needed:
+You don't hand-write any of that, though — the **`remindb-setup`** skill (installed via `npx skills add`, above) is a **config-first wizard** that runs from inside a session. Because the skill installs independently of the MCP plugin, its first pass runs *before* any server is attached. On hosts that expose it as a slash command (Claude Code, OpenClaw):
 
 ```
-/remindb-setup            # interactive — walks you through the .remindb/ config
+/remindb-setup            # interactive — walks you through each .remindb/ choice
 /remindb-setup automode   # hands-off — the agent infers the whole setup itself
 ```
 
-It authors `.remindb/` (`ignore`/`pinned`/`temperatures.json`/`config.json`), offers to reseed temperatures and pins onto existing nodes, and tells you when a restart is needed to apply `config.json` changes.
+Codex, OpenCode, and Gemini CLI surface the same skill differently — the `/skills` picker, a `$remindb-setup` mention, or plain-language activation; each plugin README gives the exact invocation. Either way, it detects the host, authors `.remindb/` (`ignore`/`pinned`/`temperatures.json`/`config.json`) **before** compiling — so those settings apply at insert time, no reseed retrofit — runs the compile, offers to seed adjacent context (`CLAUDE.md`/`AGENTS.md`/`README`), and wires the MCP `env` for you using your host's durable mechanism. Then you enable the plugin and restart; re-running the wizard with the server attached is the verify pass (`MemoryStats` + `remindb://doctor`). Per-host invocation and env details live in [`skills/remindb-setup/`](./skills/remindb-setup/). (Hermes Agent is a memory-provider bridge, not an MCP-config host — it uses `hermes memory setup` instead; see its [plugin README](./plugins/hermes-agent/memory/remindb/).)
 
 Once that's done, talking to your memory is plain language — the **`/remember`** front door routes recall to `remind` and saves to `memoize`, so you never name a tool:
 
