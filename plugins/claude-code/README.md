@@ -10,6 +10,8 @@ Tools are namespaced, so `MemoryFetch` shows up as `remindb__MemoryFetch` in the
 
 ## Installation
 
+Setup is **config-first and wizard-driven**: install the binary and skills, run `/remindb-setup` *before* the plugin is attached (it authors `.remindb/`, compiles, and wires the env for you), then enable the plugin and restart. You don't hand-compile or hand-edit config — the wizard owns that.
+
 ### 1. Install the remindb binary
 
 It needs to be on `$PATH`:
@@ -24,114 +26,58 @@ On Windows:
 iwr -useb https://raw.githubusercontent.com/radimsem/remindb/main/install.ps1 | iex
 ```
 
-Verify:
+Verify: `remindb --version`.
+
+### 2. Install the companion skills
+
+This pulls the `remindb-setup` wizard plus the `remind` (read) and `memoize` (write) skills:
 
 ```bash
-remindb --version
+npx skills@latest add radimsem/remindb/skills -a claude-code
 ```
 
-### 2. Compile a source directory
+Refresh them later — independent of `remindb update` — with `npx skills@latest update`.
 
-remindb needs a SQLite file built from a source tree before the agent can read from it.
+### 3. Run the setup wizard
 
-A natural source for Claude Code is its own per-project memory at `~/.claude/projects/<project>/memory/` — those markdown files Claude has been quietly accumulating about each repo it works in. Indexing them across all projects lets Claude query its own persistent memory through remindb instead of grepping the dot folder.
+In a Claude Code session, invoke the wizard as a slash command:
 
-`~/.claude/projects/<project>/` sits next to a few other artifacts that don't belong in long-term memory: session-log `.jsonl` files, plus `subagents/` and `tool-results/` subtrees under each session UUID directory. Drop a `.remindb/ignore` at `~/.claude/projects/` to filter them out, so the only thing the compiler ingests is `memory/*.md` per project:
-
-```bash
-mkdir -p ~/.cache/remindb ~/.claude/projects/.remindb
-printf '%s\n' \
-    '# Compile only per-project memory/ markdown; skip the surrounding telemetry.' \
-    '' \
-    '# Session logs (large, low value).' \
-    '*.jsonl' \
-    '# Per-session subagent traces (any depth).' \
-    'subagents/' \
-    '# Per-session tool outputs (any depth).' \
-    'tool-results/' \
-    > ~/.claude/projects/.remindb/ignore
-remindb compile ~/.claude/projects --db ~/.cache/remindb/claude.db
+```
+/remindb-setup            # interactive — walks each choice
+/remindb-setup automode   # hands-off — infers the whole setup
 ```
 
-The same `.remindb/ignore` is honored by `serve`'s background rescan and the `MemoryCompile` tool — set it once, all paths agree. If Claude Code adds a new sibling-of-`memory/` artifact in some future release, append it to the file and recompile. Or point at any other workspace you want the agent to see — a docs tree, a notes repo, a project directory. Re-run `compile` whenever you want a fresh baseline; `serve` keeps the DB current after that.
+Running before the plugin is attached is intended: the wizard detects the host, authors `.remindb/` (`ignore`/`pinned`/`temperatures.json`/`config.json`) **before** compiling, runs `remindb compile`, offers to seed adjacent context (this project's `CLAUDE.md`, in-repo `README.md`), and wires the MCP env. A natural source for Claude Code is its own cross-project memory at `~/.claude/projects/` — the wizard will suggest it.
 
-### 3. Point remindb at your workspace
-
-`remindb serve` reads `REMINDB_DB` and `REMINDB_SOURCE` as fallbacks for its `--db` and `--source` flags. The bundled `.mcp.json` declares both as `${VAR}` passthroughs into the spawned subprocess, so export them in the shell **before launching Claude Code with the plugin enabled** — otherwise the first activation falls back to a stray `memory.db` in cwd:
-
-```bash
-export REMINDB_DB=$HOME/.cache/remindb/claude.db
-export REMINDB_SOURCE=$HOME/.claude/projects
-```
-
-Stick them in `~/.bashrc` / `~/.zshrc` / your fish equivalent to make the mapping permanent, or scope them to a single session if you want to switch workspaces between runs. Undefined `${VAR}` references resolve to empty strings, which is what triggers the cwd fallback.
-
-Prefer the paths in config rather than shell state? Edit the `env` block of the plugin's `.mcp.json` directly, swapping the `${VAR}` placeholders for absolute paths:
-
-```json
-"env": {
-    "REMINDB_DB": "/home/you/.cache/remindb/claude.db",
-    "REMINDB_SOURCE": "/home/you/.claude/projects"
-}
-```
-
-This is clean for a local checkout (`--plugin-dir ./plugins/claude-code`, step 4) — you own the file. For a marketplace install the manifest lives in the plugin cache under `~/.claude/plugins/` and is overwritten on every plugin update, so the shell-export path above stays the durable choice there. Either way, don't try to override it from a same-named server in `~/.claude.json` — Claude Code *replaces* the plugin's bundled entry rather than merging it (see step 4), so a user-scope copy drops the plugin wiring entirely.
-
-### 4. Install the plugin
-
-Pick one:
-
-**From the marketplace** (recommended):
+### 4. Enable the plugin
 
 ```
 /plugin marketplace add radimsem/remindb
 /plugin install remindb@remindb
 ```
 
-**Local checkout** (if you're hacking on the plugin):
+Or, if you're hacking on the plugin, a local checkout: `claude --plugin-dir ./plugins/claude-code`.
 
-```bash
-claude --plugin-dir ./plugins/claude-code
-```
+### 5. Restart and verify
 
-Either way, confirm the server is connected:
+Start a new session (so the freshly-wired env and plugin take effect), then confirm the server is connected:
 
 ```
 /mcp
 ```
 
-You should see `remindb` listed with the full `Memory*` tool suite.
+You should see `remindb` with the full `Memory*` tool suite. Re-run `/remindb-setup` — now that the server is attached, it runs its verify pass (`MemoryStats` + `remindb://doctor`).
 
-A same-named server in user-scope `~/.claude.json` *replaces* the plugin's bundled entry per Claude Code's MCP precedence rules (it does not merge), so don't try to inject env there.
+## Durable env
 
-#### Seed remaining context
-
-Step 2 compiled `~/.claude/projects/` — Claude's cross-project memory. The current project's `CLAUDE.md` and in-repo docs (`README.md`, design notes) live in the repo, not under that path. Ask Claude in your first session to fold them in. Use absolute paths — `MemoryCompile` doesn't expand `~`:
-
-```
-remindb__MemoryCompile(path="/home/you/code/my-project/CLAUDE.md", message="seed: project rules")
-remindb__MemoryCompile(path="/home/you/code/my-project/README.md", message="seed: project overview")
-```
-
-Re-run whenever a file changes.
-
-## Configuration
-
-The plugin itself has no runtime options. `remindb serve` resolves its DB and source paths from `REMINDB_DB` and `REMINDB_SOURCE` at launch.
-
-## Skills
-
-The agent-side skills (`remind` for reads, `memoize` for writes) teach Claude Code how to call the `Memory*` tools effectively. Install them through [`vercel-labs/skills`](https://github.com/vercel-labs/skills):
+`remindb serve` reads `REMINDB_DB` and `REMINDB_SOURCE` as fallbacks for its `--db`/`--source` flags, and the bundled `.mcp.json` declares both as `${VAR}` passthroughs. For a **marketplace install** the manifest lives in the plugin cache under `~/.claude/plugins/` and is overwritten on every update, so the wizard can't durably write it — it emits a shell-export snippet instead, which you add to `~/.bashrc` / `~/.zshrc` / your fish config:
 
 ```bash
-npx skills@latest add radimsem/remindb/skills -a claude-code
+export REMINDB_DB=$HOME/.cache/remindb/claude.db
+export REMINDB_SOURCE=$HOME/.claude/projects
 ```
 
-Refresh them later — independent of `remindb update` — with:
-
-```bash
-npx skills@latest update
-```
+Launch Claude Code from that shell. For a **local checkout** (`--plugin-dir`) you own the file, so the wizard writes the paths straight into the `env` block of `.mcp.json`. Either way, don't inject a same-named server into user-scope `~/.claude.json` — Claude Code *replaces* the plugin's bundled entry rather than merging it, dropping the plugin wiring entirely.
 
 ## Tools exposed
 

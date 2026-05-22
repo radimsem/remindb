@@ -8,6 +8,9 @@ Hermes memory plugins are Python classes that implement the [`MemoryProvider` AB
 
 > **Hermes runs one external memory provider at a time** (set by `memory.provider` in `~/.hermes/config.yaml`). Installing this plugin makes remindb that provider for the current profile.
 
+> [!IMPORTANT]
+> **Hermes is outside the unified MCP-host setup flow.** The other five plugins ([Claude Code](../../../claude-code/), [Gemini CLI](../../../gemini-cli/), [Codex](../../../codex/), [OpenCode](../../../opencode/), [OpenClaw](../../../openclaw/)) expose remindb as an MCP server wired through an `env` block, and are configured by the `/remindb-setup` skill wizard. Hermes is a **memory-provider bridge**, not an MCP-config host: it has no `mcpServers` `env` block and is set up with its own **`hermes memory setup`** wizard writing **`remindb.json`**. Don't run `/remindb-setup` here, and don't look for an `env` block to edit — follow the steps below instead. (You can still install the `remind`/`memoize` companion skills; see [Skills](#skills).)
+
 ## Installation
 
 ### 1. Install the remindb binary

@@ -4,12 +4,14 @@ Drops [remindb](https://github.com/radimsem/remindb) into OpenCode as an MCP ser
 
 ## How it works
 
-OpenCode configures MCP servers in `opencode.json` under the top-level `mcp` object rather than via the plugin API. This folder ships:
+OpenCode configures MCP servers in `opencode.json` under the top-level `mcp` object rather than via a plugin API. This folder ships:
 
 - `opencode.json` — a ready-to-merge MCP entry that spawns `remindb serve` over stdio.
 - `plugin.ts` — a minimal OpenCode plugin stub so the bundle can be distributed as an npm package for users who prefer that path.
 
 ## Installation
+
+Setup is **config-first and wizard-driven**. One OpenCode-specific fact shapes it: the server lives in `opencode.json` (there's no separate plugin install), and its `environment` block is the **durable home** for the workspace paths. The wizard writes that entry, so on OpenCode the wizard step *is* the server registration.
 
 ### 1. Install the remindb binary
 
@@ -25,26 +27,41 @@ On Windows:
 iwr -useb https://raw.githubusercontent.com/radimsem/remindb/main/install.ps1 | iex
 ```
 
-Verify:
+Verify: `remindb --version`.
+
+### 2. Install the companion skills
+
+Pulls the `remindb-setup` wizard plus the `remind` (read) and `memoize` (write) skills:
 
 ```bash
-remindb --version
+npx skills@latest add radimsem/remindb/skills -a opencode
 ```
 
-### 2. Compile your workspace
+Refresh later — independent of `remindb update` — with `npx skills@latest update`.
 
-remindb needs a SQLite file built from a source tree before the agent can read from it. The source is whatever workspace you want OpenCode to remember — a code repo, a docs tree, a notes directory.
+### 3. Run the setup wizard
+
+OpenCode loads skills **by name in conversation, not as a slash command** — ask for it:
+
+```
+use the remindb-setup skill
+```
+
+(Manual fallback: open the installed `remindb-setup` `SKILL.md` and follow it by hand.) The wizard detects the host, authors `.remindb/` **before** compiling, runs `remindb compile`, offers to seed adjacent context (the global `~/.config/opencode/AGENTS.md`, ancestor `AGENTS.md` files, and the `~/.claude/CLAUDE.md` fallback), and merges the `mcp.remindb` entry into `opencode.json` with your paths (see [Durable env](#durable-env)). It prefers a project-level `opencode.json` so each workspace carries its own paths.
+
+### 4. Restart and verify
+
+OpenCode reads `opencode.json` on session start, so launch a fresh session, then:
 
 ```bash
-mkdir -p ~/.cache/remindb
-remindb compile ~/code/my-project --db ~/.cache/remindb/my-project.db
+opencode mcp list
 ```
 
-Drop a `.remindb/ignore` at the workspace root if you need to exclude noise (build outputs, vendored deps, generated files). The same file is honored by `serve`'s background rescan and the `MemoryCompile` tool.
+You should see `remindb` with the full `Memory*` tool suite. Ask for the `remindb-setup` skill again — with the server attached it runs its verify pass (`MemoryStats` + `remindb://doctor`).
 
-### 3. Configure opencode.json
+## Durable env
 
-`remindb serve` reads `REMINDB_DB` and `REMINDB_SOURCE` for its `--db` and `--source` flags. The cleanest place to set them for OpenCode is the `environment` object on the `mcp.remindb` entry — OpenCode passes it straight to the spawned subprocess without touching your shell env. The full config looks like this:
+`remindb serve` reads `REMINDB_DB` and `REMINDB_SOURCE` as fallbacks for its `--db`/`--source` flags. The wizard writes them into the `environment` block of the `mcp.remindb` entry — OpenCode passes it straight to the spawned subprocess:
 
 ```json
 {
@@ -63,83 +80,7 @@ Drop a `.remindb/ignore` at the workspace root if you need to exclude noise (bui
 }
 ```
 
-Pick one install path:
-
-**Project-level** (recommended — one workspace per repo):
-
-```bash
-curl -fsSL https://raw.githubusercontent.com/radimsem/remindb/main/plugins/opencode/opencode.json \
-    -o opencode.json
-```
-
-**Global** (applies to every OpenCode session):
-
-```bash
-mkdir -p ~/.config/opencode
-curl -fsSL https://raw.githubusercontent.com/radimsem/remindb/main/plugins/opencode/opencode.json \
-    -o ~/.config/opencode/opencode.json
-```
-
-The bundled file ships only the bare MCP entry — open it after curling and add the `environment` block from the snippet above. Or skip the curl and write the full snippet by hand into either path.
-
-Heads up: OpenCode only expands `{env:VARIABLE_NAME}` in config values — shell-style `$HOME` or `${HOME}` is treated as a literal string and won't work. Swap the paths for a different workspace (e.g., `{env:HOME}/notes` + `{env:HOME}/.cache/remindb/notes.db`) whenever you want OpenCode to read a different tree. Per-project is recommended so each workspace carries its own DB and source paths — OpenCode reads `opencode.json` on session start, so launching a fresh session from the new directory is enough to swap configs.
-
-**Optional — npm-distributed plugin stub.** If you want the bundle to show up in OpenCode's plugin list, reference the npm package from the same `opencode.json`:
-
-```json
-{
-    "plugin": ["@radimsem/remindb-opencode"]
-}
-```
-
-OpenCode runs `bun install` at startup to resolve the dependency.
-
-**Prefer a shell-inherited env?** Point the two values at your own env vars via the same substitution:
-
-```json
-"environment": {
-    "REMINDB_DB": "{env:REMINDB_DB}",
-    "REMINDB_SOURCE": "{env:REMINDB_SOURCE}"
-}
-```
-
-Then export the pair in `~/.bashrc` / `~/.zshrc` / your fish equivalent and restart OpenCode from that shell.
-
-Confirm the server is connected:
-
-```bash
-opencode mcp list
-```
-
-You should see `remindb` listed with the full `Memory*` tool suite.
-
-#### Seed remaining context
-
-OpenCode doesn't keep a `memory/` folder — its persistent context is a stack of `AGENTS.md` files loaded from three places: the global `~/.config/opencode/AGENTS.md`, project-root and ancestor `AGENTS.md` files traversed upward from your cwd, and a Claude Code fallback at `~/.claude/CLAUDE.md` (unless disabled). Only `AGENTS.md` files at or below the workspace root land in `REMINDB_SOURCE` automatically — ancestors above it and the global file live outside.
-
-Ask OpenCode in your first session to fold them in. Use absolute paths — `MemoryCompile` doesn't expand `~`:
-
-```
-remindb__MemoryCompile(path="/home/you/.config/opencode/AGENTS.md", message="seed: global memory")
-remindb__MemoryCompile(path="/home/you/code/parent/AGENTS.md", message="seed: ancestor memory")
-remindb__MemoryCompile(path="/home/you/.claude/CLAUDE.md", message="seed: claude-code fallback")
-```
-
-Re-run whenever a file changes.
-
-## Skills
-
-The agent-side skills (`remind` for reads, `memoize` for writes) teach OpenCode how to call the `Memory*` tools effectively. Install them through [`vercel-labs/skills`](https://github.com/vercel-labs/skills):
-
-```bash
-npx skills@latest add radimsem/remindb/skills -a opencode
-```
-
-Refresh them later — independent of `remindb update` — with:
-
-```bash
-npx skills@latest update
-```
+OpenCode expands **only** `{env:VAR}` in config values — literal `$HOME`/`${HOME}` won't work. Project-level `opencode.json` lives at the repo root; global at `~/.config/opencode/opencode.json`. To list the bundle in OpenCode's plugin UI, also reference the npm stub: `"plugin": ["@radimsem/remindb-opencode"]` (OpenCode runs `bun install` at startup to resolve it).
 
 ## Tools exposed
 

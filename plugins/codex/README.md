@@ -10,6 +10,8 @@ All tool logic lives in the Go binary; the plugin is a thin wrapper.
 
 ## Installation
 
+Setup is **config-first and wizard-driven**. One Codex-specific fact shapes it: plugin-bundled MCP entries do no env-var expansion, so the durable home for the workspace paths is a **`[mcp_servers.remindb]` block in `~/.codex/config.toml`** — which both registers the server and carries its env. The wizard writes that block, so on Codex the wizard step *is* the server registration; the marketplace plugin is an alternative, not an extra requirement.
+
 ### 1. Install the remindb binary
 
 It needs to be on `$PATH`:
@@ -24,28 +26,39 @@ On Windows:
 iwr -useb https://raw.githubusercontent.com/radimsem/remindb/main/install.ps1 | iex
 ```
 
-Verify:
+Verify: `remindb --version`.
+
+### 2. Install the companion skills
+
+Pulls the `remindb-setup` wizard plus the `remind` (read) and `memoize` (write) skills:
 
 ```bash
-remindb --version
+npx skills@latest add radimsem/remindb/skills -a codex
 ```
 
-### 2. Compile a source directory
+Refresh later — independent of `remindb update` — with `npx skills@latest update`.
 
-remindb needs a SQLite file built from a source tree before the agent can read from it.
+### 3. Run the setup wizard
 
-A natural source for Codex is its own persistent context at `~/.codex/memories/` — markdown files Codex accumulates as long-term memory across sessions. Indexing them lets Codex query its own memory through remindb instead of grepping the dot folder.
+Codex surfaces skills through the **`/skills` picker or a `$remindb-setup` mention** — not as a `/remindb-setup` slash command. Pick `remindb-setup` from `/skills`, or type `$remindb-setup`. (Manual fallback: open the installed `remindb-setup` `SKILL.md` and follow it by hand.)
 
-```bash
-mkdir -p ~/.cache/remindb
-remindb compile ~/.codex/memories --db ~/.cache/remindb/codex.db
+The wizard detects the host, authors `.remindb/` **before** compiling, runs `remindb compile`, offers to seed adjacent context (this project's `AGENTS.md` and in-repo `README.md`), and writes the `~/.codex/config.toml` server block with your paths (see [Durable env](#durable-env)). A natural source for Codex is its own persistent context at `~/.codex/memories/` — the wizard will suggest it.
+
+### 4. Restart and verify
+
+The `config.toml` block the wizard wrote registers `remindb` as a user-defined MCP server, so just restart Codex. Confirm in the TUI:
+
+```
+/mcp
 ```
 
-`memories/` is pure user content, so no `.remindb/ignore` is needed. Skills under `~/.codex/skills/` and slash-command prompts under `~/.codex/prompts/` are deliberately *not* indexed — Codex already loads them as live instructions, so re-indexing them in remindb would double-count. Or point at any other workspace you want the agent to see — a docs tree, a notes repo, a project directory.
+You should see `remindb` with the full `Memory*` tool suite. (The `codex mcp` CLI manages only *external* servers added via `codex mcp add`; plugin-bundled and config-defined servers surface inside the TUI.) Re-run the wizard via `/skills` — with the server attached it runs its verify pass (`MemoryStats` + `remindb://doctor`).
 
-### 3. Point remindb at your workspace
+**Prefer the bundled plugin instead?** `codex plugin marketplace add radimsem/remindb` installs it (the marketplace's `INSTALLED_BY_DEFAULT` policy installs in the same step). But the plugin entry can't take env, so you must export `REMINDB_DB`/`REMINDB_SOURCE` in the launching shell — the `config.toml` path above avoids that.
 
-`remindb serve` reads `REMINDB_DB` and `REMINDB_SOURCE` as fallbacks for its `--db` and `--source` flags. The cleanest place to set them is a top-level `[mcp_servers.remindb]` block in `~/.codex/config.toml`, with the paths written straight into the `env` table:
+## Durable env
+
+`remindb serve` reads `REMINDB_DB` and `REMINDB_SOURCE` as fallbacks for its `--db`/`--source` flags. The wizard writes them into a top-level `[mcp_servers.remindb]` block in `~/.codex/config.toml`:
 
 ```toml
 [mcp_servers.remindb]
@@ -54,59 +67,7 @@ args = ["serve"]
 env = { REMINDB_DB = "/home/you/.cache/remindb/codex.db", REMINDB_SOURCE = "/home/you/.codex/memories" }
 ```
 
-Replace `/home/you` with your absolute `$HOME` — `config.toml` does not expand it. This registers `remindb` as a user-defined MCP server rather than a plugin server, so the bundled plugin can stay disabled or removed entirely if you take this path. It keeps the workspace mapping with the rest of your Codex config instead of in shell state.
-
-Why not inject env into the plugin entry? Codex's `[plugins.<name>]` table only accepts `enabled` and does no `${VAR}` / `$VAR` / `{env:VAR}` expansion in either `config.toml` or the plugin's bundled `.mcp.json` (which is why that file ships with `env: {}` — placeholders would pass through literally and overwrite inherited shell values with garbage). There's no first-class way to inject env into a plugin-bundled MCP server from user config.
-
-If you'd rather keep the plugin and not maintain a `config.toml` server block, Codex propagates the launching shell's environment to plugin-spawned subprocesses — export the pair before launching Codex with the plugin enabled (otherwise the first activation falls back to a stray `memory.db` in cwd):
-
-```bash
-export REMINDB_DB=$HOME/.cache/remindb/codex.db
-export REMINDB_SOURCE=$HOME/.codex/memories
-```
-
-Stick them in `~/.bashrc` / `~/.zshrc` / your fish equivalent to make it permanent.
-
-### 4. Add the plugin from GitHub
-
-```bash
-codex plugin marketplace add radimsem/remindb
-```
-
-That single command does both jobs: the marketplace's `policy.installation: INSTALLED_BY_DEFAULT` makes Codex install the bundled plugin in the same step. The plugin caches at `~/.codex/plugins/cache/remindb/remindb/<version>/`; the marketplace registration lives in `~/.codex/config.toml`.
-
-Confirm the server is connected by launching Codex and running the `/mcp` slash command in the TUI:
-
-```
-/mcp
-```
-
-You should see `remindb` listed with the full `Memory*` tool suite. (The `codex mcp` CLI subcommand only manages *external* MCP servers added via `codex mcp add`; plugin-bundled MCP servers surface only inside the TUI.)
-
-#### Seed remaining context
-
-Step 2 compiled `~/.codex/memories/` — Codex's cross-session notes. The current project's `AGENTS.md` and in-repo docs (`README.md`, design notes, roadmaps) live in the repo, not under that path. Ask Codex in your first session to fold them in. Use absolute paths — `MemoryCompile` doesn't expand `~`:
-
-```
-remindb__MemoryCompile(path="/home/you/code/my-project/AGENTS.md", message="seed: project rules")
-remindb__MemoryCompile(path="/home/you/code/my-project/README.md", message="seed: project overview")
-```
-
-Re-run whenever a file changes.
-
-## Skills
-
-The agent-side skills (`remind` for reads, `memoize` for writes) teach Codex how to call the `Memory*` tools effectively. Install them through [`vercel-labs/skills`](https://github.com/vercel-labs/skills):
-
-```bash
-npx skills@latest add radimsem/remindb/skills -a codex
-```
-
-Refresh them later — independent of `remindb update` — with:
-
-```bash
-npx skills@latest update
-```
+Use absolute paths — `config.toml` does not expand `~` or `$VAR`. Codex's `[plugins.<name>]` table accepts only `enabled` and does no `${VAR}` expansion in `config.toml` or the bundled `.mcp.json`, which is why the user-server block is the durable choice.
 
 ## Tools exposed
 

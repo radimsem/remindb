@@ -10,6 +10,8 @@ The extension ships a `gemini-extension.json` with an inlined `mcpServers` entry
 
 ## Installation
 
+Setup is **config-first and wizard-driven**: the `remindb-setup` skill authors `.remindb/`, compiles, and wires the env for you. Two Gemini-specific facts shape the order below — the extension installs from a **local clone**, and that clone's manifest is also where the **durable env** lives, so the clone comes before the wizard.
+
 ### 1. Install the remindb binary
 
 It needs to be on `$PATH`:
@@ -24,26 +26,53 @@ On Windows:
 iwr -useb https://raw.githubusercontent.com/radimsem/remindb/main/install.ps1 | iex
 ```
 
-Verify:
+Verify: `remindb --version`.
+
+### 2. Install the companion skills
+
+Pulls the `remindb-setup` wizard plus the `remind` (read) and `memoize` (write) skills:
 
 ```bash
-remindb --version
+npx skills@latest add radimsem/remindb/skills -a gemini-cli
 ```
 
-### 2. Compile your workspace
+Refresh later — independent of `remindb update` — with `npx skills@latest update`.
 
-remindb needs a SQLite file built from a source tree before the agent can read from it. The source is whatever workspace you want Gemini to remember — a code repo, a docs tree, a notes directory.
+### 3. Clone the plugin source
+
+`gemini extensions install` has no subdirectory selector and the plugin lives at `plugins/gemini-cli/`, so install from a clone. The clone's `gemini-extension.json` is also where the durable env lands:
 
 ```bash
-mkdir -p ~/.cache/remindb
-remindb compile ~/code/my-project --db ~/.cache/remindb/my-project.db
+git clone https://github.com/radimsem/remindb.git ~/code/remindb   # or: git -C ~/code/remindb checkout v0.1.0
 ```
 
-Drop a `.remindb/ignore` at the workspace root if you need to exclude noise (build outputs, vendored deps, generated files). The same file is honored by `serve`'s background rescan and the `MemoryCompile` tool.
+### 4. Run the setup wizard
 
-### 3. Point remindb at your workspace
+Gemini CLI surfaces skills via **model activation, not a slash command** — ask in plain language and Gemini activates the skill:
 
-The extension's `gemini-extension.json` declares an `env` block for the spawned server. You install from a local clone (step 4), so the cleanest setup is to write the two absolute paths straight into that clone's manifest before installing — the workspace mapping then travels with the extension instead of living in your shell:
+```
+run the remindb setup wizard
+```
+
+(Manual fallback: open the installed `remindb-setup` `SKILL.md` and follow it by hand.) The wizard detects the host, authors `.remindb/` **before** compiling, runs `remindb compile`, offers to seed adjacent context (the global `~/.gemini/GEMINI.md` and any ancestor `GEMINI.md` above your cwd), and wires the MCP env by writing the two paths into the clone's `gemini-extension.json` (see [Durable env](#durable-env)).
+
+### 5. Install the extension and verify
+
+```bash
+gemini extensions install ~/code/remindb/plugins/gemini-cli
+```
+
+Update later (local-path installs aren't tracked by `gemini extensions update`): `git -C ~/code/remindb pull`, then `gemini extensions uninstall remindb && gemini extensions install ~/code/remindb/plugins/gemini-cli`. Confirm the server is connected:
+
+```bash
+gemini mcp list
+```
+
+You should see `remindb` with the full `Memory*` tool suite. Ask Gemini to run the setup wizard again — now that the server is attached, it runs its verify pass (`MemoryStats` + `remindb://doctor`).
+
+## Durable env
+
+`remindb serve` reads `REMINDB_DB` and `REMINDB_SOURCE` as fallbacks for its `--db`/`--source` flags. The clone's `gemini-extension.json` carries an `env` block — the durable home for the two paths, written by the wizard (re-run the step-5 `uninstall` + `install` after any change):
 
 ```jsonc
 // ~/code/remindb/plugins/gemini-cli/gemini-extension.json
@@ -53,75 +82,7 @@ The extension's `gemini-extension.json` declares an `env` block for the spawned 
 }
 ```
 
-Replace `/home/you` with your `$HOME` — use absolute paths. Re-run the step-4 re-install (`uninstall` + `install`) after editing, and again whenever you swap the paths for a different workspace.
-
-The bundled manifest ships these as `${REMINDB_DB}` / `${REMINDB_SOURCE}` passthroughs instead, so the alternative is to leave the manifest untouched and export the pair in the shell **before launching Gemini with the extension installed** — otherwise the first activation falls back to a stray `memory.db` in cwd:
-
-```bash
-export REMINDB_DB=$HOME/.cache/remindb/my-project.db
-export REMINDB_SOURCE=$HOME/code/my-project
-```
-
-Add them to your shell rc (`~/.bashrc`, `~/.zshrc`, fish config) to make it permanent.
-
-### 4. Install the extension
-
-`gemini extensions install` accepts a GitHub URL or a local path, but its URL form has no subdirectory selector. The plugin lives at `plugins/gemini-cli/` inside the remindb repo, so clone first and install from that subdirectory:
-
-```bash
-git clone https://github.com/radimsem/remindb.git ~/code/remindb
-gemini extensions install ~/code/remindb/plugins/gemini-cli
-```
-
-Pin to a release tag:
-
-```bash
-git -C ~/code/remindb checkout v0.1.0
-gemini extensions install ~/code/remindb/plugins/gemini-cli
-```
-
-Update later with `git pull` and a re-install (local-path installs aren't tracked by `gemini extensions update`):
-
-```bash
-git -C ~/code/remindb pull
-gemini extensions uninstall remindb
-gemini extensions install ~/code/remindb/plugins/gemini-cli
-```
-
-Confirm the server is connected:
-
-```bash
-gemini mcp list
-```
-
-You should see `remindb` with the full `Memory*` tool suite.
-
-#### Seed remaining context
-
-Step 2 only compiled `REMINDB_SOURCE`. Gemini loads `GEMINI.md` from two places outside that path: the global `~/.gemini/GEMINI.md` (where `/memory add` and `save_memory` write) and project-root or ancestor `GEMINI.md` files above your cwd. Anything else outside the workspace won't be in the DB either.
-
-Ask Gemini in your first session to fold them in. Use absolute paths — `MemoryCompile` doesn't expand `~`:
-
-```
-remindb__MemoryCompile(path="/home/you/.gemini/GEMINI.md", message="seed: global memory")
-remindb__MemoryCompile(path="/home/you/code/parent/GEMINI.md", message="seed: ancestor memory")
-```
-
-Re-run whenever a file changes — after `/memory add` or an external edit.
-
-## Skills
-
-The agent-side skills (`remind` for reads, `memoize` for writes) teach Gemini how to call the `Memory*` tools effectively. Install them through [`vercel-labs/skills`](https://github.com/vercel-labs/skills):
-
-```bash
-npx skills@latest add radimsem/remindb/skills -a gemini-cli
-```
-
-Refresh them later — independent of `remindb update` — with:
-
-```bash
-npx skills@latest update
-```
+Use absolute paths — the manifest does not expand `~` or `$HOME`.
 
 ## Tools exposed
 
