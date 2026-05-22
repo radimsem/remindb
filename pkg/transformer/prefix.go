@@ -13,13 +13,8 @@ func compressPrefix(nodes []*parser.ContextNode, compileRoot string) {
 		return
 	}
 
-	prefix := compileRoot
-	if prefix != "" {
-		prefix = filepath.Clean(prefix)
-		if !strings.HasSuffix(prefix, string(filepath.Separator)) {
-			prefix += string(filepath.Separator)
-		}
-	} else {
+	prefix := compileRootPrefix(compileRoot)
+	if prefix == "" {
 		prefix = commonDirPrefix(nodes)
 	}
 
@@ -30,6 +25,27 @@ func compressPrefix(nodes []*parser.ContextNode, compileRoot string) {
 	for _, n := range nodes {
 		n.SourceFile = strings.TrimPrefix(n.SourceFile, prefix)
 	}
+}
+
+// StoredSourceFile returns the SourceFile key a path is stored under for a non-empty compileRoot.
+func StoredSourceFile(path, compileRoot string) string {
+	prefix := compileRootPrefix(compileRoot)
+	if prefix == "" {
+		return path
+	}
+	return strings.TrimPrefix(path, prefix)
+}
+
+func compileRootPrefix(compileRoot string) string {
+	if compileRoot == "" {
+		return ""
+	}
+
+	prefix := filepath.Clean(compileRoot)
+	if !strings.HasSuffix(prefix, string(filepath.Separator)) {
+		prefix += string(filepath.Separator)
+	}
+	return prefix
 }
 
 func commonDirPrefix(nodes []*parser.ContextNode) string {

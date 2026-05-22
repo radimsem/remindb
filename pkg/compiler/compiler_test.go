@@ -148,6 +148,102 @@ func TestCompileDir_SkipsMalformedJSON(t *testing.T) {
 	}
 }
 
+func TestCompileFile_PrunesStaleNodesOnBecomingMalformed(t *testing.T) {
+	st := testutil.OpenTestDB(t)
+	ctx := context.Background()
+	dir := t.TempDir()
+
+	cfg := writeFile(t, dir, "config.json", "{\n  \"compilerOptions\": { \"strict\": true },\n  \"include\": [\"src\"]\n}\n")
+
+	if _, err := CompileFile(ctx, st, cfg, "v1"); err != nil {
+		t.Fatalf("CompileFile v1: %v", err)
+	}
+
+	before, err := st.GetNodesByFile(ctx, "config.json")
+	if err != nil {
+		t.Fatalf("GetNodesByFile: %v", err)
+	}
+	if len(before) == 0 {
+		t.Fatal("valid JSON produced 0 nodes, want > 0")
+	}
+
+	// The file gains JSONC comments + a trailing comma — now unparseable and skipped.
+	writeFile(t, dir, "config.json", "{\n  // strict mode\n  \"compilerOptions\": { \"strict\": true },\n}\n")
+
+	result, err := CompileFile(ctx, st, cfg, "v2")
+	if err != nil {
+		t.Fatalf("CompileFile v2 aborted on a now-malformed file: %v", err)
+	}
+	if result.Removed != len(before) {
+		t.Errorf("Removed = %d, want %d (all stale nodes pruned)", result.Removed, len(before))
+	}
+
+	after, err := st.GetNodesByFile(ctx, "config.json")
+	if err != nil {
+		t.Fatalf("GetNodesByFile: %v", err)
+	}
+	if len(after) != 0 {
+		t.Errorf("config.json left %d ghost nodes, want 0", len(after))
+	}
+}
+
+func TestCompile_RescanPrunesStaleNodesOnBecomingMalformed(t *testing.T) {
+	st := testutil.OpenTestDB(t)
+	ctx := context.Background()
+	dir := t.TempDir()
+
+	cfg := writeFile(t, dir, "config.json", "{\n  \"strict\": true,\n  \"target\": \"es2020\"\n}\n")
+	writeFile(t, dir, "notes.md", "# Notes\n\nReal memory content.\n")
+
+	if _, err := CompileDir(ctx, st, dir, "batch"); err != nil {
+		t.Fatalf("CompileDir: %v", err)
+	}
+
+	before, err := st.GetNodesByFile(ctx, "config.json")
+	if err != nil {
+		t.Fatalf("GetNodesByFile config.json: %v", err)
+	}
+	if len(before) == 0 {
+		t.Fatal("valid JSON produced 0 nodes, want > 0")
+	}
+
+	writeFile(t, dir, "config.json", "{\n  // a comment makes this JSONC\n  \"strict\": true,\n}\n")
+
+	// Simulate rescan: recompile only the changed (now-malformed) file.
+	result, err := Compile(ctx, st,
+		WithPaths([]string{cfg}),
+		WithMessage("rescan"),
+		WithCompileRoot(dir),
+	)
+	if err != nil {
+		t.Fatalf("Compile rescan: %v", err)
+	}
+
+	if result.Removed != len(before) {
+		t.Errorf("Removed = %d, want %d (stale config.json nodes pruned)", result.Removed, len(before))
+	}
+	if result.Added != 0 {
+		t.Errorf("Added = %d, want 0 (a skipped file adds nothing)", result.Added)
+	}
+
+	gone, err := st.GetNodesByFile(ctx, "config.json")
+	if err != nil {
+		t.Fatalf("GetNodesByFile config.json: %v", err)
+	}
+	if len(gone) != 0 {
+		t.Errorf("config.json left %d ghost nodes, want 0", len(gone))
+	}
+
+	// The untouched sibling must survive — rescan only submitted the changed file.
+	sibling, err := st.GetNodesByFile(ctx, "notes.md")
+	if err != nil {
+		t.Fatalf("GetNodesByFile notes.md: %v", err)
+	}
+	if len(sibling) == 0 {
+		t.Error("notes.md nodes were wrongly pruned")
+	}
+}
+
 func TestCompile_TotalEqualsSumOfOps(t *testing.T) {
 	st := testutil.OpenTestDB(t)
 	ctx := context.Background()

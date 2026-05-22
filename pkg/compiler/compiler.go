@@ -238,7 +238,14 @@ func Compile(ctx context.Context, st *store.Store, opts ...Option) (*Result, err
 
 	flat := parser.Flatten(roots)
 
-	prev, err := buildPrevState(ctx, st, flat, o.fullRescan, o.compileRoot)
+	var skipped []string
+	for i, nodes := range results {
+		if len(nodes) == 0 {
+			skipped = append(skipped, o.paths[i])
+		}
+	}
+
+	prev, err := buildPrevState(ctx, st, flat, skipped, o.fullRescan, o.compileRoot)
 	if err != nil {
 		return nil, err
 	}
@@ -564,8 +571,8 @@ func resolveTemps(dir string, paths []string) (map[string]*float64, error) {
 	return temps, nil
 }
 
-func buildPrevState(ctx context.Context, st *store.Store, flat []*parser.ContextNode, fullRescan bool, compileRoot string) (map[string]diff.NodeState, error) {
-	existing, err := loadPrevNodes(ctx, st, flat, fullRescan, compileRoot)
+func buildPrevState(ctx context.Context, st *store.Store, flat []*parser.ContextNode, skipped []string, fullRescan bool, compileRoot string) (map[string]diff.NodeState, error) {
+	existing, err := loadPrevNodes(ctx, st, flat, skipped, fullRescan, compileRoot)
 	if err != nil {
 		return nil, fmt.Errorf("failed to get nodes: %w", err)
 	}
@@ -577,11 +584,35 @@ func buildPrevState(ctx context.Context, st *store.Store, flat []*parser.Context
 	return prev, nil
 }
 
-func loadPrevNodes(ctx context.Context, st *store.Store, flat []*parser.ContextNode, fullRescan bool, compileRoot string) ([]*store.Node, error) {
+func loadPrevNodes(ctx context.Context, st *store.Store, flat []*parser.ContextNode, skipped []string, fullRescan bool, compileRoot string) ([]*store.Node, error) {
 	if fullRescan && compileRoot != "" {
 		return st.GetNodesByCompileRoot(ctx, compileRoot)
 	}
-	return st.GetNodesByFiles(ctx, uniqueFilesFlat(flat))
+
+	files := appendSkippedKeys(uniqueFilesFlat(flat), skipped, compileRoot)
+	return st.GetNodesByFiles(ctx, files)
+}
+
+// appendSkippedKeys unions the stored SourceFile key of each skipped path into files.
+func appendSkippedKeys(files, skipped []string, compileRoot string) []string {
+	if compileRoot == "" || len(skipped) == 0 {
+		return files
+	}
+
+	seen := make(map[string]bool, len(files))
+	for _, f := range files {
+		seen[f] = true
+	}
+
+	for _, p := range skipped {
+		key := transformer.StoredSourceFile(p, compileRoot)
+
+		if !seen[key] {
+			seen[key] = true
+			files = append(files, key)
+		}
+	}
+	return files
 }
 
 func uniqueFilesFlat(flat []*parser.ContextNode) []string {
