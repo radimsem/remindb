@@ -87,6 +87,19 @@ func (r *Loop) notifyChange() {
 	}
 }
 
+func EffectiveInterval(flag time.Duration, rc config.RescanConfig) time.Duration {
+	interval := flag
+
+	if interval <= 0 {
+		interval = defaultRescanInterval
+	}
+	if rc.Interval != nil {
+		interval = time.Duration(*rc.Interval)
+	}
+
+	return interval
+}
+
 func New(st *store.Store, dir string, interval time.Duration, opts ...Option) (*Loop, error) {
 	var o options
 	for _, opt := range opts {
@@ -184,15 +197,12 @@ func (r *Loop) reloadConfig() (intervalChanged bool) {
 	r.configHash = hash
 
 	enabled := true
-	interval := r.bootstrapInterval
 	settle := defaultSettleTime
 
 	rc := cfg.Rescan
+	interval := EffectiveInterval(r.bootstrapInterval, rc)
 	if rc.Enabled != nil {
 		enabled = *rc.Enabled
-	}
-	if rc.Interval != nil {
-		interval = time.Duration(*rc.Interval)
 	}
 	if rc.Settle != nil {
 		settle = time.Duration(*rc.Settle)

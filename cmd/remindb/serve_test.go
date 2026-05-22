@@ -8,6 +8,7 @@ import (
 	"reflect"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/radimsem/remindb/internal/redaction"
 	"github.com/radimsem/remindb/pkg/config"
@@ -187,6 +188,78 @@ func TestNewServeLogger_ConfiguredBufferCaptures(t *testing.T) {
 	}
 	if buf.Dropped() != 1 {
 		t.Errorf("dropped: got %d, want 1", buf.Dropped())
+	}
+}
+
+func TestEffectiveLogLevel(t *testing.T) {
+	tests := []struct {
+		name    string
+		verbose bool
+		lg      config.LoggingConfig
+		want    slog.Level
+	}{
+		{"default is info", false, config.LoggingConfig{}, slog.LevelInfo},
+		{"config level honored", false, config.LoggingConfig{Level: ptr("warn")}, slog.LevelWarn},
+		{"verbose forces debug over config", true, config.LoggingConfig{Level: ptr("error")}, slog.LevelDebug},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if got := effectiveLogLevel(tt.verbose, tt.lg); got != tt.want {
+				t.Errorf("effectiveLogLevel = %v, want %v", got, tt.want)
+			}
+		})
+	}
+}
+
+func attrMap(attrs []any) map[string]any {
+	m := make(map[string]any, len(attrs)/2)
+	for i := 0; i+1 < len(attrs); i += 2 {
+		m[attrs[i].(string)] = attrs[i+1]
+	}
+
+	return m
+}
+
+func TestStartupAttrs_SurfacesEffectiveValues(t *testing.T) {
+	prevSource, prevTransport := sourceDir, transport
+	sourceDir, transport = "/some/source", remindb.TransportStdio
+	defer func() { sourceDir, transport = prevSource, prevTransport }()
+
+	attrs := startupAttrs(slog.LevelDebug, 90*time.Second, 45*time.Second, false, false)
+	m := attrMap(attrs)
+
+	if m["log_level"] != slog.LevelDebug {
+		t.Errorf("log_level = %v, want %v", m["log_level"], slog.LevelDebug)
+	}
+	if m["rescan_interval"] != 45*time.Second {
+		t.Errorf("rescan_interval = %v, want 45s", m["rescan_interval"])
+	}
+	if m["rescan_enabled"] != false {
+		t.Errorf("rescan_enabled = %v, want false (disabled via config surfaces in the log)", m["rescan_enabled"])
+	}
+	if m["temperature_enabled"] != false {
+		t.Errorf("temperature_enabled = %v, want false", m["temperature_enabled"])
+	}
+	if _, ok := m["verbose"]; ok {
+		t.Error("raw verbose bool should be replaced by effective log_level")
+	}
+}
+
+func TestStartupAttrs_OmitsRescanWithoutSource(t *testing.T) {
+	prevSource, prevTransport := sourceDir, transport
+	sourceDir, transport = "", remindb.TransportStdio
+	defer func() { sourceDir, transport = prevSource, prevTransport }()
+
+	m := attrMap(startupAttrs(slog.LevelInfo, 90*time.Second, 30*time.Second, true, true))
+
+	if _, ok := m["rescan_interval"]; ok {
+		t.Error("rescan_interval should be omitted when no --source is set")
+	}
+	if _, ok := m["rescan_enabled"]; ok {
+		t.Error("rescan_enabled should be omitted when no --source is set")
+	}
+	if m["temperature_enabled"] != true {
+		t.Error("temperature_enabled should be logged regardless of --source")
 	}
 }
 

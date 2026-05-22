@@ -139,7 +139,10 @@ func runServe(cmd *cobra.Command, _ []string) error {
 	logBuf.SetObserver(srv.NotifyLogRecord)
 	tracker.SetTickObserver(srv.NotifyTemperatureTick)
 
-	logger.Info("serve: starting", startupAttrs(startCfg.TickInterval)...)
+	logLevel := effectiveLogLevel(verbose, workspaceCfg.Server.Logging)
+	rescanEff := rescan.EffectiveInterval(rescanInterval, workspaceCfg.Rescan)
+	rescanEnabled := workspaceCfg.Rescan.Enabled == nil || *workspaceCfg.Rescan.Enabled
+	logger.Info("serve: starting", startupAttrs(logLevel, startCfg.TickInterval, rescanEff, rescanEnabled, startCfg.Enabled)...)
 
 	go checkLatestVersion(ctx, version.Get(), logger)
 
@@ -231,8 +234,7 @@ func applyRedactionOverrides(base redaction.Config, o config.RedactionConfig) (r
 	return base, nil
 }
 
-// Build the serve logger from config.
-func newServeLogger(verbose bool, lg config.LoggingConfig) (*slog.Logger, *os.File, *logbuf.Buffer, error) {
+func effectiveLogLevel(verbose bool, lg config.LoggingConfig) slog.Level {
 	level := slog.LevelInfo
 	if lg.Level != nil {
 		level = parseLogLevel(*lg.Level)
@@ -240,6 +242,12 @@ func newServeLogger(verbose bool, lg config.LoggingConfig) (*slog.Logger, *os.Fi
 	if verbose {
 		level = slog.LevelDebug
 	}
+	return level
+}
+
+// Build the serve logger from config.
+func newServeLogger(verbose bool, lg config.LoggingConfig) (*slog.Logger, *os.File, *logbuf.Buffer, error) {
+	level := effectiveLogLevel(verbose, lg)
 
 	out := os.Stderr
 	var file *os.File
@@ -314,17 +322,18 @@ func parseLogLevel(s string) slog.Level {
 	}
 }
 
-func startupAttrs(tickInterval time.Duration) []any {
+func startupAttrs(logLevel slog.Level, tickInterval, rescanEff time.Duration, rescanEnabled, tempEnabled bool) []any {
 	attrs := []any{
 		"db", dbPath,
 		"transport", transport,
 		"tick_interval", tickInterval,
-		"verbose", verbose,
+		"temperature_enabled", tempEnabled,
+		"log_level", logLevel,
 		"version", version.Get(),
 	}
 
 	if sourceDir != "" {
-		attrs = append(attrs, "source", sourceDir, "rescan_interval", rescanInterval)
+		attrs = append(attrs, "source", sourceDir, "rescan_interval", rescanEff, "rescan_enabled", rescanEnabled)
 	}
 	if transport == remindb.TransportHttp {
 		attrs = append(attrs, "listen", listen)

@@ -758,3 +758,29 @@ func writeFile(t *testing.T, dir, name, content string) {
 		t.Fatal(err)
 	}
 }
+
+func TestEffectiveInterval(t *testing.T) {
+	tests := []struct {
+		name string
+		flag time.Duration
+		rc   config.RescanConfig
+		want time.Duration
+	}{
+		{"default when unset", 0, config.RescanConfig{}, defaultRescanInterval},
+		{"flag when set, no config", 10 * time.Second, config.RescanConfig{}, 10 * time.Second},
+		{"config overrides flag", 10 * time.Second, config.RescanConfig{Interval: durPtr(5 * time.Second)}, 5 * time.Second},
+		{"config overrides default", 0, config.RescanConfig{Interval: durPtr(5 * time.Second)}, 5 * time.Second},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if got := EffectiveInterval(tt.flag, tt.rc); got != tt.want {
+				t.Errorf("EffectiveInterval(%v, %+v) = %v, want %v", tt.flag, tt.rc, got, tt.want)
+			}
+		})
+	}
+}
+
+func durPtr(d time.Duration) *config.Duration {
+	cd := config.Duration(d)
+	return &cd
+}
