@@ -146,7 +146,8 @@ func TestRescanLoop_DebouncesMidSave(t *testing.T) {
 func TestRescanLoop_CommitsMtimesOnlyAfterSuccess(t *testing.T) {
 	dir := t.TempDir()
 	writeFile(t, dir, "ok.md", "# OK\n")
-	writeFile(t, dir, "bad.json", `{"unterminated`)
+	// Invalid UTF-8 is a hard parse failure (unlike malformed JSON, which is skipped).
+	writeFile(t, dir, "bad.md", "\xff\xfe not valid utf-8")
 
 	st := testutil.OpenTestDB(t)
 	r := mustRescan(t, st, dir, time.Minute, nil)
@@ -159,7 +160,7 @@ func TestRescanLoop_CommitsMtimesOnlyAfterSuccess(t *testing.T) {
 		t.Errorf("mtimes = %d, want 0 (compile failed, nothing committed)", len(r.modTimes))
 	}
 
-	writeFile(t, dir, "bad.json", `{"valid": "now"}`)
+	writeFile(t, dir, "bad.md", "# Now valid\n")
 
 	r.scan(ctx)
 

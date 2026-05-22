@@ -120,6 +120,34 @@ func TestCompileDir(t *testing.T) {
 	}
 }
 
+func TestCompileDir_SkipsMalformedJSON(t *testing.T) {
+	st := testutil.OpenTestDB(t)
+	ctx := context.Background()
+	dir := t.TempDir()
+
+	// JSONC: comments + trailing comma. encoding/json rejects it; the compile
+	// must skip the file and still ingest its siblings (issue #171).
+	writeFile(t, dir, "tsconfig.json", "{\n  // strict mode\n  \"compilerOptions\": { \"strict\": true },\n}\n")
+	writeFile(t, dir, "notes.md", "# Notes\n\nReal memory content.\n")
+
+	result, err := CompileDir(ctx, st, dir, "batch")
+	if err != nil {
+		t.Fatalf("CompileDir aborted on a JSONC file: %v", err)
+	}
+	if result.Added == 0 {
+		t.Fatal("Added = 0, want the markdown sibling compiled")
+	}
+
+	tsconfig, _ := filepath.Abs(filepath.Join(dir, "tsconfig.json"))
+	skipped, err := st.GetNodesByFiles(ctx, []string{tsconfig})
+	if err != nil {
+		t.Fatalf("GetNodesByFiles: %v", err)
+	}
+	if len(skipped) != 0 {
+		t.Errorf("malformed JSON produced %d nodes, want 0 (skipped)", len(skipped))
+	}
+}
+
 func TestCompile_TotalEqualsSumOfOps(t *testing.T) {
 	st := testutil.OpenTestDB(t)
 	ctx := context.Background()

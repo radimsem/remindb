@@ -17,7 +17,7 @@ Everything that lives under `.remindb/` — runtime config, ignore patterns, tem
 
 ## `compile`
 
-One-shot ingestion of a file or directory. Creates a new snapshot and records diffs against the previous one.
+One-shot ingestion of a file or directory. Creates a new snapshot and records diffs against the previous one. Files with an unsupported extension or unparseable content (e.g. a `.json` carrying comments or trailing commas, as `tsconfig.json` often does) are skipped with a warning rather than aborting the whole compile.
 
 ```bash
 remindb compile ./notes # → ./notes.db

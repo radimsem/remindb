@@ -13,6 +13,7 @@ import (
 var (
 	ErrUnsupportedExt = errors.New("unsupported extension")
 	ErrInvalidUTF8    = errors.New("invalid UTF-8")
+	ErrMalformed      = errors.New("malformed content")
 )
 
 // Read r and route it to a format-specific parser based on path's extension.

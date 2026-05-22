@@ -196,6 +196,10 @@ func Compile(ctx context.Context, st *store.Store, opts ...Option) (*Result, err
 					logger.Warn("compile: skipping unsupported file", "path", p, "err", err)
 					return nil
 				}
+				if errors.Is(err, parser.ErrMalformed) {
+					logger.Warn("compile: skipping malformed file", "path", p, "err", err)
+					return nil
+				}
 				return fmt.Errorf("failed to parse: %s: %w", p, err)
 			}
 
