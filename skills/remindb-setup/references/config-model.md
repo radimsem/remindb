@@ -18,7 +18,7 @@ iwr -useb https://raw.githubusercontent.com/radimsem/remindb/main/install.ps1 | 
 
 From source (Go 1.26+): `go build -o ~/.local/bin/remindb ./cmd/remindb` from a clone. Ensure the install dir is on `PATH`. Update later with `remindb update` (re-runs the installer only when a newer release exists).
 
-The binary is half of setup; the agent's MCP plugin (the `mcpServers` entry that spawns `remindb serve`) is the other half — that's installed per host, outside this skill. A server only attaches at agent launch, so a freshly-installed binary needs a restart before its tools appear.
+The binary is one half of setup; the agent's MCP plugin (the `mcpServers` entry that spawns `remindb serve`) is the other. Crucially they install **independently** — the skill via `npx skills add`, the plugin per host — so the wizard's first pass (§Pass 1 in `SKILL.md`) runs *before* the plugin is attached, which is what lets it author config and wire the env up front. Per-host plugin-install commands and the durable env mechanism the wizard writes live in `host-wiring.md`. A server only attaches at agent launch, so a freshly-installed binary (or freshly-wired env) needs a restart before its tools appear.
 
 ## The `.remindb/` files (at the source root)
 
@@ -52,7 +52,9 @@ This is the crux: a `.remindb/` change does **not** land uniformly.
 | `config.json` → `budgets`, `server`, `redaction` | **Frozen at `serve` startup** — copied into the server once | **restart / new session** |
 | `.remindb/ignore` | Affects the next compile / rescan walk | recompile or wait for the next rescan tick |
 
-### Reseed temperatures + pins onto existing nodes
+### Reseed temperatures + pins onto existing nodes (reconfigure-only)
+
+Reseeding is the **Pass 2 / reconfigure** path, never the first run: when `.remindb/` is authored *before* the initial compile (config-first, §Pass 1), `temperatures.json`/`pinned` already apply at insert time and there's nothing to retrofit. You only reach for these flags when changing the config of an *already-compiled* DB.
 
 ```bash
 remindb compile "<source>" --db "<db>" --reseed-temperatures --reseed-pinned

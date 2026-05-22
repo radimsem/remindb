@@ -1,14 +1,20 @@
 # Automode playbook — infer the whole setup yourself
 
-Reference for `remindb-setup` under `automode` (chosen in the interview or passed as `/remindb-setup automode`). The goal: a config that fits this specific workspace, picked for **best result + consistency**, written without per-option approval. Knob semantics → `config-model.md`; templates to anchor on → `config-examples.md`.
+Reference for `remindb-setup` under `automode` (chosen in the interview or passed as `/remindb-setup automode`). The goal: a config that fits this specific workspace, picked for **best result + consistency**, written without per-option approval. Knob semantics → `config-model.md`; templates to anchor on → `config-examples.md`; per-host install + env + invocation → `host-wiring.md`.
 
-## Order of operations
+## Order of operations — first-time, config-first (Pass 1)
 
-1. Resolve source + db (step 2 of the skill); if unresolvable, stop and report — don't guess a path.
-2. Classify the workspace (below) → pick the closest `config-examples.md` template as a baseline.
-3. Walk the tree once; adjust the baseline from what you actually see.
-4. Write `.remindb/` files directly. Print a summary: every file written + the one-line reason for each non-obvious choice.
-5. Offer the reseed (always warn about overwriting manual unpins), then the restart suggestion.
+automode infers every parameter, but the **ordering is fixed** by the config-first invariant: author `.remindb/` before the compile so `ignore`/`pinned`/`temperatures.json` apply at insert time. No reseed on a first run — reseeding is the Pass 2 / reconfigure path only.
+
+1. **Binary** — `remindb --version`; if missing, install it (still confirm the remote installer, the one trust action automode keeps).
+2. **Detect host** — probe `~/.claude` · `~/.codex` · `~/.gemini` · `~/.openclaw` · `~/.config/opencode`; if more than one matches, pick the most likely and **record the assumption** in the summary. Look up its `host-wiring.md` row.
+3. **Resolve source + db** — confirm the source root (pre-attach, so infer it from the host's state dir, e.g. `~/.claude/projects`); derive a db path (e.g. `~/.cache/remindb/<host>.db`). Unresolvable → stop and report, don't guess.
+4. **Classify the workspace** (below) → pick the closest `config-examples.md` template as a baseline; walk the tree once; adjust from what you actually see.
+5. **Write `.remindb/` files** (before compiling). Print a summary: every file written + the one-line reason for each non-obvious choice.
+6. **Compile** — `remindb compile <source> --db <db>` (no `--reseed`).
+7. **Seed adjacent context** — `remindb compile <abs-file> --db <db>` per out-of-source file the host loads (`CLAUDE.md`/`AGENTS.md`/`GEMINI.md`/`README.md`).
+8. **Wire the env** — apply the host's durable mechanism from `host-wiring.md` yourself (or snippet-fallback for the two flagged cases). **Confirm before writing host config** — the second trust action automode keeps.
+9. **Report** — print what was written + the "install/enable the plugin and restart, then re-run to verify" close.
 
 ## Classify the workspace
 

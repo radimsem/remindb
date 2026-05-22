@@ -1,72 +1,52 @@
 ---
 name: remindb-setup
-description: Setup wizard for a remindb MCP server — run it as `/remindb-setup` (interactive) or `/remindb-setup automode` (hands-off). Confirms the binary + attached server, locates the workspace source, authors the `.remindb/` config (ignore/pinned/temperatures/config.json), offers to reseed temperatures/pins onto existing nodes, and tells you when a restart is needed. Use on first-time workspace memory setup, when remindb tools are missing/misconfigured, on "no results"/wrong-workspace symptoms, or to reconfigure an existing brain.
+description: Config-first setup wizard for a remindb MCP server — run it as `/remindb-setup` (interactive) or `/remindb-setup automode` (hands-off). Two passes. First-time (no server attached yet): detect the host, author the `.remindb/` config (ignore/pinned/temperatures/config.json) BEFORE compiling, compile the source, seed adjacent context, then wire the MCP env. Verify (server attached): MemoryStats + `remindb://doctor`, reconfigure, and reseed onto existing nodes. Use on first-time workspace memory setup, when remindb tools are missing/misconfigured, on "no results"/wrong-workspace symptoms, or to reconfigure an existing brain.
+user-invocable: true
 ---
 
 # remindb-setup — the setup wizard
 
 You are the wizard. This skill is the script you follow to set up or reconfigure a remindb workspace from inside a live session — there is no separate UI. Drive it with Bash + the `Memory*` tools + file writes.
 
-**Assumed entry state:** the remindb binary and the agent's MCP plugin are installed, so the server is attached this session and a `.db` already exists. Then `/remindb-setup` is the *reconfigure-an-existing-brain* flow. If the binary is missing, step 1 installs it as a fallback.
+## Two halves, two passes — detect which one you're in
+
+remindb ships as two independently-installed halves: the **skill** (this, via `npx skills add`) and the **MCP plugin** (per host). The skill installs first and can run *before* the plugin is attached — that's what makes config-first ordering possible. Detect the pass by whether the server is attached this session:
+
+- **`Memory*` tools absent** from your available tool set → **Pass 1: first-time config-first setup** (§Pass 1). The default first run.
+- **`Memory*` tools present** → **Pass 2: verify / reconfigure** (§Pass 2).
 
 ## Mode: interactive vs automode
 
-- **`/remindb-setup`** — interactive. Step 3 first asks the user: *walk me through each `.remindb/` choice* **or** *automode (figure it out for me)*. If they pick automode here, behave as below.
-- **`/remindb-setup automode`** — skip that question. You infer **every** parameter for the best, consistent result, write directly, and report — no per-option approval. The one thing automode still confirms is the remote-installer step (1), because piping a remote script to a shell is a trust action.
+- **`/remindb-setup`** — interactive: propose each choice for approval before writing.
+- **`/remindb-setup automode`** — infer every parameter, write directly, then report. The two trust actions it still confirms: running the remote installer (step 1) and writing host MCP config (step 7). Inference rules → `references/automode-playbook.md`.
 
-Automode inference rules live in `references/automode-playbook.md`.
+Not every host surfaces this as a literal `/remindb-setup` command — invoke it per the host's row in `references/host-wiring.md`. The wizard runs the same once invoked.
 
-## 1. Sanity + fallback install
+## Pass 1 — first-time config-first setup (server not attached)
 
-```
-remindb --version          # Bash
-remindb__MemoryStats()     # confirms the server is attached; read db_path + source
-```
+Order matters: author `.remindb/` **before** compiling, so `ignore`/`pinned`/`temperatures.json` apply at insert time — no `--reseed` retrofit.
 
-- Binary present + tools attached → continue.
-- **Binary missing** (edge case — plugin installed but no binary) → install it, then note the server only attaches on the next launch. **Confirm before running the remote installer**, even in automode. Install one-liners + version/PATH detail → `references/config-model.md` §Bootstrap.
+1. **Binary.** `remindb --version` (Bash). Missing → install it; **confirm before the remote installer**, even in automode. One-liners + PATH detail → `references/config-model.md` §Bootstrap.
+2. **Detect host.** Probe `~/.claude` · `~/.codex` · `~/.gemini` · `~/.openclaw` · `~/.config/opencode`; confirm the match (automode: pick the most likely, record the assumption). Per-host install + durable env + invocation → `references/host-wiring.md`.
+3. **Locate the source root.** Confirm the dir to compile — it's also where `.remindb/` lives. You're pre-attach, so there's no `REMINDB_SOURCE` to read yet; settle it with the user (automode: infer from the host's state dir, e.g. `~/.claude/projects`).
+4. **Author `.remindb/`.** Write `ignore` / `pinned` / `temperatures.json` / `config.json` at `<source>/.remindb/`. Semantics + how each change lands → `references/config-model.md`; copy-pasteable templates per workspace type → `references/config-examples.md`. Interactive: show the plan first. automode: write, then summarize each non-obvious choice.
+5. **Compile.** `remindb compile <source> --db <db>` — insert-time apply; **no `--reseed`** (the config is already in place).
+6. **Seed adjacent context (optional).** Files outside the source root — `CLAUDE.md` / `AGENTS.md` / `GEMINI.md` / `README.md` — won't be in the DB. Offer to fold them in via the **CLI** (you're pre-attach, so `MemoryCompile` the tool isn't available yet), one per file, absolute paths:
+   ```bash
+   remindb compile /abs/path/CLAUDE.md --db <db>
+   ```
+7. **Wire the MCP env — collaboratively.** The server reads `REMINDB_DB` + `REMINDB_SOURCE`. **Prefer to apply the wiring yourself** using the host's durable mechanism from `references/host-wiring.md` — write the `~/.codex/config.toml` block, merge `opencode.json`, run `openclaw mcp set`, edit the local-clone manifest. Emit a copy-paste snippet *only* where you can't durably write: Claude Code's overwrite-on-update marketplace cache (→ shell export), or an unknown host. Confirm before writing host config, even in automode.
 
-## 2. Locate the workspace source
+Close Pass 1 by telling the user to **install/enable the MCP plugin and restart** (host steps in `references/host-wiring.md`). The server attaches on the next launch — re-run the wizard to verify (Pass 2).
 
-The `.remindb/` config dir lives at the **source root** — the dir `serve` was pointed at via `REMINDB_SOURCE`. Find it:
+## Pass 2 — verify / reconfigure (server attached)
 
-```
-echo "$REMINDB_SOURCE"                 # Bash; the canonical source root
-remindb__MemoryStats()                 # db_path + compile root, if the env var is unset
-```
-
-No source root resolvable → you can't author workspace config. Say so, tell the user to point `serve` at a source (`REMINDB_SOURCE` / `--source`) and recompile, and stop.
-
-## 3. The `.remindb/` config wizard
-
-Author the workspace config at `<source>/.remindb/`. All files optional; missing = defaults. What each does + how each change lands → `references/config-model.md`. Copy-pasteable starting points per workspace type → `references/config-examples.md`.
-
-- **Interactive** — walk the source tree, then propose, for approval: `.remindb/ignore` (build/deps/generated noise), `.remindb/pinned` (stable reference files to keep warm), `.remindb/temperatures.json` (per-path initial warmth), `.remindb/config.json` (budgets, temperature, rescan). Show the plan before writing anything.
-- **automode** — infer all of the above from a workspace walk per `references/automode-playbook.md`, write the files directly, then print a summary of what you wrote and why.
-
-## 4. Offer to reseed temperatures + pins onto existing nodes
-
-`temperatures.json` and `pinned` seed nodes **only at insert time** — authoring them now does nothing to the already-compiled DB. To apply them to existing nodes, reseed via the CLI:
-
-```bash
-remindb compile "$REMINDB_SOURCE" --db "<db_path>" --reseed-temperatures --reseed-pinned
-```
-
-- Interactive → **ask** before running it. automode → run it, surfacing the same warning.
-- **Always warn:** `--reseed-pinned` re-applies `.remindb/pinned` to every matching node, **overwriting any manual `MemoryUnpin` choices**. The DB is WAL + `busy_timeout(5s)`, so this is safe to run while `serve` holds the file; `serve` sees the reseeded rows immediately.
-
-Why the CLI and not the tools: `MemoryCompile` deliberately does **not** reseed pins (the agent can't reseed its own pin signal). The reseed flags are directory-compile-only.
-
-## 5. Restart suggestion (advise, don't act)
-
-Only the `temperature` and `rescan` blocks of `config.json` live-reload (re-sourced each tick). `budgets`, `server`, and `redaction` are read **once at `serve` startup** — they're frozen for this session. If you changed any of those (or installed the binary in step 1):
-
-> Restart the agent / start a new session to apply the `config.json` changes (`budgets`/`server`/`redaction`) and to attach the freshly-installed server.
-
-Output this as a suggestion. Don't restart anything yourself — you can't relaunch your own server.
-
-## After setup — verify
-
-Re-running `/remindb-setup` once the server is freshly attached is the verify pass: `MemoryStats` (right `db_path`, non-zero nodes), then `remindb://doctor` for FTS5/stale-root checks. Cold-node notifications require a one-shot `SetLoggingLevel` (`logging/setLevel`) from the client — most MCP clients send it automatically; if yours doesn't, the server is fine but the client must opt in. Details → `references/config-model.md`.
+- **Verify.** `MemoryStats()` → confirm the reported database path is the one you compiled and node count is non-zero; then read `remindb://doctor` for FTS5 / stale-root checks (for a machine-checkable path, `remindb://overview` exposes a `db_path` field). Cold-node notifications need a one-shot `SetLoggingLevel` (`logging/setLevel`) from the client — most send it automatically; if yours doesn't, the server is fine but the client must opt in (detail → `references/config-model.md`).
+- **Reconfigure an existing brain.** Re-author any `.remindb/` file, then apply per the 3-tier model in `references/config-model.md`: live-reload (`temperature`/`rescan`) → nothing; insert-time (`temperatures.json`/`pinned`) → reseed (below); frozen (`budgets`/`server`/`redaction`) → restart.
+- **Reseed onto existing nodes (reconfigure-only).** Authoring `temperatures.json`/`pinned` after the fact does nothing to already-compiled nodes. To apply them to an existing DB:
+  ```bash
+  remindb compile <source> --db <db> --reseed-temperatures --reseed-pinned
+  ```
+  **Warn:** `--reseed-pinned` re-applies `.remindb/pinned` to every match, **overwriting manual `MemoryUnpin` choices**. WAL + `busy_timeout(5s)` makes it safe while `serve` holds the file. `MemoryCompile` (the tool) never reseeds pins — hence the CLI.
 
 Done? You're ready: `remember` (plain-language front door), `remind` (read tools), `memoize` (write tools).

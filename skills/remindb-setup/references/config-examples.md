@@ -1,6 +1,6 @@
 # Config examples — `.remindb/` starting points per workspace type
 
-Reference for `remindb-setup`. Load when authoring `.remindb/`. Copy a template, then tune to the actual tree. Knob semantics → `config-model.md`.
+Reference for `remindb-setup`. Load when authoring `.remindb/` — in Pass 1 this happens **before** the first `remindb compile`, so these files shape the very first insert (no reseed). Copy a template, then tune to the actual tree. Knob semantics → `config-model.md`.
 
 ## Code repository
 
