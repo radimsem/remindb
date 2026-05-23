@@ -3,7 +3,6 @@ package store
 import (
 	"context"
 	"database/sql"
-	"strings"
 	"time"
 )
 
@@ -35,16 +34,10 @@ func (s *Store) BoostTemperatureBatch(ctx context.Context, ids []string, boost f
 		return nil
 	}
 
-	placeholders := make([]string, len(ids))
-	args := make([]any, 0, len(ids)+2)
-	args = append(args, boost, time.Now().Unix())
+	clause, idArgs := bindStrings(ids)
+	args := append([]any{boost, time.Now().Unix()}, idArgs...)
+	query := qBoostTemperatureBatchPrefix + clause + `)`
 
-	for i, id := range ids {
-		placeholders[i] = "?"
-		args = append(args, id)
-	}
-
-	query := qBoostTemperatureBatchPrefix + strings.Join(placeholders, ",") + `)`
 	return s.Tx(ctx, func(tx *sql.Tx) error {
 		_, err := tx.ExecContext(ctx, query, args...)
 		return err
@@ -75,16 +68,10 @@ func (s *Store) ResetTemperaturesByFilesTx(ctx context.Context, tx *sql.Tx, path
 		return nil
 	}
 
-	placeholders := make([]string, len(paths))
-	args := make([]any, 0, len(paths)+1)
-	args = append(args, temp)
+	clause, pathArgs := bindStrings(paths)
+	args := append([]any{temp}, pathArgs...)
+	query := qResetTemperaturesByFilesPrefix + clause + `)`
 
-	for i, p := range paths {
-		placeholders[i] = "?"
-		args = append(args, p)
-	}
-
-	query := qResetTemperaturesByFilesPrefix + strings.Join(placeholders, ",") + `)`
 	_, err := tx.ExecContext(ctx, query, args...)
 	return err
 }
@@ -100,15 +87,9 @@ func (s *Store) ResetPinnedByFilesTx(ctx context.Context, tx *sql.Tx, paths []st
 		return nil
 	}
 
-	placeholders := make([]string, len(paths))
-	args := make([]any, len(paths))
+	clause, args := bindStrings(paths)
+	query := qResetPinnedByFilesPrefix + clause + `)`
 
-	for i, p := range paths {
-		placeholders[i] = "?"
-		args[i] = p
-	}
-
-	query := qResetPinnedByFilesPrefix + strings.Join(placeholders, ",") + `)`
 	_, err := tx.ExecContext(ctx, query, args...)
 	return err
 }

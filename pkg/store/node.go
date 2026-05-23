@@ -5,7 +5,6 @@ import (
 	"database/sql"
 	"errors"
 	"fmt"
-	"strings"
 )
 
 type DeleteMode int
@@ -123,15 +122,9 @@ func (s *Store) GetNodesByFiles(ctx context.Context, paths []string) ([]*Node, e
 	if len(paths) == 0 {
 		return nil, nil
 	}
-	placeholders := make([]string, len(paths))
-	args := make([]any, len(paths))
 
-	for i, p := range paths {
-		placeholders[i] = "?"
-		args[i] = p
-	}
-
-	query := qSelectNodesByFilesPrefix + strings.Join(placeholders, ",") + `)`
+	clause, args := bindStrings(paths)
+	query := qSelectNodesByFilesPrefix + clause + `)`
 	rows, err := s.db.QueryContext(ctx, query, args...)
 	if err != nil {
 		return nil, err
@@ -145,15 +138,9 @@ func (s *Store) GetNodesByIDs(ctx context.Context, ids []string) ([]*Node, error
 	if len(ids) == 0 {
 		return nil, nil
 	}
-	placeholders := make([]string, len(ids))
-	args := make([]any, len(ids))
 
-	for i, id := range ids {
-		placeholders[i] = "?"
-		args[i] = id
-	}
-
-	query := qSelectNodesByIDsPrefix + strings.Join(placeholders, ",") + `)`
+	clause, args := bindStrings(ids)
+	query := qSelectNodesByIDsPrefix + clause + `)`
 	rows, err := s.db.QueryContext(ctx, query, args...)
 	if err != nil {
 		return nil, err
@@ -314,14 +301,8 @@ func (s *Store) DeleteNodesByFiles(ctx context.Context, paths []string) error {
 		return nil
 	}
 
-	placeholders := make([]string, len(paths))
-	args := make([]any, len(paths))
-	for i, p := range paths {
-		placeholders[i] = "?"
-		args[i] = p
-	}
-
-	query := qDeleteNodesByFilesPrefix + strings.Join(placeholders, ",") + `)`
+	clause, args := bindStrings(paths)
+	query := qDeleteNodesByFilesPrefix + clause + `)`
 	_, err := s.db.ExecContext(ctx, query, args...)
 	return err
 }
