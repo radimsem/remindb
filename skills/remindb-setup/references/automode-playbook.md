@@ -17,6 +17,19 @@ automode infers every parameter, but the **ordering is fixed** by the config-fir
 9. **Wire the env** — locate the loaded config the running server reads (`host-wiring.md` names it per host) and apply the **scoped edit** (multi-brain safe). Shell-export snippet only where scoped isn't viable (unknown host, or user opt-in for Claude Code marketplace per `host-wiring.md` §Env-wiring principle). **Confirm before writing host config** — the second trust action automode keeps.
 10. **Report** — print what was written + "reload the host (or restart your shell if you used the export fallback), then re-run `/remindb-setup` to verify (Pass 2 confirms `MemoryStats` `db_path` matches the compiled DB)".
 
+## `only-config` — bridge-host truncation
+
+When invoked as `/remindb-setup automode only-config`, run **through step 5 (Write `.remindb/` files)** and stop. Steps 6–10 (compile, adjacent-seed, plugin install, env wiring, report) are explicitly skipped — they belong to the calling host's own pipeline (e.g. Hermes Agent's `hermes memory setup`). Same truncation under interactive `only-config`; the mode is what's truncated, not the trust level.
+
+Parse the prompt body for override labels (case-insensitive, leading-whitespace-tolerant). Value sits on the same line after the colon (no multi-line values); `~` / `$HOME` are expanded:
+
+- **`Source root:`** — mandatory. **Fail loud** if absent — interactive or automode, don't infer from host state dirs the way step 3 normally does. Under `only-config`, the calling host (a plugin README, an external wizard) dictates the source explicitly; silently guessing is the wrong failure mode for a bridge.
+- **`Also adjacent-seed:`** — optional, newline-separated absolute paths (one per line). The list terminates at the first blank line, the next recognized label, or end of prompt. Record the paths in the closing summary as files the calling host should later compile via `remindb compile <abs-file> --db <db>`. **Do not** run compile yourself — under `only-config` the wizard never touches the db.
+
+Free-form prose elsewhere in the prompt body is ignored by the parser; it may inform the closing summary's wording but carries no mechanical effect.
+
+Close with a one-line report: `.remindb/` files written + queued adjacent-seed paths + the calling-host pipeline name (so the user knows what owns the remaining steps).
+
 ## Classify the workspace
 
 Sample the top two-three directory levels and file extensions:

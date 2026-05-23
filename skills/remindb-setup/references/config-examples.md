@@ -124,4 +124,34 @@ README.md
 }
 ```
 
+## Memory-provider bridge — Hermes Agent (`only-config` mode)
+
+Source = `~/.hermes/memories/` (Hermes' own curated memory directory). Used with `/remindb-setup only-config` when the host owns env wiring via its own setup wizard — see the hermes-agent plugin README. Narrow source root means no aggressive `ignore` is needed; pin and warm the two files Hermes itself maintains under `memories/`.
+
+`.remindb/ignore`
+```
+.DS_Store
+Thumbs.db
+```
+
+`.remindb/pinned`
+```
+MEMORY.md
+USER.md
+```
+
+`.remindb/temperatures.json`
+```json
+{ "MEMORY.md": 0.9, "USER.md": 0.8 }
+```
+
+`.remindb/config.json`
+```json
+{
+  "budgets": { "search": 1500, "fetch": 2000 },
+  "temperature": { "tick_interval": "10m", "cold_threshold": 0.1 },
+  "rescan": { "enabled": true, "interval": "60s" }
+}
+```
+
 > Templates are starting points, not answers. Walk the real tree first — a `pinned` glob that matches 80% of files kills the cold-set signal; an `ignore` that's too broad starves memory. Validate against `config-model.md` and the full schema before writing.

@@ -1,6 +1,6 @@
 ---
 name: remindb-setup
-description: 'Config-first setup wizard for a remindb MCP server — run it as `/remindb-setup` (interactive) or `/remindb-setup automode` (hands-off). Two passes. First-time (no server attached yet): detect the host, author the `.remindb/` config (ignore/pinned/temperatures/config.json) BEFORE compiling, compile the source, seed adjacent context, install the MCP plugin, then wire the MCP env. Verify (server attached): MemoryStats + `remindb://doctor`, reconfigure, and reseed onto existing nodes. Use on first-time workspace memory setup, when remindb tools are missing/misconfigured, on "no results"/wrong-workspace symptoms, or to reconfigure an existing brain.'
+description: 'Config-first setup wizard for a remindb MCP server — run it as `/remindb-setup` (interactive), `/remindb-setup automode` (hands-off), or `/remindb-setup only-config` (bridge hosts: author `.remindb/` only, no env wiring). Two passes. First-time (no server attached yet): detect the host, author the `.remindb/` config (ignore/pinned/temperatures/config.json) BEFORE compiling, compile the source, seed adjacent context, install the MCP plugin, then wire the MCP env. Verify (server attached): MemoryStats + `remindb://doctor`, reconfigure, and reseed onto existing nodes. Use on first-time workspace memory setup, when remindb tools are missing/misconfigured, on "no results"/wrong-workspace symptoms, to reconfigure an existing brain, or for bridge hosts that own env wiring externally (e.g. Hermes Agent).'
 user-invocable: true
 ---
 
@@ -19,16 +19,17 @@ remindb ships as two independently-installed halves: the **skill** (this, via `n
 - **`Memory*` tools absent** from your available tool set → **Pass 1: first-time config-first setup** (§Pass 1). The default first run.
 - **`Memory*` tools present** → **Pass 2: verify / reconfigure** (§Pass 2).
 
-## Mode: interactive vs automode
+## Mode
 
 - **`/remindb-setup`** — interactive: propose each choice for approval before writing.
 - **`/remindb-setup automode`** — infer every parameter, write directly, then report. The trust actions it still confirms: running the remote installer (step 1), invoking plugin install (step 7), and writing host MCP config (step 8). Inference rules → `references/automode-playbook.md`.
+- **`/remindb-setup only-config`** — bridge-host short-circuit: run Pass 1 **steps 1–4 only** (binary → host → source → `.remindb/`), then stop with a one-line summary. Parses `Source root:` (mandatory; absent → fail loud, interactive or automode — don't guess) and `Also adjacent-seed:` (optional, newline-separated absolute paths queued for the calling host to compile later) from the prompt body. Composable with `automode`. Use when the calling host owns compile + plugin install + env wiring via its own pipeline — see the bridge-host note in `references/host-wiring.md`; parsing rules in `references/automode-playbook.md`.
 
 Not every host surfaces this as a literal `/remindb-setup` command — invoke it per the host's row in `references/host-wiring.md`. The wizard runs the same once invoked.
 
 ## Pass 1 — first-time config-first setup (server not attached)
 
-Order matters: author `.remindb/` **before** compiling, so `ignore`/`pinned`/`temperatures.json` apply at insert time — no `--reseed` retrofit.
+Order matters: author `.remindb/` **before** compiling, so `ignore`/`pinned`/`temperatures.json` apply at insert time — no `--reseed` retrofit. **`only-config`** truncates this list to steps 1–4 and stops with a summary (see Mode above).
 
 1. **Binary.** `remindb --version` (Bash). Missing → install it; **confirm before the remote installer**, even in automode. One-liners + PATH detail → `references/config-model.md` §Bootstrap.
 2. **Identify your host.** You already know which agent runtime you're in — check your system prompt and the tools/skills exposed this session (e.g. `/plugin install` = Claude Code; `/skills` picker = Codex; `openclaw mcp` = OpenClaw; `activate_skill` = Gemini CLI; OpenCode activates skills via plain language). For host-specific config paths, lean on your runtime's own knowledge first — system prompt, loaded host-specific skills, runtime docs — rather than probing the filesystem. If runtime context is still ambiguous, ask the user (automode: pick the most likely and record the assumption). Then look up the matching row in `references/host-wiring.md`.

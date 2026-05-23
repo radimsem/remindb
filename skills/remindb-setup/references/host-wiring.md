@@ -4,7 +4,7 @@ Reference for `remindb-setup`. Load in **Pass 1 step 2** (after detecting the ho
 
 The wizard's job in step 8 is to **write the scoped edit itself** (the loaded config the running server reads) — multi-brain safe because the env scopes to the remindb subprocess only. It falls back to a shell-export snippet only when scoped isn't viable: an unknown host, or — for Claude Code marketplace installs — when the user explicitly prefers the env to survive plugin updates and accepts the multi-session clobber. See **§Env-wiring principle** below.
 
-Hermes Agent is **not** in this table — it's a memory-provider bridge with its own `hermes memory setup` wizard and a `remindb.json` config, not an MCP `env` block. See its plugin README; don't wire it here.
+**Bridge hosts** use `/remindb-setup only-config` for `.remindb/` authoring only, then defer to the host's own setup wizard for env wiring. **Hermes Agent** is the current bridge host (`hermes memory setup` owns `REMINDB_DB` / `REMINDB_SOURCE` via `~/.hermes/remindb.json`); see the hermes-agent plugin README for the exact invocation. Bridge hosts aren't in the matrix below — the matrix covers env wiring, which bridge hosts skip.
 
 ## Matrix
 
