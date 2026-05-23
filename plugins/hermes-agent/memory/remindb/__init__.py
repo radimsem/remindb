@@ -266,48 +266,17 @@ class RemindbProvider(MemoryProvider):
             json.dump(existing, f, indent=2)
             f.write("\n")
 
-    def post_setup(self, hermes_home: str, config: Dict[str, Any]) -> None:
-        _ = hermes_home
-        _ = config
-
-        if _binary_available():
-            return
-
-        is_windows = sys.platform == "win32"
-        install_url = _INSTALL_URL_WINDOWS if is_windows else _INSTALL_URL_UNIX
-
-        if not sys.stdin.isatty():
-            print(f"remindb binary not found. Install with:\n  {install_url}")
-            return
-
-        try:
-            answer = (
-                input(
-                    f"remindb binary not found. Install now from {install_url}? [Y/n] "
-                )
-                .strip()
-                .lower()
-            )
-        except EOFError:
-            answer = "n"
-
-        if answer and answer not in {"y", "yes"}:
-            print(f"Skipped. Install later with:\n  {install_url}")
-            return
-
-        if is_windows:
-            cmd = ["powershell", "-Command", f"iwr -useb {_INSTALL_URL_WINDOWS} | iex"]
-        else:
-            cmd = ["bash", "-c", f"curl -fsSL {_INSTALL_URL_UNIX} | bash"]
-
-        try:
-            subprocess.run(cmd, check=True)
-        except subprocess.CalledProcessError:
-            print(f"Install failed. Try manually:\n  {install_url}")
-
     def _ensure_client(self) -> _MCPStdioClient:
         if self._client is not None:
             return self._client
+
+        if not _binary_available():
+            install_url = (
+                _INSTALL_URL_WINDOWS if sys.platform == "win32" else _INSTALL_URL_UNIX
+            )
+            raise RuntimeError(
+                f"remindb binary not found on PATH. Install with:\n  {install_url}"
+            )
 
         config = self._load_config(self._resolve_hermes_home())
         db = os.environ.get("REMINDB_DB") or config.get("REMINDB_DB", "")
