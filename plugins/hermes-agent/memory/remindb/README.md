@@ -33,7 +33,7 @@ Check it:
 remindb --version
 ```
 
-You can skip this step. When you run `hermes memory setup`, the plugin offers to run the installer for you if the binary is missing.
+The binary is a hard prerequisite — `hermes memory setup` configures paths but does not install it. If it's missing, the plugin raises a clear error pointing back at the URL above the first time Hermes touches memory.
 
 ### 2. Compile a source directory
 
@@ -50,11 +50,16 @@ Any workspace works, though. Point it at a docs tree, a notes vault, or a projec
 
 ### 3. Install the plugin
 
+`hermes plugins install <repo>` clones the whole repo and expects `plugin.yaml` at its root — it has no `--path` flag and can't scope to a subdirectory, so the plugin can't be installed that way from this monorepo today. Clone the repo and copy the plugin directory into `$HERMES_HOME/plugins/` instead (`$HERMES_HOME` defaults to `~/.hermes`):
+
 ```bash
-hermes plugins install radimsem/remindb --path plugins/hermes-agent/memory/remindb
+git clone https://github.com/radimsem/remindb.git
+mkdir -p ~/.hermes/plugins
+rm -rf ~/.hermes/plugins/remindb
+cp -r remindb/plugins/hermes-agent/memory/remindb ~/.hermes/plugins/
 ```
 
-This copies the plugin into `$HERMES_HOME/plugins/remindb/` (`$HERMES_HOME` defaults to `~/.hermes`).
+Memory providers don't need `hermes plugins enable` — Hermes discovers them by scanning `~/.hermes/plugins/` and activates them via `memory.provider` in `~/.hermes/config.yaml` (the next step). Update later by re-running the last two commands (the `rm -rf` makes it deletion-safe — a removed plugin file won't linger).
 
 ### 4. Configure remindb as the memory provider
 
@@ -66,7 +71,7 @@ The wizard asks for two paths:
 - `REMINDB_DB` — the file you compiled in step 2.
 - `REMINDB_SOURCE` — the directory you compiled it from.
 
-It writes both to `$HERMES_HOME/remindb.json`, sets `memory.provider: remindb` in `~/.hermes/config.yaml`, and offers to run the installer if the binary is still missing.
+It writes both to `$HERMES_HOME/remindb.json` and sets `memory.provider: remindb` in `~/.hermes/config.yaml`.
 
 Prefer environment variables? Set them instead. They take precedence over `remindb.json`:
 
@@ -80,6 +85,12 @@ export REMINDB_SOURCE=$HOME/.hermes
 Start Hermes. The next time it touches memory, it spawns `remindb serve` and loads all 17 `Memory*` tools. They show up in any session that uses the memory layer. Ask the agent to list its memory tools, or have it call `MemoryStats` once to confirm.
 
 If something looks off, run `remindb serve` yourself in a terminal with the same `REMINDB_DB` and `REMINDB_SOURCE` set. You'll see its logs directly.
+
+### Troubleshooting
+
+- `hermes memory status` shows `Status: not available ✗` after setup — check `remindb --version`; if it's not on `$PATH`, re-run step 1. The first time Hermes touches memory it raises `remindb binary not found on PATH. Install with: …` pointing at the installer.
+- Wizard saved with empty paths — re-run `hermes memory setup`, or set `REMINDB_DB` / `REMINDB_SOURCE` as env vars (they take precedence over `remindb.json`).
+- Smoke test the plugin locally: `python3 plugins/hermes-agent/memory/remindb/test-smoke.py` (uses a throwaway `HERMES_HOME`, leaves your real `~/.hermes/` untouched).
 
 ## Skills
 
