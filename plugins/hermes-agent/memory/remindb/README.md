@@ -69,22 +69,33 @@ remindb compile ~/.hermes/memories --db ~/.cache/remindb/hermes.db
 remindb compile ~/.hermes/SOUL.md --db ~/.cache/remindb/hermes.db
 ```
 
+> ℹ️ **`SOUL.md` is a one-shot adjacent seed.** The rescan loop (started by `remindb serve`) only watches the source root — here, `~/.hermes/memories/`. Files compiled from outside that source, like `SOUL.md`, are ingested but not auto-refreshed. If Hermes updates `SOUL.md` later (e.g. via its `soul_edit` tool), re-run the second `remindb compile ~/.hermes/SOUL.md ...` command to refresh the stored copy.
+
 > ⚠️ **Source is `~/.hermes/memories/`, not `~/.hermes/` wholesale.** HERMES_HOME also holds installed plugins (`plugins/`), agent-created skills (`skills/`), gateway sessions (`sessions/`), logs (`logs/`), caches (`cache/`), sandboxes (`sandboxes/`), browser recordings (`browser_recordings/`), and credential files (`.env`, `auth.json`) — none of which are recall-shaped. The narrow source root plus the `.remindb/` template authored in step 3 keep the index to genuine memory only. (The exclusion list reflects the Hermes HERMES_HOME layout at time of writing; if a newer Hermes release adds a memory-adjacent subtree, verify against current Hermes docs.)
 
 Any other source root works if you want to point Hermes at a different workspace (a docs vault, a project tree) — adjust step 3's `Source root:` accordingly. For the canonical "remember your own state" case, the narrow `memories/` source above is the right shape.
 
 ### 5. Install the plugin
 
-`hermes plugins install <repo>` clones the whole repo and expects `plugin.yaml` at its root — it has no `--path` flag and can't scope to a subdirectory, so the plugin can't be installed that way from this monorepo today. Clone the repo and copy the plugin directory into `$HERMES_HOME/plugins/` instead (`$HERMES_HOME` defaults to `~/.hermes`):
+`hermes plugins install <repo>` clones the whole repo and expects `plugin.yaml` at its root — it has no `--path` flag and can't scope to a subdirectory, so the plugin can't be installed that way from this monorepo today. Clone the repo into the same `~/.cache/remindb/` directory that holds the compiled DB, then copy the plugin subdir into `$HERMES_HOME/plugins/` (`$HERMES_HOME` defaults to `~/.hermes`):
 
 ```bash
-git clone https://github.com/radimsem/remindb.git
+mkdir -p ~/.cache/remindb
+git clone https://github.com/radimsem/remindb.git ~/.cache/remindb/src
 mkdir -p ~/.hermes/plugins
 rm -rf ~/.hermes/plugins/remindb
-cp -r remindb/plugins/hermes-agent/memory/remindb ~/.hermes/plugins/
+cp -r ~/.cache/remindb/src/plugins/hermes-agent/memory/remindb ~/.hermes/plugins/
 ```
 
-Memory providers don't need `hermes plugins enable` — Hermes discovers them by scanning `~/.hermes/plugins/` and activates them via `memory.provider` in `~/.hermes/config.yaml` (the next step). Update later by re-running the last two commands (the `rm -rf` makes it deletion-safe — a removed plugin file won't linger).
+The clone lives at `~/.cache/remindb/src` — alongside the DB, out of your working directories. Update later by pulling in place and re-copying:
+
+```bash
+git -C ~/.cache/remindb/src pull
+rm -rf ~/.hermes/plugins/remindb
+cp -r ~/.cache/remindb/src/plugins/hermes-agent/memory/remindb ~/.hermes/plugins/
+```
+
+Memory providers don't need `hermes plugins enable` — Hermes discovers them by scanning `~/.hermes/plugins/` and activates them via `memory.provider` in `~/.hermes/config.yaml` (the next step). The `rm -rf` before each copy makes the install deletion-safe — a file removed upstream won't linger in your installed copy.
 
 ### 6. Configure remindb as the memory provider
 
