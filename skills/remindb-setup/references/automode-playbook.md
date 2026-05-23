@@ -7,14 +7,15 @@ Reference for `remindb-setup` under `automode` (chosen in the interview or passe
 automode infers every parameter, but the **ordering is fixed** by the config-first invariant: author `.remindb/` before the compile so `ignore`/`pinned`/`temperatures.json` apply at insert time. No reseed on a first run — reseeding is the Pass 2 / reconfigure path only.
 
 1. **Binary** — `remindb --version`; if missing, install it (still confirm the remote installer, the one trust action automode keeps).
-2. **Detect host** — probe `~/.claude` · `~/.codex` · `~/.gemini` · `~/.openclaw` · `~/.config/opencode`; if more than one matches, pick the most likely and **record the assumption** in the summary. Look up its `host-wiring.md` row.
+2. **Identify your host** from the agent runtime you're in — your system prompt and the tools/skills exposed this session pin it down (e.g. `/plugin install` = Claude Code; `/skills` = Codex; `openclaw mcp` = OpenClaw; `activate_skill` = Gemini CLI; plain-language skill activation = OpenCode). Don't probe filesystems. If runtime context is genuinely ambiguous, pick the most likely and **record the assumption** in the summary. Look up its `host-wiring.md` row.
 3. **Resolve source + db** — confirm the source root (pre-attach, so infer it from the host's state dir, e.g. `~/.claude/projects`); derive a db path (e.g. `~/.cache/remindb/<host>.db`). Unresolvable → stop and report, don't guess.
 4. **Classify the workspace** (below) → pick the closest `config-examples.md` template as a baseline; walk the tree once; adjust from what you actually see.
 5. **Write `.remindb/` files** (before compiling). Print a summary: every file written + the one-line reason for each non-obvious choice.
 6. **Compile** — `remindb compile <source> --db <db>` (no `--reseed`).
 7. **Seed adjacent context** — `remindb compile <abs-file> --db <db>` per out-of-source file the host loads (`CLAUDE.md`/`AGENTS.md`/`GEMINI.md`/`README.md`).
-8. **Wire the env** — apply the host's durable mechanism from `host-wiring.md` yourself (or snippet-fallback for the two flagged cases). **Confirm before writing host config** — the second trust action automode keeps.
-9. **Report** — print what was written + the "install/enable the plugin and restart, then re-run to verify" close.
+8. **Install/enable the MCP plugin** — per the host's `Plugin install` column in `host-wiring.md`. For Claude Code the wizard prompts the user (`/plugin install` isn't Bash-callable); for Codex / OpenClaw / Gemini the wizard can run the install command itself after confirming. **Confirm before invoking install.** Wherever the loaded config is post-install (Claude Code cache, OpenClaw MCP store), install must complete before step 9.
+9. **Wire the env** — locate the loaded config the running server reads (`host-wiring.md` names it per host) and apply the **scoped edit** (multi-brain safe). Shell-export snippet only where scoped isn't viable (unknown host, or user opt-in for Claude Code marketplace per `host-wiring.md` §Env-wiring principle). **Confirm before writing host config** — the second trust action automode keeps.
+10. **Report** — print what was written + "reload the host (or restart your shell if you used the export fallback), then re-run `/remindb-setup` to verify (Pass 2 confirms `MemoryStats` `db_path` matches the compiled DB)".
 
 ## Classify the workspace
 

@@ -99,7 +99,7 @@ make fuzz           # scripts/fuzz.sh — bounded fuzz pass
 make fmt lint tidy  # gofmt / golangci-lint / go mod tidy
 ```
 
-Inspect a compiled DB: `go run ./cmd/remindb inspect <path>`. Run the server: `go run ./cmd/remindb serve` (add `--verbose` for `Debug` logs).
+Inspect a compiled DB: `go run ./cmd/remindb inspect --db <path>`. Run the server: `go run ./cmd/remindb serve` (add `--verbose` for `Debug` logs).
 
 Benchmarks: `scripts/bench-agents.sh` runs the cross-agent token-savings table referenced in the README.
 
