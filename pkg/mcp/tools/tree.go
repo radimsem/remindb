@@ -51,13 +51,9 @@ func (d *Deps) HandleTree(ctx context.Context, _ *gomcp.CallToolRequest, input T
 	}
 
 	if b.Len() == 0 {
-		return &gomcp.CallToolResult{
-			Content: []gomcp.Content{&gomcp.TextContent{Text: "empty tree"}},
-		}, nil, nil
+		return textResult("empty tree"), nil, nil
 	}
-	return &gomcp.CallToolResult{
-		Content: []gomcp.Content{&gomcp.TextContent{Text: b.String()}},
-	}, nil, nil
+	return textResult(b.String()), nil, nil
 }
 
 func writeTree(b *strings.Builder, children map[string][]*store.Node, root *store.Node, compileRoot string, maxDepth int) {

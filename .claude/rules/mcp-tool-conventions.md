@@ -105,17 +105,20 @@ if len(result.Nodes) == 0 {
     return &gomcp.CallToolResult{}, nil, nil
 }
 
-// Good — happy path
-text := query.Format(result)
+// Bad — open-coded literal; use the textResult helper in deps.go
 return &gomcp.CallToolResult{
     Content: []gomcp.Content{&gomcp.TextContent{Text: text}},
 }, nil, nil
 
+// Good — happy path
+text := query.Format(result)
+return textResult(text), nil, nil
+
 // Good — explicit empty-state text
-return &gomcp.CallToolResult{
-    Content: []gomcp.Content{&gomcp.TextContent{Text: "no results"}},
-}, nil, nil
+return textResult("no results"), nil, nil
 ```
+
+`textResult(msg string) *gomcp.CallToolResult` lives in `pkg/mcp/tools/deps.go` alongside the other shared tool helpers; every text-content return goes through it.
 
 Use the existing formatters in `pkg/query/` (`Format`, `FormatCompact`) for query results. New tools that need a different format should add a formatter to the same package, not inline string-building.
 
@@ -325,6 +328,7 @@ Adding, renaming, or reshaping a resource updates **`skills/remind/references/re
 - Anonymous-error-return signature on a handler.
 - Untyped `map[string]any` input or input without `jsonschema` tags.
 - Structured return; multi-content return; empty content array.
+- Open-coding `&gomcp.CallToolResult{Content: []gomcp.Content{&gomcp.TextContent{Text: x}}}` instead of calling `textResult(x)` (defined in `pkg/mcp/tools/deps.go`).
 - Read tool taking `Store.OpMu`; write tool not taking it.
 - Read tool skipping `boostResultNodes`; write tool calling it.
 - More than one snapshot row per tool call — whether via two `emitter.Emit` invocations or via an inlined-tx tool calling `CreateSnapshotWithParentTx` twice. The §7 invariant is "one snapshot per call", not "one `emitter.Emit` per call".

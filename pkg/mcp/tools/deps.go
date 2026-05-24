@@ -6,6 +6,7 @@ import (
 	"time"
 	"unicode/utf8"
 
+	gomcp "github.com/modelcontextprotocol/go-sdk/mcp"
 	"github.com/radimsem/remindb/internal/redaction"
 	"github.com/radimsem/remindb/pkg/config"
 	"github.com/radimsem/remindb/pkg/diff"
@@ -160,4 +161,10 @@ func truncate(s string, maxLen int) string {
 		end--
 	}
 	return s[:end] + "..."
+}
+
+func textResult(msg string) *gomcp.CallToolResult {
+	return &gomcp.CallToolResult{
+		Content: []gomcp.Content{&gomcp.TextContent{Text: msg}},
+	}
 }

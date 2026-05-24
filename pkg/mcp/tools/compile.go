@@ -57,9 +57,7 @@ func (d *Deps) HandleCompile(ctx context.Context, _ *gomcp.CallToolRequest, inpu
 	text := fmt.Sprintf("compiled: %d added, %d modified, %d removed (%d ops)",
 		result.Added, result.Modified, result.Removed, result.Total)
 
-	return &gomcp.CallToolResult{
-		Content: []gomcp.Content{&gomcp.TextContent{Text: text}},
-	}, nil, nil
+	return textResult(text), nil, nil
 }
 
 func canonicalizePath(input, sourceDir string) (string, error) {

@@ -25,7 +25,5 @@ func (d *Deps) HandleSearch(ctx context.Context, _ *gomcp.CallToolRequest, input
 
 	d.boostResultNodes(ctx, result)
 	text := query.FormatCompact(result)
-	return &gomcp.CallToolResult{
-		Content: []gomcp.Content{&gomcp.TextContent{Text: text}},
-	}, nil, nil
+	return textResult(text), nil, nil
 }

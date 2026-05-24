@@ -26,7 +26,5 @@ func (d *Deps) HandleDiff(ctx context.Context, _ *gomcp.CallToolRequest, input D
 		return nil, nil, fmt.Errorf("failed to get diff: %w", err)
 	}
 
-	return &gomcp.CallToolResult{
-		Content: []gomcp.Content{&gomcp.TextContent{Text: query.FormatDiffs(diffs)}},
-	}, nil, nil
+	return textResult(query.FormatDiffs(diffs)), nil, nil
 }

@@ -34,7 +34,5 @@ func (d *Deps) HandleFetchBatch(ctx context.Context, _ *gomcp.CallToolRequest, i
 
 	d.boostResultNodes(ctx, result)
 	text := query.FormatBatch(result, input.NodeIDs, missing)
-	return &gomcp.CallToolResult{
-		Content: []gomcp.Content{&gomcp.TextContent{Text: text}},
-	}, nil, nil
+	return textResult(text), nil, nil
 }

@@ -67,7 +67,5 @@ func (d *Deps) HandleSummarize(ctx context.Context, _ *gomcp.CallToolRequest, in
 	}
 
 	msg := fmt.Sprintf("summarized node %s (%d → %d tokens)", input.NodeID, oldTokens, tokenCount)
-	return &gomcp.CallToolResult{
-		Content: []gomcp.Content{&gomcp.TextContent{Text: msg}},
-	}, nil, nil
+	return textResult(msg), nil, nil
 }
