@@ -224,7 +224,7 @@ For any other MCP-capable agent, add this to its MCP config by hand. Stdio (the 
 }
 ```
 
-Every `serve` flag has a `REMINDB_*` environment equivalent — `REMINDB_DB`, `REMINDB_SOURCE`, `REMINDB_RESCAN_INTERVAL`, `REMINDB_TRANSPORT`, `REMINDB_LISTEN` — so pass them via `args`, the `env` block above, or a committed `.remindb/config.json`. Precedence is explicit flag → `.remindb/config.json` → env → built-in default; see [Configuration](./docs/configuration.md).
+Every `serve` flag has a `REMINDB_*` environment equivalent — `REMINDB_DB`, `REMINDB_SOURCE`, `REMINDB_RESCAN_INTERVAL`, `REMINDB_TRANSPORT`, `REMINDB_LISTEN`, `REMINDB_INSECURE_PUBLIC` — plus the env-only `REMINDB_AUTH_TOKEN` for HTTP bearer-token auth (see [SECURITY.md](./SECURITY.md#threat-model)). Pass them via `args`, the `env` block above, or a committed `.remindb/config.json`. Precedence is explicit flag → `.remindb/config.json` → env → built-in default; see [Configuration](./docs/configuration.md).
 
 Or HTTP, when you want one long-running server that multiple agent sessions (a local IDE, a CI worker, a hosted session) share. Start `remindb serve --transport http --db ... --source ...` once, then point each client at the listen URL:
 

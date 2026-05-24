@@ -45,7 +45,7 @@ remindb serve --db ./notes.db --source ./notes --transport http --listen 127.0.0
 remindb serve --db ./notes.db # DB-only (no source, no rescan)
 ```
 
-HTTP defaults to `127.0.0.1:7474`. Binding to a non-loopback address (e.g. `--listen 0.0.0.0:7474`) emits a one-time Warn at startup — there is no built-in authentication yet, so put a reverse proxy in front before exposing the server beyond localhost.
+HTTP defaults to `127.0.0.1:7474`. Binding to a non-loopback address (e.g. `--listen 0.0.0.0:7474`) **requires authentication** — `serve` refuses to start unless `REMINDB_AUTH_TOKEN` is set (every request must then carry `Authorization: Bearer <token>`; constant-time-rejected 401 + `WWW-Authenticate: Bearer realm="remindb"` otherwise) or `--insecure-public` is passed (deliberately ugly opt-out for homelab / reverse-proxy setups where you trust the network layer; logs a startup Warn). Loopback binds need no auth, but setting `REMINDB_AUTH_TOKEN` still applies the middleware. See [SECURITY.md](../SECURITY.md#threat-model) for the full transport threat model.
 
 | Flag | Env | Purpose |
 |------|-----|---------|
@@ -54,6 +54,8 @@ HTTP defaults to `127.0.0.1:7474`. Binding to a non-loopback address (e.g. `--li
 | `--rescan-interval` | `REMINDB_RESCAN_INTERVAL` | e.g. `30s`, `5m`. `0` keeps the tracker's default. Requires `--source`. |
 | `--transport` | `REMINDB_TRANSPORT` | `stdio` (default) or `http`. Also `server.transport` — see [configuration → precedence](./configuration.md#runtime-config-remindbconfigjson). |
 | `--listen` | `REMINDB_LISTEN` | Listen address for HTTP transport. Default `127.0.0.1:7474`; requires `--transport=http`. Also `server.listen`. |
+| `--insecure-public` | `REMINDB_INSECURE_PUBLIC` | Bypass HTTP auth requirement when binding non-loopback (DANGEROUS, env-acceptable values per `strconv.ParseBool`). Requires `--transport=http`. |
+| — | `REMINDB_AUTH_TOKEN` | Shared bearer token enforced on every HTTP request when set. Env-only — no flag mirror, no config-file slot, to keep secrets out of committed configs. |
 | `-v, --verbose` | — | Force debug-level logs (default info). Sugar for `server.logging.level=debug`; wins over config. |
 
 `serve` background-checks GitHub releases on startup and emits an `info` log when a newer tag is available, with `hint=remindb update` — the prompt to upgrade comes from the server, the upgrade itself is one command.
