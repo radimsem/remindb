@@ -20,7 +20,7 @@ Re-reading raw notes and source files every session burns tokens on prose the mo
 
 ## Companion skills
 
-If `~/.gemini/skills/remind/` and `~/.gemini/skills/memoize/` are loaded, follow them — they're the canonical read-path and write-path playbooks (full mental model, FTS5 query syntax, Markdown shape rules, search-first edit workflow). Gemini CLI auto-discovers skills in `~/.gemini/skills/`, `~/.agents/skills/`, and the workspace-local `.gemini/skills/` and `.agents/skills/`. Verify what's loaded with `/skills`. If they're missing, install per https://github.com/radimsem/remindb/tree/main/skills.
+If `~/.gemini/skills/remind/` and `~/.gemini/skills/memorize/` are loaded, follow them — they're the canonical read-path and write-path playbooks (full mental model, FTS5 query syntax, Markdown shape rules, search-first edit workflow). Gemini CLI auto-discovers skills in `~/.gemini/skills/`, `~/.agents/skills/`, and the workspace-local `.gemini/skills/` and `.agents/skills/`. Verify what's loaded with `/skills`. If they're missing, install per https://github.com/radimsem/remindb/tree/main/skills.
 
 ## Activation
 

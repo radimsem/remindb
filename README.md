@@ -37,7 +37,7 @@ Raw markdown is the wrong shape for memory. Not because it can't hold the words 
 
 Each point is a summary — the full reasoning, with the tradeoffs, lives in [`docs/`](./docs/).
 
-**A tree the agent can index, not skim.** One `MemoryTree` call returns a typed, labeled, token-counted hierarchy — `ls -la` for memory instead of `ls`-ing a folder and reading every file to orient. → **[The node tree](./docs/node-tree.md)**
+**An ICR the agent can index, not skim.** `MemoryTree` returns the Intermediate Context Representation — typed, labeled, token-counted — in one call instead of a directory walk and a pile of file reads. → **[The node tree](./docs/node-tree.md)**
 
 **Hot vs. cold, like a real cache.** Every node has a temperature that rises when it's read and decays over time. Hot nodes rank higher in search; cold ones stop crowding the top without ever being deleted. → **[Temperature](./docs/temperature.md)**
 
@@ -66,7 +66,7 @@ curl -fsSL https://raw.githubusercontent.com/radimsem/remindb/main/install.sh | 
 By default the binary lands at `~/.local/bin/remindb`. Pick a different prefix:
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/radimsem/remindb/main/install.sh | bash -s -- --prefix ~/.cargo
+curl -fsSL https://raw.githubusercontent.com/radimsem/remindb/main/install.sh | bash -s -- --prefix /usr/local
 ```
 
 **Windows (PowerShell 5.1+):**
@@ -97,7 +97,7 @@ remindb --version
 
 ## Updating
 
-Two moving parts: the **binary** (release tags) and the **agent-side skills** (`remind`, `memoize` — the markdown your agent loads to learn how to call the MCP tools). They iterate on different cadences, so they update independently.
+Two moving parts: the **binary** (release tags) and the **agent-side skills** (`remind`, `memorize` — the markdown your agent loads to learn how to call the MCP tools). They iterate on different cadences, so they update independently.
 
 ### Binary
 
@@ -113,13 +113,19 @@ remindb update --force
 
 ### Skills
 
-The public skills live under [`skills/remind/`](skills/remind/SKILL.md) and [`skills/memoize/`](skills/memoize/SKILL.md). They're refreshed by [`vercel-labs/skills`](https://github.com/vercel-labs/skills).
+The public skills live under [`skills/`](skills/): [`remember`](skills/remember/SKILL.md) (the plain-language front door), [`remind`](skills/remind/SKILL.md) (read path), [`memorize`](skills/memorize/SKILL.md) (write path), and [`remindb-setup`](skills/remindb-setup/SKILL.md) (connectivity/config). `remind` and `memorize` use progressive disclosure — a compact `SKILL.md` plus on-demand `references/`. They're refreshed by [`vercel-labs/skills`](https://github.com/vercel-labs/skills).
 
-First-time install (or after adding a new agent):
+First-time install — globally (every detected agent), or scoped to one agent:
 
 ```bash
+# Global — install for all detected agents at once
+npx skills@latest add radimsem/remindb/skills
+```
+
+```bash
+# Scoped — install for one agent
 npx skills@latest add radimsem/remindb/skills -a claude-code
-# -a codex | gemini-cli | opencode | openclaw | ...
+# -a codex | gemini-cli | opencode | openclaw | hermes-agent | ...
 ```
 
 Refresh later:
@@ -136,12 +142,12 @@ The README is the trailer. The manual is in [`docs/`](./docs/) — each page ope
 |------|--------------|
 | [Architecture](./docs/architecture.md) | The layer-by-layer map: parser → transformer → emitter → store, then query → mcp. |
 | [CLI reference](./docs/cli.md) | Every subcommand — `compile`, `serve`, `inspect`, `bench`, `doctor`, `update` — with flags. |
-| [Configuration](./docs/configuration.md) | The `.remindb/` directory: `config.json` feature blocks, `ignore`, `temperatures.json`. |
+| [Configuration](./docs/configuration.md) | The `.remindb/` directory: `config.json` feature blocks, `ignore`, `temperatures.json`, `pinned`. |
 | [The node tree](./docs/node-tree.md) · [Temperature](./docs/temperature.md) · [Versioning](./docs/versioning.md) · [Search](./docs/search.md) · [TOON](./docs/toon-encoding.md) · [MathML → LaTeX](./docs/mathml-latex.md) · [Knowledge graph](./docs/knowledge-graph.md) | The feature deep-dives linked from *What you get*. |
 
 ## MCP tools
 
-A `Memory*` tool suite, registered once, surfaced to any MCP-capable agent (Claude Code, Codex, Gemini CLI, OpenCode, OpenClaw, …). The read path is documented in the [`remind`](./skills/remind/) skill, the write path in [`memoize`](./skills/memoize/).
+A `Memory*` tool suite, registered once, surfaced to any MCP-capable agent (Claude Code, Codex, Gemini CLI, OpenCode, OpenClaw, Hermes Agent, …). The read path is documented in the [`remind`](./skills/remind/) skill, the write path in [`memorize`](./skills/memorize/).
 
 | Tool | Purpose |
 |------|---------|
@@ -163,9 +169,30 @@ A `Memory*` tool suite, registered once, surfaced to any MCP-capable agent (Clau
 | **`MemoryPin`** | Protects a node from temperature decay and the cold-summarize loop — for reference material that must not age out. |
 | **`MemoryUnpin`** | Releases a pin, returning the node to normal decay. |
 
+### Resources
+
+Resources give desktop clients and dashboards passive read access to database state. Unlike the `Memory*` tools, they never boost temperature, take locks, or emit snapshots — a heatmap that warmed the nodes it displayed would measure its own rendering.
+
+| Resource | Description |
+|----------|-------------|
+| `remindb://overview` | Database stats as JSON — the `MemoryStats` equivalent for renderers. |
+| `remindb://files` | Compiled source files grouped by compile root, with per-file node and token counts. |
+| `remindb://tree` | Full node hierarchy as nested JSON. `tree/{rootId}{?depth}` for a bounded subtree. |
+| `remindb://graph` | Relations graph — resolved edges, pending wiki-link targets, and the node set they reference. |
+| `remindb://snapshots` | Version history. `snapshots{?limit}` for the newest N; `snapshots/{id}/diffs` for one snapshot's diffs. |
+| `remindb://temperature` | Per-node temperature heatmap, with the cut thresholds used to classify hot and cold. |
+| `remindb://doctor` | Health-check report as JSON (same data as `remindb doctor --json`). |
+| `remindb://logs` | Recent server log records from the in-memory ring buffer. |
+| `remindb://sessions` | Active MCP client sessions on this process. |
+| `remindb://sessions/history` | Durable per-client connection ledger across restarts. `sessions/history/{hash}` for one client. |
+| `remindb://sessions/logs` | Per-session logfile index. `sessions/logs/{id}` for one session's structured tool-call trace. |
+| `remindb://rescan` | Latest source-rescan tick result. |
+
+Several are subscribable — clients can receive push notifications on state changes instead of polling. The full resource contract, envelope shapes, and subscription events are in [`docs/resources.md`](./docs/resources.md).
+
 ### Agent integrations
 
-Five plugin folders ship with the repo, one per supported coding agent. Each has a manifest matching that agent's spec, an MCP stanza, and a README with install commands, env-var conventions, and a worked example that compiles the agent's own memory folder into remindb.
+Six plugin folders ship with the repo, one per supported agent host. Five are short declarative manifests matching the host's plugin spec; the Hermes Agent one is a Python `MemoryProvider` implementation that spawns `remindb serve` as a subprocess. Each folder has a README with install commands, env-var conventions, and a worked example.
 
 | Agent | Folder | Install docs |
 |-------|--------|--------------|
@@ -174,9 +201,10 @@ Five plugin folders ship with the repo, one per supported coding agent. Each has
 | Codex | [`plugins/codex/`](./plugins/codex/) | [plugins/codex/README.md](./plugins/codex/README.md) |
 | OpenCode | [`plugins/opencode/`](./plugins/opencode/) | [plugins/opencode/README.md](./plugins/opencode/README.md) |
 | OpenClaw | [`plugins/openclaw/`](./plugins/openclaw/) | [plugins/openclaw/README.md](./plugins/openclaw/README.md) |
+| Hermes Agent | [`plugins/hermes-agent/memory/remindb/`](./plugins/hermes-agent/memory/remindb/) | [plugins/hermes-agent/memory/remindb/README.md](./plugins/hermes-agent/memory/remindb/README.md) |
 
 > [!TIP]
-> **Pair the plugin with the two companion skills** — [`remind`](./skills/remind/) (read path) and [`memoize`](./skills/memoize/) (write path). They teach the agent the MCP tool suite so you don't re-explain it each session. Per-agent install instructions live in [`skills/README.md`](./skills/).
+> **Pair the plugin with the two companion skills** — [`remind`](./skills/remind/) (read path) and [`memorize`](./skills/memorize/) (write path). They teach the agent the MCP tool suite so you don't re-explain it each session. Per-agent install instructions live in [`skills/README.md`](./skills/).
 
 For any other MCP-capable agent, add this to its MCP config by hand. Stdio (the default — one server per client process):
 
@@ -196,7 +224,7 @@ For any other MCP-capable agent, add this to its MCP config by hand. Stdio (the 
 }
 ```
 
-Every `serve` flag has a `REMINDB_*` environment equivalent — `REMINDB_DB`, `REMINDB_SOURCE`, `REMINDB_RESCAN_INTERVAL`, `REMINDB_TRANSPORT`, `REMINDB_LISTEN` — so pass them via `args`, the `env` block above, or a committed `.remindb/config.json`. Precedence is explicit flag → `.remindb/config.json` → env → built-in default; see [Configuration](./docs/configuration.md).
+Every `serve` flag has a `REMINDB_*` environment equivalent — `REMINDB_DB`, `REMINDB_SOURCE`, `REMINDB_RESCAN_INTERVAL`, `REMINDB_TRANSPORT`, `REMINDB_LISTEN`, `REMINDB_INSECURE_PUBLIC` — plus the env-only `REMINDB_AUTH_TOKEN` for HTTP bearer-token auth (see [SECURITY.md](./SECURITY.md#threat-model)). Pass them via `args`, the `env` block above, or a committed `.remindb/config.json`. Precedence is explicit flag → `.remindb/config.json` → env → built-in default; see [Configuration](./docs/configuration.md).
 
 Or HTTP, when you want one long-running server that multiple agent sessions (a local IDE, a CI worker, a hosted session) share. Start `remindb serve --transport http --db ... --source ...` once, then point each client at the listen URL:
 
@@ -211,12 +239,24 @@ Or HTTP, when you want one long-running server that multiple agent sessions (a l
 }
 ```
 
-On startup the agent sees the full `Memory*` tool suite alongside its usual toolbox. A reasonable first prompt:
+On startup the agent sees the full `Memory*` tool suite alongside its usual toolbox.
+
+You don't hand-write any of that, though — the **`remindb-setup`** skill (installed via `npx skills add`, above) is a **config-first wizard** that runs from inside a session. Because the skill installs independently of the MCP plugin, its first pass runs *before* any server is attached. On hosts that expose it as a slash command (Claude Code, OpenClaw):
 
 ```
-/remind Call MemoryTree to orient. Then call MemorySearch for "<topic>" with budget 1000
-and MemoryFetch on the top hit. Explain what you learned and which files it came from.
+/remindb-setup            # interactive — walks you through each .remindb/ choice
+/remindb-setup automode   # hands-off — the agent infers the whole setup itself
 ```
+
+Codex, OpenCode, and Gemini CLI surface the same skill differently — the `/skills` picker, a `$remindb-setup` mention, or plain-language activation; each plugin README gives the exact invocation. Either way, it detects the host, authors `.remindb/` (`ignore`/`pinned`/`temperatures.json`/`config.json`) **before** compiling — so those settings apply at insert time, no reseed retrofit — runs the compile, offers to seed adjacent context (`CLAUDE.md`/`AGENTS.md`/`README`), and wires the MCP `env` for you using your host's durable mechanism. Then you enable the plugin and restart; re-running the wizard with the server attached is the verify pass (`MemoryStats` + `remindb://doctor`). Per-host invocation and env details live in [`skills/remindb-setup/`](./skills/remindb-setup/). (Hermes Agent is a memory-provider bridge, not an MCP-config host — it uses `hermes memory setup` instead; see its [plugin README](./plugins/hermes-agent/memory/remindb/).)
+
+Once that's done, talking to your memory is plain language — the **`/remember`** front door routes recall to `remind` and saves to `memorize`, so you never name a tool:
+
+```
+/remember what did we decide about <topic>? Pull it from memory — don't re-read the files.
+```
+
+It searches the node tree, fetches the top hits under a token budget, and answers from memory, citing which file each fact came from — instead of grepping and re-reading prose it has already seen. The same door takes saves: `/remember note that <fact>` routes to a structured write.
 
 ## Benchmarks
 

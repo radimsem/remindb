@@ -22,7 +22,7 @@ Pipeline: `parser → transformer → emitter → store`. Read side: `query → 
 - `cmd/remindb/` — CLI: `serve`, `compile`, `inspect`, `bench`, `doctor`, `update`
 - `migrations/` — `0001_init.sql`, `0002_*.sql`, applied via embed.FS in `migrations.go`
 - `internal/` — bench, contentid, fileext, ignore, mcptest, tempfile, testutil, tokens
-- `skills/remind/`, `skills/memoize/` — **public** skills shipped to MCP clients: `remind` is the read path + mental model, `memoize` is the write path + Markdown-shape rules (distinct from `.claude/skills/`)
+- `skills/{remember,remind,memorize,remindb-setup}/` — **public** skills shipped to MCP clients (distinct from `.claude/skills/`): `remember` is the broad-trigger router, `remind` the read path + mental model, `memorize` the write path + Markdown-shape rules, `remindb-setup` the `/remindb-setup [automode]` setup wizard. `remind`, `memorize`, and `remindb-setup` push depth into their `references/` subdirs (progressive disclosure); SKILL.md stays a compact router/spine. Structural gate: `scripts/check-skills.sh` (`make check-skills`)
 - `docs/` — **public** end-user manual: `architecture.md` / `cli.md` / `configuration.md` (reference) plus one deep-dive per feature; editable diagram sources in `assets/excalidraw/`, exported `assets/*.svg`
 - `plugins/` — per-agent plugin folders (claude-code, gemini-cli, codex, opencode, openclaw)
 - Top-level: `integration_test.go`, `mcp_integration_test.go`, `bench_test.go`
@@ -33,9 +33,10 @@ Pipeline: `parser → transformer → emitter → store`. Read side: `query → 
 |---|---|
 | End-to-end product story, benchmarks, feature pitch | `README.md` |
 | Architecture, CLI, `.remindb/` config (reference) | `docs/architecture.md` · `docs/cli.md` · `docs/configuration.md` |
-| Feature deep-dive — node tree · temperature · versioning · search · TOON · MathML→LaTeX · knowledge graph | the matching `docs/<topic>.md` |
-| How clients call the MCP read tools (the contract) | `skills/remind/SKILL.md` |
-| How clients author content for MCP write tools (the contract) | `skills/memoize/SKILL.md` |
+| Feature deep-dive — node tree · temperature · versioning · search · TOON · MathML→LaTeX · knowledge graph · resources | the matching `docs/<topic>.md` |
+| How clients call the MCP read tools (the contract) | `skills/remind/SKILL.md` + `skills/remind/references/` |
+| How clients author content for MCP write tools (the contract) | `skills/memorize/SKILL.md` + `skills/memorize/references/` |
+| Plain-language memory front door · connecting/configuring remindb | `skills/remember/SKILL.md` · `skills/remindb-setup/SKILL.md` |
 | Go style, naming, error/log/concurrency idioms | `.claude/rules/go-concise.md` |
 | Commit, sign, branch, tag, push, release rules | `.claude/rules/git-versioning.md` |
 | MCP tool contract (signature, locking, returns) | `.claude/rules/mcp-tool-conventions.md` |
@@ -48,7 +49,7 @@ These zones have either an external contract or a silent-drift hazard. Don't cha
 
 ### MCP tool surface (`pkg/mcp/tools/`, `pkg/mcp/server.go`)
 
-The `Memory*` tool suite is a contract shipped to clients via two public skills: `skills/remind/SKILL.md` (read tools — `MemoryTree`, `MemorySearch`, `MemoryFetch`, `MemoryFetchBatch`, `MemoryDelta`, `MemoryDiff`, `MemoryHistory`, `MemoryRelated`, `MemoryStats`) and `skills/memoize/SKILL.md` (write tools — `MemoryWrite`, `MemorySummarize`, `MemoryCompile`, `MemoryRelate`, `MemoryForget`, `MemoryRollback`, `MemoryPin`, `MemoryUnpin`). Renaming, removing, or changing semantics breaks every client and desyncs the relevant public skill. Use the **`add-mcp-tool` skill** for any new/modified tool, follow `.claude/rules/mcp-tool-conventions.md`, and dispatch the **`mcp-surface-reviewer` agent** before merge.
+The `Memory*` tool suite is a contract shipped to clients via two public skills: `skills/remind/SKILL.md` (read tools — `MemoryTree`, `MemorySearch`, `MemoryFetch`, `MemoryFetchBatch`, `MemoryDelta`, `MemoryDiff`, `MemoryHistory`, `MemoryRelated`, `MemoryStats`) and `skills/memorize/SKILL.md` (write tools — `MemoryWrite`, `MemorySummarize`, `MemoryCompile`, `MemoryRelate`, `MemoryForget`, `MemoryRollback`, `MemoryPin`, `MemoryUnpin`). Each SKILL.md is a compact router; per-tool depth lives in its `references/` subdir — when a change touches resource envelopes, FTS5 syntax, snapshot/relations mechanics, or the parser/lifecycle/wiki-link details, update the matching `references/*.md`, not just SKILL.md. Renaming, removing, or changing semantics breaks every client and desyncs the relevant public skill. Use the **`add-mcp-tool` skill** for any new/modified tool, follow `.claude/rules/mcp-tool-conventions.md`, and dispatch the **`mcp-surface-reviewer` agent** before merge.
 
 ### SQLite schema & migrations (`migrations/`, `pkg/store/`)
 
@@ -56,7 +57,7 @@ Migrations are forward-only, applied at startup, and FTS5 triggers must stay in 
 
 ### Temperature policy (`pkg/temperature/Config`)
 
-`DecayRate`, `AccessBoost`, `ColdThreshold`, `NotifyThreshold`, `TickInterval` are documented numerically in `skills/remind/SKILL.md` (mental model) and the summarization workflow they trigger lives in `skills/memoize/SKILL.md`. Changing any one shifts search ranking, the cold-set query, *and* the client notification stream — both public skills drift silently. Use the **`tune-temperature-policy` skill**.
+`DecayRate`, `AccessBoost`, `ColdThreshold`, `NotifyThreshold`, `TickInterval` are documented numerically in `skills/remind/SKILL.md` (mental model) and the summarization workflow they trigger lives in `skills/memorize/references/lifecycle.md`. Changing any one shifts search ranking, the cold-set query, *and* the client notification stream — both public skills drift silently. Use the **`tune-temperature-policy` skill**.
 
 ### Snapshot atomicity
 
@@ -98,14 +99,14 @@ make fuzz           # scripts/fuzz.sh — bounded fuzz pass
 make fmt lint tidy  # gofmt / golangci-lint / go mod tidy
 ```
 
-Inspect a compiled DB: `go run ./cmd/remindb inspect <path>`. Run the server: `go run ./cmd/remindb serve` (add `--verbose` for `Debug` logs).
+Inspect a compiled DB: `go run ./cmd/remindb inspect --db <path>`. Run the server: `go run ./cmd/remindb serve` (add `--verbose` for `Debug` logs).
 
 Benchmarks: `scripts/bench-agents.sh` runs the cross-agent token-savings table referenced in the README.
 
 ## What this file is NOT
 
 - **Not** a Go style guide → `.claude/rules/go-concise.md` owns that.
-- **Not** the MCP contract spec → `.claude/rules/mcp-tool-conventions.md` + `skills/remind/SKILL.md` (read) + `skills/memoize/SKILL.md` (write).
+- **Not** the MCP contract spec → `.claude/rules/mcp-tool-conventions.md` + `skills/remind/SKILL.md` (read) + `skills/memorize/SKILL.md` (write).
 - **Not** a how-to for adding parsers/tools/queries → the `.claude/skills/` workflow each owns its own checklist.
 - **Not** a changelog or task tracker → use commits and the conversation, not this file.
 

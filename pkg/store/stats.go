@@ -2,11 +2,6 @@ package store
 
 import "context"
 
-const (
-	hotThreshold  = 0.5
-	coldThreshold = 0.1
-)
-
 type Stats struct {
 	NodeCount            int
 	SnapshotCount        int
@@ -20,7 +15,7 @@ type Stats struct {
 	PendingRelationCount int
 }
 
-func (s *Store) GetStats(ctx context.Context) (*Stats, error) {
+func (s *Store) GetStats(ctx context.Context, hotThreshold, coldThreshold float64) (*Stats, error) {
 	var st Stats
 	err := s.db.QueryRowContext(ctx, qSelectStats, hotThreshold, coldThreshold).
 		Scan(

@@ -23,7 +23,7 @@ type RelateInput struct {
 const defaultRelateWeight = 1.0
 
 func (d *Deps) HandleRelate(ctx context.Context, _ *gomcp.CallToolRequest, input RelateInput) (_ *gomcp.CallToolResult, _ any, err error) {
-	defer d.logCall("MemoryRelate", &err, time.Now(),
+	defer d.logCall(ctx, "MemoryRelate", &err, time.Now(),
 		"source_id", input.SourceID, "target_id", input.TargetID,
 		"target_label", input.TargetLabel, "target_source", input.TargetSource,
 		"weight", input.Weight)
@@ -71,6 +71,7 @@ func (d *Deps) HandleRelate(ctx context.Context, _ *gomcp.CallToolRequest, input
 			return nil, nil, fmt.Errorf("failed to upsert: relation: %w", err)
 		}
 
+		d.touchGraph()
 		return textResult(fmt.Sprintf("edge created (resolved): %s -> %s", input.SourceID, targetID)), nil, nil
 	}
 
@@ -89,11 +90,7 @@ func (d *Deps) HandleRelate(ctx context.Context, _ *gomcp.CallToolRequest, input
 	if err := d.Store.InsertPendingRelation(ctx, pr); err != nil {
 		return nil, nil, fmt.Errorf("failed to insert: pending relation: %w", err)
 	}
-	return textResult(fmt.Sprintf("edge created (pending): %s -> %q", input.SourceID, input.TargetLabel)), nil, nil
-}
 
-func textResult(msg string) *gomcp.CallToolResult {
-	return &gomcp.CallToolResult{
-		Content: []gomcp.Content{&gomcp.TextContent{Text: msg}},
-	}
+	d.touchGraph()
+	return textResult(fmt.Sprintf("edge created (pending): %s -> %q", input.SourceID, input.TargetLabel)), nil, nil
 }

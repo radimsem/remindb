@@ -451,6 +451,23 @@ default:   ...
 }
 ```
 
+### Bool flag/env gates: check the value, not the source
+
+For string-shaped knobs (a listen address, a path), "the user set this" usually implies "we must enforce it" — `cmd.Flags().Changed(...) || envPtr(...) != nil` is the right gate. Copy that pattern onto a **bool** and you silently break the explicit-false case: `--flag=false` or `ENV=false` register as "set" and trigger the same enforcement as `--flag=true`. For bools, gate on the resolved value instead — `applyServeEnv` and Cobra have already done the precedence work.
+
+```go
+// Bad — REMINDB_INSECURE_PUBLIC=false ambient now breaks stdio startup
+insecurePublicSet := cmd.Flags().Changed("insecure-public") || envPtr("REMINDB_INSECURE_PUBLIC") != nil
+if transport != http && insecurePublicSet {
+    return fmt.Errorf("insecure-public requires --transport=http")
+}
+
+// Good — the parsed value already reflects flag/env precedence
+if transport != http && insecurePublic {
+    return fmt.Errorf("insecure-public requires --transport=http")
+}
+```
+
 ### Blank-line grouping inside function bodies
 
 Separate setup, main logic, and teardown with single blank lines. Dense

@@ -8,8 +8,10 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/radimsem/remindb/internal/pathmatch"
 	"github.com/radimsem/remindb/internal/testutil"
 	"github.com/radimsem/remindb/pkg/compiler"
+	"github.com/radimsem/remindb/pkg/config"
 	"github.com/radimsem/remindb/pkg/query"
 	"github.com/radimsem/remindb/pkg/temperature"
 )
@@ -651,6 +653,98 @@ func TestRecompileWorkflow_StableNodeIDsAcrossRescan(t *testing.T) {
 	}
 }
 
+func TestPinnedSidecarWorkflow(t *testing.T) {
+	st := testutil.OpenTestDB(t)
+	ctx := context.Background()
+	dir := t.TempDir()
+
+	if err := os.MkdirAll(filepath.Join(dir, config.DirName), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, config.DirName, pathmatch.PinnedFileName), []byte("pinned.md\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, "pinned.md"), []byte("# Pinned\n\nFirst.\n\nSecond.\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, "loose.md"), []byte("# Loose\n\nBody.\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	if _, err := compiler.CompileDir(ctx, st, dir, "v1"); err != nil {
+		t.Fatalf("CompileDir v1: %v", err)
+	}
+
+	pinned, err := st.GetNodesByFile(ctx, "pinned.md")
+	if err != nil {
+		t.Fatalf("GetNodesByFile pinned: %v", err)
+	}
+
+	if len(pinned) < 2 {
+		t.Fatalf("want >=2 nodes in pinned.md, got %d", len(pinned))
+	}
+
+	for i, n := range pinned {
+		if !n.Pinned {
+			t.Errorf("pinned.md node[%d].Pinned = false, want true (matched sidecar)", i)
+		}
+	}
+
+	loose, err := st.GetNodesByFile(ctx, "loose.md")
+	if err != nil {
+		t.Fatalf("GetNodesByFile loose: %v", err)
+	}
+
+	for i, n := range loose {
+		if n.Pinned {
+			t.Errorf("loose.md node[%d].Pinned = true, want false (not matched)", i)
+		}
+	}
+
+	// Simulate MemoryUnpin on the first node.
+	unpinnedID := pinned[0].ID
+	if err := st.SetPinned(ctx, unpinnedID, false, nil); err != nil {
+		t.Fatalf("SetPinned unpin: %v", err)
+	}
+
+	if _, err := compiler.CompileDir(ctx, st, dir, "v2"); err != nil {
+		t.Fatalf("CompileDir v2: %v", err)
+	}
+
+	got, err := st.GetNode(ctx, unpinnedID)
+	if err != nil {
+		t.Fatalf("GetNode unpinnedID: %v", err)
+	}
+	if got.Pinned {
+		t.Error("manually-unpinned node was re-pinned on default recompile (must preserve MemoryUnpin)")
+	}
+
+	statsBefore, err := st.GetStats(ctx, 0.5, 0.1)
+	if err != nil {
+		t.Fatalf("GetStats before reseed: %v", err)
+	}
+
+	if _, err := compiler.CompileDir(ctx, st, dir, "v3", compiler.WithReseedPinned()); err != nil {
+		t.Fatalf("CompileDir v3 --reseed-pinned: %v", err)
+	}
+
+	got, err = st.GetNode(ctx, unpinnedID)
+	if err != nil {
+		t.Fatalf("GetNode after reseed: %v", err)
+	}
+	if !got.Pinned {
+		t.Error("--reseed-pinned did not re-apply pin to manually-unpinned node")
+	}
+
+	statsAfter, err := st.GetStats(ctx, 0.5, 0.1)
+	if err != nil {
+		t.Fatalf("GetStats after reseed: %v", err)
+	}
+	if delta := statsAfter.SnapshotCount - statsBefore.SnapshotCount; delta != 0 {
+		t.Errorf("SnapshotCount delta = %d, want 0 (--reseed-pinned on no-source-change must not emit)", delta)
+	}
+}
+
 func TestFetchBatchWorkflow(t *testing.T) {
 	st := testutil.OpenTestDB(t)
 	ctx := context.Background()
@@ -732,7 +826,7 @@ func TestTemperatureBoostOnAccess(t *testing.T) {
 	}
 
 	cfg := temperature.DefaultConfig()
-	tracker, err := temperature.NewTracker(st, cfg, nil)
+	tracker, err := temperature.NewTracker(st, "", cfg, nil)
 	if err != nil {
 		t.Fatalf("NewTracker: %v", err)
 	}
@@ -821,7 +915,7 @@ func TestCrossFormatSearch(t *testing.T) {
 	logSearchResult(t, "cross-format remindb", nameResult)
 
 	// Verify stats reflect all three formats.
-	stats, err := st.GetStats(ctx)
+	stats, err := st.GetStats(ctx, 0.5, 0.1)
 	if err != nil {
 		t.Fatalf("GetStats: %v", err)
 	}

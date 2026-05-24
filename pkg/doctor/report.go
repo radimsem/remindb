@@ -18,6 +18,12 @@ const (
 )
 
 func (r Report) WriteText(w io.Writer, color bool) error {
+	st := r.Status()
+	header := fmt.Sprintf("%s %s", paintGlyph(st.String(), color), statusPhrase(st))
+	if _, err := fmt.Fprintf(w, "%s\n\n", header); err != nil {
+		return err
+	}
+
 	for _, c := range r.Checks {
 		glyph := paintGlyph(c.Status, color)
 		line := fmt.Sprintf("%s %-20s %s", glyph, c.Name, c.Detail)
@@ -36,10 +42,32 @@ func (r Report) WriteText(w io.Writer, color bool) error {
 	return nil
 }
 
+// Emit the overall worst-wins status header alongside the per-check list.
+func (r Report) MarshalJSON() ([]byte, error) {
+	return json.Marshal(struct {
+		Status string        `json:"status"`
+		Checks []CheckReport `json:"checks"`
+	}{
+		Status: r.Status().String(),
+		Checks: r.Checks,
+	})
+}
+
 func (r Report) WriteJSON(w io.Writer) error {
 	enc := json.NewEncoder(w)
 	enc.SetIndent("", "  ")
 	return enc.Encode(r)
+}
+
+func statusPhrase(s Status) string {
+	switch s {
+	case Pass:
+		return "Database is healthy"
+	case Warn:
+		return "Database has warnings"
+	default:
+		return "Database is unhealthy"
+	}
 }
 
 func paintGlyph(status string, color bool) string {

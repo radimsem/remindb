@@ -20,7 +20,7 @@ type RollbackInput struct {
 }
 
 func (d *Deps) HandleRollback(ctx context.Context, _ *gomcp.CallToolRequest, input RollbackInput) (_ *gomcp.CallToolResult, _ any, err error) {
-	defer d.logCall("MemoryRollback", &err, time.Now(), "snapshot_id", input.SnapshotID, "drop_after", input.DropAfter)
+	defer d.logCall(ctx, "MemoryRollback", &err, time.Now(), "snapshot_id", input.SnapshotID, "drop_after", input.DropAfter)
 
 	if input.SnapshotID <= 0 {
 		return nil, nil, fmt.Errorf("invalid snapshot_id %d: expected positive integer", input.SnapshotID)
@@ -80,7 +80,11 @@ func (d *Deps) HandleRollback(ctx context.Context, _ *gomcp.CallToolRequest, inp
 		}
 
 		msg := fmt.Sprintf("rollback to %d", targetID)
-		newSnapID, err = d.Store.CreateSnapshotWithParentTx(ctx, tx, cursorHash, msg, "", parentID)
+		newSnapID, err = d.Store.CreateSnapshotTx(ctx, tx,
+			store.WithCursorHash(cursorHash),
+			store.WithMessage(msg),
+			store.WithParent(parentID),
+		)
 		if err != nil {
 			return fmt.Errorf("failed to create: snapshot: %w", err)
 		}
@@ -105,6 +109,8 @@ func (d *Deps) HandleRollback(ctx context.Context, _ *gomcp.CallToolRequest, inp
 	if err != nil {
 		return nil, nil, fmt.Errorf("failed to rollback: %w", err)
 	}
+
+	d.touchSnapshot()
 
 	return textResult(formatRollbackResult(targetID, newSnapID, len(deltas), pruned, input.DropAfter, restore.Skipped)), nil, nil
 }

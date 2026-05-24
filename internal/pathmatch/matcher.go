@@ -1,22 +1,12 @@
-// Package ignore filters source-tree walks via a .remindb/ignore sidecar file.
-package ignore
+// Package pathmatch parses gitignore-style sidecar files under .remindb/.
+package pathmatch
 
 import (
-	"bufio"
-	"errors"
 	"fmt"
-	"os"
 	"path"
 	"path/filepath"
 	"slices"
 	"strings"
-
-	"github.com/radimsem/remindb/pkg/config"
-)
-
-const (
-	FileName = "ignore"
-	Path     = config.DirName + "/" + FileName
 )
 
 type Matcher struct {
@@ -31,43 +21,7 @@ type pattern struct {
 	negated  bool
 }
 
-// Read <dir>/.remindb/ignore; (nil, nil) if absent.
-func Load(dir string) (*Matcher, error) {
-	f, err := os.Open(filepath.Join(dir, config.DirName, FileName))
-	if err != nil {
-		if errors.Is(err, os.ErrNotExist) {
-			return nil, nil
-		}
-		return nil, fmt.Errorf("failed to read: %s: %w", Path, err)
-	}
-	defer func() { _ = f.Close() }()
-
-	var patterns []pattern
-	scanner := bufio.NewScanner(f)
-	line := 0
-
-	for scanner.Scan() {
-		line++
-
-		raw := strings.TrimSpace(scanner.Text())
-		if raw == "" || strings.HasPrefix(raw, "#") {
-			continue
-		}
-
-		p, err := parsePattern(raw)
-		if err != nil {
-			return nil, fmt.Errorf("unsupported pattern at line %d: %w", line, err)
-		}
-		patterns = append(patterns, p)
-	}
-	if err := scanner.Err(); err != nil {
-		return nil, fmt.Errorf("failed to read: %s: %w", Path, err)
-	}
-
-	return &Matcher{patterns: patterns}, nil
-}
-
-// Report whether relPath is excluded.
+// Report whether relPath matches the pattern set; last-match-wins gitignore semantics.
 func (m *Matcher) Match(relPath string, isDir bool) bool {
 	if m == nil || len(m.patterns) == 0 {
 		return false
@@ -79,16 +33,16 @@ func (m *Matcher) Match(relPath string, isDir bool) bool {
 	}
 
 	pathSegs := strings.Split(relPath, "/")
-	ignored := false
+	matched := false
 	for _, p := range m.patterns {
 		if p.dirOnly && !isDir {
 			continue
 		}
 		if matchPattern(p, pathSegs) {
-			ignored = !p.negated
+			matched = !p.negated
 		}
 	}
-	return ignored
+	return matched
 }
 
 func parsePattern(raw string) (pattern, error) {

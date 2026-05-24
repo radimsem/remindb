@@ -18,7 +18,7 @@ type WriteInput struct {
 }
 
 func (d *Deps) HandleWrite(ctx context.Context, _ *gomcp.CallToolRequest, input WriteInput) (_ *gomcp.CallToolResult, _ any, err error) {
-	defer d.logCall("MemoryWrite", &err, time.Now(), "anchor", input.Anchor, "payload_bytes", len(input.Payload))
+	defer d.logCall(ctx, "MemoryWrite", &err, time.Now(), "anchor", input.Anchor, "payload_bytes", len(input.Payload))
 
 	d.Store.OpMu.Lock()
 	defer d.Store.OpMu.Unlock()
@@ -69,12 +69,10 @@ func (d *Deps) HandleWrite(ctx context.Context, _ *gomcp.CallToolRequest, input 
 		}
 	}
 
-	if err := emitNodeChange(ctx, d.Store, node, prev, "write:"+nodeID); err != nil {
+	if err := d.emitNodeChange(ctx, node, prev, "write:"+nodeID); err != nil {
 		return nil, nil, fmt.Errorf("failed to write: %w", err)
 	}
 
 	msg := fmt.Sprintf("wrote node %s (%d tokens)", nodeID, tokenCount)
-	return &gomcp.CallToolResult{
-		Content: []gomcp.Content{&gomcp.TextContent{Text: msg}},
-	}, nil, nil
+	return textResult(msg), nil, nil
 }

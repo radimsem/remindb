@@ -1,0 +1,410 @@
+# MCP resources — passive observation, never a tool
+
+> A tool is the agent reaching for memory. A resource is something watching the memory from outside. They must not be confused, because one of them warms what it touches and the other must not.
+
+[← back to README](../README.md) · related: [architecture](./architecture.md) · [temperature](./temperature.md) · [search](./search.md)
+
+## Why resources exist at all
+
+The `Memory*` tools are the agent's hands — it calls `MemorySearch`, `MemoryFetch`, `MemoryTree` to *use* memory, and every such read is a signal: the agent cared about these nodes, so they warm up (temperature boost) and rank higher next time.
+
+A resource is for a different consumer: a desktop client, a dashboard, anything **rendering** the database rather than reasoning over it. That consumer needs to read state without *being* a signal. If a UI that draws the temperature heatmap boosted every node it displayed, the heatmap would measure its own rendering instead of the agent's attention. So resources are defined by what they must **never** do.
+
+## The resource contract
+
+A resource read is passive observation. It:
+
+- **never boosts temperature** — observing the graph is not attending to it (this is the whole reason resources are separate from `Memory*` read tools, which always boost via `boostResultNodes`);
+- **never takes `Store.OpMu`** — it is a pure read, it must not serialize against writers;
+- **never emits a snapshot** — there is no state change to record.
+
+This is the inverse of the read-tool discipline in [`.claude/rules/mcp-tool-conventions.md`](../.claude/rules/mcp-tool-conventions.md) §5–6: read *tools* boost and a write *tool* locks; a *resource* does neither, by construction. The separation is structural — resources live in `pkg/mcp/resources/` with their own `Deps` that has no `Tracker` and no emitter, so the no-boost/no-lock/no-snapshot invariant can't be violated by forgetting a convention.
+
+## URI scheme
+
+Resources are addressed under the `remindb://` scheme. Most are **static** (a fixed URI, no parameters); some are **templated** (a URI pattern with a variable):
+
+```
+remindb://overview                →   application/json   (static)
+remindb://files                   →   application/json   (static)
+remindb://tree                    →   application/json   (static — full hierarchy)
+remindb://tree/{rootId}{?depth}   →   application/json   (templated — bounded subtree)
+remindb://graph                   →   application/json   (static — relations graph)
+remindb://snapshots               →   application/json   (static — full history)
+remindb://snapshots{?limit}       →   application/json   (templated — newest N)
+remindb://snapshots/{id}/diffs    →   application/json   (templated — per-snapshot diffs)
+remindb://temperature             →   application/json   (static — per-node heatmap)
+remindb://doctor                  →   application/json   (static — health-check report)
+remindb://logs                    →   application/json   (static — recent server log records)
+remindb://sessions                →   application/json   (static — active MCP client sessions)
+remindb://sessions/history        →   application/json   (static — durable per-client session ledger)
+remindb://sessions/history/{hash} →   application/json   (templated — one client's ledger)
+remindb://sessions/logs           →   application/json   (static — per-session logfile index)
+remindb://sessions/logs/{id}      →   application/json   (templated — one session's captured trace)
+remindb://rescan                  →   application/json   (static — latest source-rescan tick)
+```
+
+Static resources answer "what is the state of the whole database". The templated forms (registered via `AddResourceTemplate`, RFC 6570 so the matcher spans the optional query / path variable) answer a narrower question: `remindb://tree/{rootId}{?depth}` the subtree under a node, `remindb://snapshots{?limit}` the newest N snapshots, `remindb://snapshots/{id}/diffs` the diffs of one snapshot. The static/templated split is a deliberately separate mechanism mirroring the resources/tools split: predictable surface first, parameterised surface only where a concrete need appeared.
+
+## The `overview` envelope
+
+`remindb://overview` exposes the same introspection `MemoryStats` reports, but as stable JSON instead of formatted text. Both are pure projections of `inspect.Collect()` — one source of truth, two presentations, zero duplicate stat logic.
+
+```json
+{
+  "db_path": "/repo/.remindb/memory.db",
+  "db_bytes": 196608,
+  "nodes": {
+    "total": 142,
+    "by_type": {
+      "heading": 38,
+      "text": 96,
+      "code": 8
+    },
+    "tokens": 18450
+  },
+  "snapshots": {
+    "count": 7,
+    "head_id": 7,
+    "cursor_hash": "9f3c1a7e",
+    "latest_message": "write:aB3",
+    "latest_age_s": 42
+  },
+  "temperature": {
+    "avg": 0.37,
+    "median": 0.31,
+    "hot": 12,
+    "cold": 48,
+    "pinned": 3
+  },
+  "relations": {
+    "total": 27,
+    "by_origin": {
+      "parsed": 22,
+      "manual": 5
+    },
+    "pending": 4
+  },
+  "fts_rows": 142
+}
+```
+
+The shape is **locked** — clients depend on these keys. Notes on two fields that could be read two ways:
+
+- `snapshots` is all zero-valued when the database has no snapshots yet (`head_id: 0`, `cursor_hash: ""`); it never omits keys.
+- `relations.total` is the sum of `by_origin` (parsed + manual edges). `pending` is reported as its own sibling and is **not** folded into `total` — the envelope keeps resolved and pending relations distinct so a client can show both.
+
+## The `files` envelope
+
+`remindb://files` exposes the compiled source files grouped by compile root, with per-file node and token counts — the JSON twin of `remindb inspect --files`. Both project the same `store.ListFileSummaries()` query: one source of truth, two presentations, zero duplicate query logic.
+
+```json
+{
+  "roots": [
+    {
+      "root": "/repo/docs",
+      "files": [
+        { "path": "docs/architecture.md", "nodes": 12, "tokens": 840 }
+      ]
+    }
+  ]
+}
+```
+
+The shape is **locked** — clients depend on these keys. Notes:
+
+- `roots` is sorted by compile root; the empty-string root (files not attributed to a compile root — "ungrouped") always sorts **last**. The envelope reports the bare `""` root, not a `(ungrouped)` label — the client owns the display string.
+- Within each root, file order is whatever `ListFileSummaries` returns; only the cross-root grouping is added here.
+- Empty database → `{ "roots": [] }`; the key is never omitted.
+
+## The `tree` envelope
+
+`remindb://tree` exposes the parent/child node hierarchy as nested JSON — the structured twin of the `MemoryTree` tool's indented text. Both walk the same `store.GetAllNodes()` + `store.BuildTree()` primitives: one source of truth, two presentations. The text form is for the agent reasoning in prose; the JSON form is for a UI drawing the tree.
+
+The templated `remindb://tree/{rootId}{?depth}` returns only the subtree rooted at `rootId`. `?depth=N` bounds it to `N` descendant generations below that root; omitting the query (or `depth=0`) returns the full subtree.
+
+```json
+{
+  "roots": [
+    {
+      "id": "aB3", "type": "heading", "label": "Architecture", "depth": 0,
+      "tokens": 120, "temperature": 0.42, "source": "docs/architecture.md",
+      "children": [
+        {
+          "id": "aB3-1", "type": "text", "label": "Overview", "depth": 1,
+          "tokens": 80, "temperature": 0.31, "source": "docs/architecture.md",
+          "children": []
+        }
+      ]
+    }
+  ]
+}
+```
+
+The shape is **locked** — clients depend on these keys. Notes:
+
+- `roots` is always present: an empty database → `{ "roots": [] }`; the static read returns the whole forest, the templated read returns exactly one element (the requested root).
+- Every node carries all eight keys including `children` (`[]` at a leaf, never omitted). `source` is the node's source path made relative to the latest compile root, matching `MemoryTree`; `depth` is the node's own depth in the full tree, unaffected by `?depth` bounding.
+- An unknown `rootId` is an **error**, not an empty body — the client gets a failed read, distinguishing "no such node" from "node with no children".
+
+## The `graph` envelope
+
+`remindb://graph` exposes the relations knowledge graph — the "brain" view — as stable JSON for a UI that draws it. It is pure exposure: resolved edges come straight from `store.GetAllRelations()`, pending/unresolved edges from `store.GetAllPendingRelations()`, and the node set from `store.GetAllNodes()` — no traversal logic, the same flat queries the rest of the store uses.
+
+```json
+{
+  "nodes": [
+    { "id": "aB3",   "label": "Architecture", "type": "heading", "temperature": 0.42 },
+    { "id": "aB3-1", "label": "Overview",     "type": "text",    "temperature": 0.31 }
+  ],
+  "edges": [
+    { "source": "aB3", "target": "aB3-1", "weight": 4.2, "origin": "parsed" },
+    { "source": "aB3", "target": "aB3-1", "weight": 1.0, "origin": "manual" }
+  ],
+  "pending": [
+    { "source": "aB3", "target_label": "Roadmap", "target_source": "docs/roadmap.md",
+      "target_id_hint": "", "weight": 1.0, "origin": "parsed" }
+  ]
+}
+```
+
+The shape is **locked** — clients depend on these keys. Notes:
+
+- `nodes` is the **referenced set only**: a node appears iff it is the source or target of a resolved edge, or the source of a pending edge. Orphan nodes (no relations) are not in the graph — use `remindb://tree` for the full node hierarchy.
+- `edges` are resolved relations (both endpoints exist). `origin` is `parsed` (from the weight wiki-link syntax) or `manual` (from `MemoryRelate`); `weight` defaults to `1.0`. Each edge is directed `source → target`.
+- `pending` are unresolved edges: the `source` node exists but the target was never resolved to a node, so it is described by `target_label` / `target_source` / `target_id_hint` (any may be empty) instead of a `target` id. Pending edges are kept a distinct array — never folded into `edges` — so a client can render them differently (dashed, greyed).
+- All three keys are always present; an empty database → `{"nodes":[],"edges":[],"pending":[]}`, never `null`.
+
+## The `snapshots` envelope
+
+`remindb://snapshots` exposes the version history behind `MemoryHistory` — every snapshot, newest-first, with the parent links that reconstruct branch topology. It is pure exposure: rows come straight from `store.ListSnapshots`, the HEAD marker from `store.GetHeadSnapshotID` — no new diff logic. `remindb://snapshots{?limit}` returns just the newest `?limit=N` (omit for full history). `remindb://snapshots/{id}/diffs` returns the per-snapshot diff records (`store.GetDiffsBySnapshot`), the data behind `MemoryDelta`.
+
+```json
+{
+  "snapshots": [
+    { "id": 3, "parent_id": 2, "message": "write:aB3", "compile_root": "/repo", "created_at": 1737072000, "is_head": true },
+    { "id": 1, "parent_id": null, "message": "compile", "compile_root": "/repo", "created_at": 1737070000, "is_head": false }
+  ]
+}
+```
+
+```json
+{
+  "snapshot_id": 3,
+  "diffs": [
+    { "op": "mod", "node_id": "aB3", "old_hash": "h1", "new_hash": "h2", "old_content": "before", "new_content": "after" }
+  ]
+}
+```
+
+The shape is **locked** — clients depend on these keys. Notes:
+
+- Snapshots preserve store order (newest `id` first); the timeline UI reverses for display. `parent_id` is JSON `null` for a root snapshot, never `0` — that distinction is what lets a client draw branches.
+- `is_head` marks the snapshot at the cursor. At most one is `true`; if no snapshot has been recorded, none is.
+- `snapshots` and `diffs` are always present; an empty database / a snapshot with no diffs → `[]`, never `null`.
+- An unparseable `{id}` or non-positive `?limit` is an **error**, not an empty body — the client gets a failed read.
+
+## The `temperature` envelope
+
+`remindb://temperature` is the heatmap source for a UI that draws node attention. Every node lands in **one** `nodes` array — hot, cold, and pinned together, not split — so the renderer classifies each node itself from `temperature` against the cut points the `summary` echoes. The aggregate `summary` mirrors `MemoryStats`' temperature block (`avg`, `median`, `hot`, `cold`, `pinned`) with both thresholds sourced from the **live configured** values (`.remindb/config.json` → `temperature.cold_threshold` / `temperature.hot_threshold`, resolved through `temperature.Config`), not hardcoded constants — so the heatmap and the cold/hot counts always agree with what the notifier and inspector report.
+
+```json
+{
+  "summary": {
+    "avg": 0.29,
+    "median": 0.30,
+    "hot": 1,
+    "cold": 2,
+    "pinned": 1,
+    "cold_threshold": 0.1,
+    "hot_threshold": 0.5
+  },
+  "nodes": [ { "id": "aB3", "label": "Auth design", "temperature": 0.8, "pinned": false } ]
+}
+```
+
+The shape is **locked**. Notes:
+
+- `nodes` is always present (`[]` on an empty database, never `null`) and is the *whole* node set — there is no separate `cold` array; the summary's `cold`/`hot` counts and the per-node temperatures are two views of the same fetch, so they cannot disagree.
+- `summary` echoes `cold_threshold` and `hot_threshold` precisely so a client reproduces the exact classification the counts were derived from. `hot`/`cold` count pinned nodes too (same semantics as `MemoryStats`); `pinned` is the independent pinned count.
+- Reading this resource does **not** boost — a heatmap that warmed the nodes it rendered would measure its own rendering. Use `MemoryStats` when you want the access to count.
+
+## The `doctor` envelope
+
+`remindb://doctor` exposes the integrity report `remindb doctor` produces, but as stable JSON instead of the formatted text panel — so a desktop client renders the health panel without shelling out to the CLI. Both are pure projections of `pkg/doctor` (`doctor.Run`): the resource and `doctor --json` share one `Report.MarshalJSON`, so they are byte-equivalent by construction — one source of truth, no duplicated check logic. The resource runs `doctor.Run` (read-only), never `doctor.Heal`; it has no `--fix` analogue.
+
+```json
+{
+  "status": "warn",
+  "checks": [
+    { "name": "fts5_sync", "status": "pass", "detail": "FTS5 index in sync with 12 nodes" },
+    { "name": "stale_compile_root", "status": "warn", "detail": "1/2 compile roots no longer exist: [/old/repo]" }
+  ]
+}
+```
+
+The shape is **locked**. Notes:
+
+- `status` is the overall **worst-wins** header (`fail` beats `warn` beats `pass`), the JSON twin of the text report's status line — added to `Report`'s JSON precisely so this resource and `doctor --json` stay identical.
+- `checks` is always present and ordered as `doctor.AllChecks()` declares them; each entry carries `name`, `status`, `detail`. `fix_applied`/`fix_error` never appear here — the resource path never heals.
+- Reading this resource does **not** boost, lock, or snapshot. Use the `doctor` CLI when you want to *repair* (`--fix`); the resource is observation only.
+
+## The `logs` envelope
+
+`remindb://logs` exposes the recent server log records for a desktop log console — the records `serve` writes to stderr/file, mirrored into a bounded in-memory ring buffer. The buffer is composed as a `slog.Handler` decorator over the existing stderr/file handler: it records what `Handle` receives, then delegates. Level filtering (`--verbose`, `server.logging.level`) happens upstream of the decorator, so the buffer is a faithful mirror of exactly what was emitted — never more. Payloads and node bodies are never logged (the logging conventions forbid it), so they never reach this resource.
+
+```json
+{
+  "records": [
+    { "time": 1737200000123, "level": "INFO", "msg": "serve: starting", "attrs": { "db": "mem.db" } }
+  ],
+  "dropped": 0
+}
+```
+
+The shape is **locked**. Notes:
+
+- `records` is always present (`[]` before anything is logged), ordered **oldest-first / newest-last**, capped at `server.logging.buffer_size` (default 1000, must be > 0).
+- `dropped` is the count of records evicted once the buffer filled past capacity — a non-zero value tells a console it is not showing the full history.
+- `time` is Unix milliseconds; `level` is the slog level string (`DEBUG`/`INFO`/`WARN`/`ERROR`); `attrs` is the flattened structured fields, always an object (group-prefixed with `.` when slog groups are used).
+- Reading this resource does **not** boost, lock, or snapshot. The buffer lives in process memory only — it is not persisted to the database and resets on restart.
+
+## The `sessions` envelope
+
+`remindb://sessions` exposes the MCP client sessions currently attached to *this* `serve` process — the one bound to `db_path`. It answers "who's attached to this brain" for a desktop client. The registry is an enrichment side-table over the SDK's live session set: a single receiving-middleware stamps `connected_at` on first-seen, bumps `last_activity` on every inbound request except `ping`, and increments `count_tool_calls` on `tools/call`. Disconnect is not observed — it is inferred at read time by reconciling against the SDK's live set, so the count can never disagree with the SDK.
+
+```json
+{
+  "db_path": "/repo/.remindb/memory.db",
+  "sessions": [
+    { "id": "k7f3…",
+      "client_meta": { "name": "claude-code", "title": "Claude Code", "version": "1.2.0", "protocol": "2025-06-18" },
+      "transport": "stdio",
+      "connected_at": 1737200000, "last_activity": 1737200042, "count_tool_calls": 9 },
+    { "id": "9a2c…",
+      "client_meta": { "name": "openclaw", "version": "0.4.0", "protocol": "2025-06-18" },
+      "transport": "http", "listen": "127.0.0.1:7474",
+      "connected_at": 1737200010, "last_activity": 1737200050, "count_tool_calls": 3 }
+  ]
+}
+```
+
+The shape is **locked**. Notes:
+
+- `sessions` is always present (`[]` when no client is attached), ordered oldest-connected first.
+- `id` is the SDK session id; for the lone stdio session the SDK assigns none, so a stable hash (`internal/contentid`, the same primitive the persistent ledger will key on) is synthesized instead.
+- `client_meta` is always present; its `name` / `version` / `protocol` come from the client's `initialize` handshake, and `title` (human display name) is **omitted** when the client sends none. These are **client self-reported and unauthenticated** — display them, don't trust them as identity (this is exactly why the persistent ledger keys identity on a hash, not on `client_meta.name`).
+- `transport` is the process's transport (constant — one `serve` = one transport). `listen` is the HTTP bind address and is **omitted entirely** for stdio sessions.
+- `connected_at` / `last_activity` are Unix **seconds**; `count_tool_calls` counts `tools/call` only — resource reads and pings are activity but not tool calls.
+- Reading this resource does **not** boost, lock, or snapshot. The registry is in-process memory only; it is not persisted and resets on restart.
+
+## The `sessions/history` envelope
+
+`remindb://sessions` answers "who's attached *now*"; `remindb://sessions/history` is its durable counterpart — "who has *ever* attached, for how long, how much". It is the read surface over the persistent session ledger (`.remindb/sessions/`, see [configuration](./configuration.md#session-ledger-remindbsessions)), accumulating across reconnects and `serve` restarts. `remindb://sessions/history/{hash}` returns the single client identified by `hash` (the id surfaced in the `clients` array).
+
+```json
+{
+  "db_path": "/repo/.remindb/memory.db",
+  "clients": [
+    { "hash": "Xy3K9mQ2pLs",
+      "client": { "name": "claude-code", "title": "Claude Code", "version": "1.2.0", "protocol": "2025-06-18" },
+      "transport": "stdio",
+      "sessions": 7, "lifetime_seconds": 18450, "last_disconnect": 1737200042, "tool_calls": 213 }
+  ]
+}
+```
+
+The shape is **locked**. Notes:
+
+- `clients` is always present (`[]` when nothing has ever attached), ordered by ledger filename.
+- `hash` is the **stable identity key** — a content hash of the client's name/title/version/protocol/transport, *not* the spoofable `client.name`. It is what `remindb://sessions/history/{hash}` takes; the by-hash form returns the bare client object (no `db_path`/`clients` wrapper) and errors on an unknown hash.
+- `client` is the last-seen self-reported metadata (same caveat as `sessions`: display, don't trust as identity).
+- `sessions` counts distinct connections ever seen; `lifetime_seconds` is their summed connection duration; `last_disconnect` is Unix **seconds** (0 if no session has cleanly closed yet); `tool_calls` is the lifetime total across all of this client's sessions.
+- A session that crashed mid-life contributes its last checkpoint (loss ≤ one `flush_interval`); a reconnect is a fresh session and never double-counts.
+- Reading this resource does **not** boost, lock, or snapshot. It is a pure projection over the on-disk JSONL — `resources.Deps` holds only the ledger reader, no tracker or emitter.
+
+## The `sessions/logs` envelope
+
+`remindb://sessions/logs` is the read surface over the per-session logfiles under `.remindb/logs/` (see [configuration](./configuration.md#session-logfiles-remindblogs)) — so a desktop client / operator can audit one MCP client's tool-call + `Warn`/`Error` trace without shelling into the workspace. The static URI is the **index**; `remindb://sessions/logs/{id}` returns one session's captured records, keyed by the **session-id slug** `remindb://sessions` reports (not the client content hash `sessions/history` uses).
+
+```json
+{
+  "db_path": "/repo/.remindb/memory.db",
+  "logs": [
+    { "session_id": "k7f3a9c2", "size_bytes": 4096, "rotated": false, "modified_at": 1737200042 }
+  ]
+}
+```
+
+```json
+{
+  "session_id": "k7f3a9c2",
+  "entries": [
+    { "time": "2026-05-19T12:34:56.0009Z", "level": "DEBUG", "msg": "mcp call",
+      "fields": { "tool": "MemoryWrite", "elapsed_ms": 4, "payload_bytes": 41 } }
+  ]
+}
+```
+
+The shape is **locked**. Notes:
+
+- `logs` is always present (`[]` when session logging is disabled, unconfigured, or no client has logged yet — the directory simply doesn't exist or is empty), one entry per **active** logfile, ordered by filename.
+- `session_id` is the logfile stem (the same slug `remindb://sessions` surfaces); `size_bytes` / `modified_at` (Unix **seconds**) describe the active file; `rotated` is `true` when a single-generation `<id>.log.1` tail exists alongside it.
+- `remindb://sessions/logs/{id}` returns `{session_id, entries}` where `entries` is always present (`[]` for a file that exists but has no parseable records), each entry the locked `{time, level, msg, fields}` — `time` is RFC3339Nano, `level` the slog level string, `fields` an object (omitted when empty), in **append order (newest last)**. An unknown / missing id is a clean not-found error, never a panic.
+- **Rotated tail is not included.** `{id}` returns the **active file only**. The `.1` is an explicitly-discarded single-generation safety tail (the prior `.1` is overwritten on the next rotation) and is the *older* half — prepending it would contradict "append order, newest last". The index's `rotated` flag tells a consumer truncation happened; the structured read stays coherent.
+- The on-disk file is **JSONL** and the resource deserializes the *same* `sessionlog.Record` type `render()` serializes — one shared definition, no second hand-rolled parser that could drift. A round-trip test asserts fidelity.
+- Reading this resource does **not** boost, lock, or snapshot — it is a pure file read; `resources.Deps` holds only the logs-directory path, no tracker or emitter. It carries only the payload-free fields the shared log already filters to (see [logging-conventions](../.claude/rules/logging-conventions.md) §4), so no user content is exposed by construction.
+
+## The `rescan` envelope
+
+`remindb://rescan` exposes the latest tick of the `serve` source-rescan loop — for a live rescan-activity panel. The loop publishes one snapshot per tick into a concurrency-safe in-process holder (`pkg/mcp/rescanstat`, the same shape as the session registry); the resource is a pure projection of it. With no `--source` (no loop) or before the first tick, the holder is its zero value.
+
+```json
+{
+  "interval_s": 30,
+  "last_meta": {
+    "run_at": 1737200000,
+    "error": "",
+    "added": 2,
+    "modified": 1,
+    "removed": 0,
+    "purged_files": [ { "path": "notes/old.md", "nodes": 4 } ]
+  }
+}
+```
+
+The shape is **locked**. Notes:
+
+- `interval_s` is the configured rescan interval in **seconds**; it reflects live `.remindb/config.json` reloads (`0` until the first tick has run).
+- `last_meta` is exactly one tick's result, replaced wholesale each tick. `run_at` is Unix **seconds** (`0` = never run); `error` is that tick's failure string, empty on success (a failed tick still publishes — counts stay zero, `error` is set).
+- `added` / `modified` / `removed` are the tick's compile counts. There is **no `total`** — a consumer sums the three.
+- `purged_files` lists each source file that was deleted from disk that tick, with `nodes` = how many context nodes it carried. Always present (`[]` when nothing was purged). Purging is **whole-file only** — a file removed from the source tree drops all its context nodes — so there is no separate `purged_nodes` count; the per-file `nodes` fully describes the purge. Entries sort by `path`.
+- Reading this resource does **not** boost, lock, or snapshot. The holder is in-process memory only; it is not persisted and resets on restart. For durable history, opt into `server.rescan_files` — every tick is then also appended to `.remindb/rescan.jsonl` (this exact per-tick shape), surviving restarts. See [configuration](./configuration.md#rescan-history-remindbrescanjsonl). Reading that file back over MCP is out of scope for now.
+
+## Live updates — subscriptions
+
+A renderer that wants live state subscribes instead of polling. The server supports `resources/subscribe` / `resources/unsubscribe` (go-sdk v1.6.0) and emits `notifications/resources/updated` for a URI when its backing state changes. Subscription bookkeeping is the SDK's; the only server-side logic is *which* URIs are subscribable and *how* updates are coalesced.
+
+**Subscribable set.** Only resources that meaningfully change at runtime are subscribable. Subscribing to anything else is rejected. The set, with the state change that triggers an update:
+
+| URI | Triggered by |
+|---|---|
+| `remindb://graph` | write · summarize · compile · forget · rollback · relate |
+| `remindb://snapshots` | write · summarize · compile · forget · rollback · rescan |
+| `remindb://tree` | write · summarize · compile · forget · rollback · rescan |
+| `remindb://files` | compile · rescan |
+| `remindb://rescan` | a source-rescan tick that mutated the store |
+| `remindb://temperature` | a temperature tick that decayed ≥ 1 node |
+| `remindb://logs` | a new server log record |
+
+(`graph` fires on any content write because relations are parsed from content — a payload with `[[wikilinks]]` adds edges; a debounced re-read on a link-free write is harmless. `rollback` does not restore relations but does change the referenced-node set the graph projects. `rescan` fires only on a *mutating* tick — a no-op scan that found no changes does not notify, so a "live activity panel" updates on real rescan activity, not on a fixed heartbeat.)
+
+`overview`, `doctor`, `sessions`, `sessions/history`, and `sessions/logs` are **not** subscribable — `overview`/`doctor` are aggregate projections better polled on demand, `sessions`/`sessions/history` change only on connect/disconnect, and `sessions/logs` is an on-demand operator audit surface (subscribing would fire on every tool call). The templated forms (`tree/{rootId}`, `snapshots{?limit}`, `snapshots/{id}/diffs`, `sessions/logs/{id}`) are not independently subscribable; subscribe to the static parent.
+
+**Coalescing.** Each subscribable URI has a debounce window. A burst of changes inside the window collapses to **one** `notifications/resources/updated` fired on the trailing edge — `logs` and `temperature` never flood. The intervals are config-driven (`server.resources`, see [configuration.md](configuration.md)), never hardcoded: a global `debounce` default plus per-resource `overrides` keyed by the short resource name (`graph`, `snapshots`, `tree`, `files`, `rescan`, `temperature`, `logs`). Defaults when the block is absent: 500ms global, with built-in floors of 1s for `logs` and 2s for `temperature`. An override naming an unknown resource is rejected at startup.
+
+**`resources/list_changed`** is *not* emitted: the resource set is registered once at startup and never changes for the life of the process. The capability is advertised by the SDK but no list-change notification is ever sent.
+
+## What stays out
+
+This is read-only state introspection. Resources never mutate, never accept arguments that change the database, and are not a second way to do what a tool does. If a consumer needs to *change* memory, that is a `Memory*` write tool, with its snapshot and its lock — not a resource.

@@ -1,6 +1,9 @@
 package parser
 
-import "testing"
+import (
+	"errors"
+	"testing"
+)
 
 func TestJsonParser_FlatObjectInlined(t *testing.T) {
 	nodes, err := parseJson("t.json", []byte(`{"b": 2, "a": 1}`))
@@ -199,8 +202,27 @@ func TestJsonParser_Lines_MalformedRecord(t *testing.T) {
 	data := []byte("{\"a\":1}\n{not json}\n")
 	_, err := parseJsonLines("t.jsonl", data)
 
-	if err == nil {
-		t.Fatal("expected parse error for malformed record")
+	if !errors.Is(err, ErrMalformed) {
+		t.Errorf("err = %v, want ErrMalformed", err)
+	}
+}
+
+func TestJsonParser_MalformedIsSkippable(t *testing.T) {
+	cases := map[string]string{
+		"line comment":    "{\n  // comment\n  \"a\": 1\n}",
+		"block comment":   `{ /* c */ "a": 1 }`,
+		"trailing comma":  `{"a": 1,}`,
+		"array comma":     `["a", "b",]`,
+		"genuine garbage": `{"a": }`,
+	}
+
+	for name, in := range cases {
+		t.Run(name, func(t *testing.T) {
+			_, err := parseJson("t.json", []byte(in))
+			if !errors.Is(err, ErrMalformed) {
+				t.Errorf("err = %v, want ErrMalformed", err)
+			}
+		})
 	}
 }
 

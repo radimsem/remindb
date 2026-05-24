@@ -5,23 +5,17 @@ import (
 
 	"golang.org/x/sync/errgroup"
 
+	"github.com/radimsem/remindb/internal/treewalk"
 	"github.com/radimsem/remindb/pkg/store"
 )
 
 const (
 	DefaultMaxDepth = 32
-	MaxDepthCap     = 128
+	MaxDepthCap     = treewalk.MaxDepth
 )
 
 func clampDepth(d int) int {
-	if d <= 0 {
-		return DefaultMaxDepth
-	}
-	if d > MaxDepthCap {
-		return MaxDepthCap
-	}
-
-	return d
+	return treewalk.ClampDepth(d, DefaultMaxDepth, MaxDepthCap)
 }
 
 func (e *Engine) collectContext(ctx context.Context, anchor *store.Node, depth int) ([]*store.Node, error) {

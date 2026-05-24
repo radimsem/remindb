@@ -65,7 +65,7 @@ If you're not using an agent at all, the rules in `.claude/rules/` are the sourc
 
 Two skill folders live side by side; don't confuse them.
 
-- **`skills/remind/`, `skills/memoize/`** — *public* skills shipped to MCP clients. They teach end-user agents how to call the `Memory*` tools (read path and write path respectively). Edit these when the MCP tool surface changes.
+- **`skills/{remember,remind,memorize,remindb-setup}/`** — *public* skills shipped to MCP clients. They teach end-user agents how to call the `Memory*` tools: `remember` is the broad-trigger front door, `remind` the read path, `memorize` the write path, `remindb-setup` the connectivity/config onboarding. `remind` and `memorize` keep depth in their `references/` subdirs (progressive disclosure). Edit these when the MCP tool surface changes, and run `make check-skills`.
 - **`.claude/skills/`** — *private* skills for contributors. Workflow checklists for adding parsers, tools, queries, fuzz targets, etc. Edit these when you want to teach future contributors how to do a thing.
 
 ### Workflow shortcuts
@@ -161,7 +161,7 @@ Before opening the PR, run through this list. Mirrors the PR template's `Verifie
 - [ ] `make fuzz` passes (at least the default 5s per target)
 - [ ] `act push` (or per-job `act -j <name>`) is green
 - [ ] Tested manually via CLI or local MCP plugin install
-- [ ] If MCP tool surface changed: `skills/remind/` (read tools) or `skills/memoize/` (write tools) updated; both if the change crosses the boundary
+- [ ] If MCP tool surface changed: `skills/remind/` (read tools) or `skills/memorize/` (write tools) updated; both if the change crosses the boundary
 - [ ] If temperature config changed: both public skills reflect the new values
 - [ ] If parser changed: a fuzz target covers the change
 - [ ] If schema changed: FTS5 triggers in sync (see `add-store-query` skill)
@@ -178,8 +178,8 @@ If you touch X, update Y. CI won't catch a desynced public skill or stale README
 
 | Touched | Update |
 |---|---|
-| MCP tool added / renamed / removed | `skills/remind/SKILL.md` (read tools) or `skills/memoize/SKILL.md` (write tools); both if the change is shared. README's MCP tools table. |
-| Temperature config (`pkg/temperature/Config`) | Both public skills — `skills/remind/` documents the mental model, `skills/memoize/` documents the workflow it triggers. `docs/temperature.md` if the user-facing behavior shifts. |
+| MCP tool added / renamed / removed | `skills/remind/` (read tools) or `skills/memorize/` (write tools) — SKILL.md router *and* the matching `references/*.md` depth; both skills if the change is shared. Run `make check-skills`. README's MCP tools table. |
+| Temperature config (`pkg/temperature/Config`) | Both public skills — `skills/remind/SKILL.md` documents the mental-model numerics, `skills/memorize/references/lifecycle.md` documents the summarization workflow it triggers. `docs/temperature.md` if the user-facing behavior shifts. |
 | New parser format | README's "Why I built this" formats list (currently *Markdown, HTML, JSON, YAML, TOON*). |
 | CLI flag added / removed / renamed | `docs/cli.md`. Each plugin README in `plugins/` that demos the flag. |
 | New migration | `docs/architecture.md` Store row if the schema description shifts. The `add-store-query` skill if a new convention emerged. |

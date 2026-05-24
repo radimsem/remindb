@@ -1,4 +1,4 @@
-package ignore
+package pathmatch
 
 import (
 	"os"
@@ -16,13 +16,13 @@ func writeIgnore(t *testing.T, dir, content string) {
 		t.Fatal(err)
 	}
 
-	if err := os.WriteFile(filepath.Join(stateDir, FileName), []byte(content), 0o644); err != nil {
+	if err := os.WriteFile(filepath.Join(stateDir, IgnoreFileName), []byte(content), 0o644); err != nil {
 		t.Fatal(err)
 	}
 }
 
-func TestLoad_MissingFile(t *testing.T) {
-	m, err := Load(t.TempDir())
+func TestLoadIgnore_MissingFile(t *testing.T) {
+	m, err := LoadIgnore(t.TempDir())
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -31,13 +31,13 @@ func TestLoad_MissingFile(t *testing.T) {
 	}
 }
 
-func TestLoad_EmptyFile(t *testing.T) {
+func TestLoadIgnore_EmptyFile(t *testing.T) {
 	dir := t.TempDir()
 	writeIgnore(t, dir, "")
 
-	m, err := Load(dir)
+	m, err := LoadIgnore(dir)
 	if err != nil {
-		t.Fatalf("Load: %v", err)
+		t.Fatalf("LoadIgnore: %v", err)
 	}
 	if m == nil {
 		t.Fatal("expected non-nil matcher for empty file")
@@ -47,13 +47,13 @@ func TestLoad_EmptyFile(t *testing.T) {
 	}
 }
 
-func TestLoad_CommentsAndBlanks(t *testing.T) {
+func TestLoadIgnore_CommentsAndBlanks(t *testing.T) {
 	dir := t.TempDir()
 	writeIgnore(t, dir, "# comment\n\n   \n# another\n")
 
-	m, err := Load(dir)
+	m, err := LoadIgnore(dir)
 	if err != nil {
-		t.Fatalf("Load: %v", err)
+		t.Fatalf("LoadIgnore: %v", err)
 	}
 	if m == nil {
 		t.Fatal("expected non-nil matcher")
@@ -67,9 +67,9 @@ func TestMatch_Negation(t *testing.T) {
 	dir := t.TempDir()
 	writeIgnore(t, dir, "*.md\n!keep.md\n")
 
-	m, err := Load(dir)
+	m, err := LoadIgnore(dir)
 	if err != nil {
-		t.Fatalf("Load: %v", err)
+		t.Fatalf("LoadIgnore: %v", err)
 	}
 
 	if !m.Match("notes.md", false) {
@@ -91,9 +91,9 @@ func TestMatch_LastMatchWins(t *testing.T) {
 	// Re-ignore after a negation: order matters.
 	writeIgnore(t, dir, "*.md\n!keep.md\nkeep.md\n")
 
-	m, err := Load(dir)
+	m, err := LoadIgnore(dir)
 	if err != nil {
-		t.Fatalf("Load: %v", err)
+		t.Fatalf("LoadIgnore: %v", err)
 	}
 
 	if !m.Match("keep.md", false) {
@@ -105,9 +105,9 @@ func TestMatch_CharRange(t *testing.T) {
 	dir := t.TempDir()
 	writeIgnore(t, dir, "file[abc].md\n")
 
-	m, err := Load(dir)
+	m, err := LoadIgnore(dir)
 	if err != nil {
-		t.Fatalf("Load: %v", err)
+		t.Fatalf("LoadIgnore: %v", err)
 	}
 
 	for _, p := range []string{"filea.md", "fileb.md", "filec.md"} {
@@ -124,9 +124,9 @@ func TestMatch_QuestionWildcard(t *testing.T) {
 	dir := t.TempDir()
 	writeIgnore(t, dir, "fo?.md\n")
 
-	m, err := Load(dir)
+	m, err := LoadIgnore(dir)
 	if err != nil {
-		t.Fatalf("Load: %v", err)
+		t.Fatalf("LoadIgnore: %v", err)
 	}
 
 	if !m.Match("foo.md", false) {
@@ -144,9 +144,9 @@ func TestMatch_LeadingSlashAnchor(t *testing.T) {
 	dir := t.TempDir()
 	writeIgnore(t, dir, "/anchored.md\n")
 
-	m, err := Load(dir)
+	m, err := LoadIgnore(dir)
 	if err != nil {
-		t.Fatalf("Load: %v", err)
+		t.Fatalf("LoadIgnore: %v", err)
 	}
 
 	if !m.Match("anchored.md", false) {
@@ -161,9 +161,9 @@ func TestMatch_EscapedLeadingChar(t *testing.T) {
 	dir := t.TempDir()
 	writeIgnore(t, dir, "\\!literal.md\n\\#hash.md\n")
 
-	m, err := Load(dir)
+	m, err := LoadIgnore(dir)
 	if err != nil {
-		t.Fatalf("Load: %v", err)
+		t.Fatalf("LoadIgnore: %v", err)
 	}
 
 	if !m.Match("!literal.md", false) {
@@ -181,9 +181,9 @@ func TestMatch_EscapedSegmentChar(t *testing.T) {
 	dir := t.TempDir()
 	writeIgnore(t, dir, "foo\\*.md\n")
 
-	m, err := Load(dir)
+	m, err := LoadIgnore(dir)
 	if err != nil {
-		t.Fatalf("Load: %v", err)
+		t.Fatalf("LoadIgnore: %v", err)
 	}
 
 	if !m.Match("foo*.md", false) {
@@ -194,11 +194,11 @@ func TestMatch_EscapedSegmentChar(t *testing.T) {
 	}
 }
 
-func TestLoad_UnsupportedPattern_DoubleSlash(t *testing.T) {
+func TestLoadIgnore_UnsupportedPattern_DoubleSlash(t *testing.T) {
 	dir := t.TempDir()
 	writeIgnore(t, dir, "a//b.md\n")
 
-	_, err := Load(dir)
+	_, err := LoadIgnore(dir)
 	if err == nil {
 		t.Fatal("expected error for consecutive slashes")
 	}
@@ -208,9 +208,9 @@ func TestMatch_BasenameGlob(t *testing.T) {
 	dir := t.TempDir()
 	writeIgnore(t, dir, "*.jsonl\n")
 
-	m, err := Load(dir)
+	m, err := LoadIgnore(dir)
 	if err != nil {
-		t.Fatalf("Load: %v", err)
+		t.Fatalf("LoadIgnore: %v", err)
 	}
 
 	cases := []struct {
@@ -235,9 +235,9 @@ func TestMatch_LiteralBasename(t *testing.T) {
 	dir := t.TempDir()
 	writeIgnore(t, dir, "TODO\n")
 
-	m, err := Load(dir)
+	m, err := LoadIgnore(dir)
 	if err != nil {
-		t.Fatalf("Load: %v", err)
+		t.Fatalf("LoadIgnore: %v", err)
 	}
 
 	if !m.Match("TODO", false) {
@@ -255,9 +255,9 @@ func TestMatch_AnchoredPath(t *testing.T) {
 	dir := t.TempDir()
 	writeIgnore(t, dir, "cache/scratch.md\n")
 
-	m, err := Load(dir)
+	m, err := LoadIgnore(dir)
 	if err != nil {
-		t.Fatalf("Load: %v", err)
+		t.Fatalf("LoadIgnore: %v", err)
 	}
 
 	if !m.Match("cache/scratch.md", false) {
@@ -275,9 +275,9 @@ func TestMatch_DirectoryOnly(t *testing.T) {
 	dir := t.TempDir()
 	writeIgnore(t, dir, "sessions/\n")
 
-	m, err := Load(dir)
+	m, err := LoadIgnore(dir)
 	if err != nil {
-		t.Fatalf("Load: %v", err)
+		t.Fatalf("LoadIgnore: %v", err)
 	}
 
 	if !m.Match("sessions", true) {
@@ -319,9 +319,9 @@ func TestMatch_DoubleStar(t *testing.T) {
 	for _, tt := range cases {
 		dir := t.TempDir()
 		writeIgnore(t, dir, tt.pat+"\n")
-		m, err := Load(dir)
+		m, err := LoadIgnore(dir)
 		if err != nil {
-			t.Fatalf("Load %q: %v", tt.pat, err)
+			t.Fatalf("LoadIgnore %q: %v", tt.pat, err)
 		}
 		got := m.Match(tt.path, false)
 		if got != tt.want {
@@ -344,9 +344,9 @@ func TestMatch_EmptyOrDot(t *testing.T) {
 	dir := t.TempDir()
 	writeIgnore(t, dir, "*.md\n")
 
-	m, err := Load(dir)
+	m, err := LoadIgnore(dir)
 	if err != nil {
-		t.Fatalf("Load: %v", err)
+		t.Fatalf("LoadIgnore: %v", err)
 	}
 
 	if m.Match("", false) {
@@ -361,9 +361,9 @@ func TestMatch_MultiplePatterns(t *testing.T) {
 	dir := t.TempDir()
 	writeIgnore(t, dir, "# skip session logs\n*.jsonl\n\n# skip cache dirs\ncache/\n")
 
-	m, err := Load(dir)
+	m, err := LoadIgnore(dir)
 	if err != nil {
-		t.Fatalf("Load: %v", err)
+		t.Fatalf("LoadIgnore: %v", err)
 	}
 
 	if !m.Match("a/b.jsonl", false) {

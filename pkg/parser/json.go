@@ -24,7 +24,7 @@ func (p JsonParser) parse(path string, data []byte) ([]*ContextNode, error) {
 
 	var root any
 	if err := dec.Decode(&root); err != nil {
-		return nil, fmt.Errorf("failed to parse: json %s: %w", path, err)
+		return nil, fmt.Errorf("%w: json %s: %v", ErrMalformed, path, err)
 	}
 
 	if root == nil {
@@ -48,7 +48,7 @@ func (p JsonParser) parseLines(path string, data []byte) ([]*ContextNode, error)
 			break
 		}
 		if err != nil {
-			return nil, fmt.Errorf("failed to parse: jsonl %s: %w", path, err)
+			return nil, fmt.Errorf("%w: jsonl %s: %v", ErrMalformed, path, err)
 		}
 
 		records = append(records, v)

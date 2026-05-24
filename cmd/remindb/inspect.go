@@ -10,8 +10,10 @@ import (
 	"sort"
 	"strings"
 
+	"github.com/radimsem/remindb/pkg/config"
 	"github.com/radimsem/remindb/pkg/inspect"
 	"github.com/radimsem/remindb/pkg/store"
+	"github.com/radimsem/remindb/pkg/temperature"
 	"github.com/spf13/cobra"
 )
 
@@ -30,8 +32,6 @@ const (
 	inspectGlyphWidth   = 2
 	inspectSubKeyPad    = 14
 	inspectLabelPad     = inspectBranchPad + inspectGlyphWidth + 1 + inspectSubKeyPad
-	hotThreshold        = 0.5
-	coldThreshold       = 0.1
 	gradientGreen       = 60
 )
 
@@ -75,7 +75,13 @@ func runInspect(cmd *cobra.Command, _ []string) error {
 		return fmt.Errorf("failed to migrate: %w", err)
 	}
 
-	stats, err := inspect.Collect(ctx, st)
+	workspaceCfg, err := config.Load(filepath.Dir(dbPath))
+	if err != nil {
+		return fmt.Errorf("failed to load: workspace config: %w", err)
+	}
+	tcfg := temperature.DefaultConfig().WithOverrides(workspaceCfg.Temperature)
+
+	stats, err := inspect.Collect(ctx, st, tcfg.HotThreshold, tcfg.ColdThreshold)
 	if err != nil {
 		return fmt.Errorf("failed to collect stats: %w", err)
 	}
@@ -217,7 +223,7 @@ func renderTrieNode(w io.Writer, t *fileTrie, prefix string) {
 		}
 
 		if child.summary != nil {
-			stats := paint(ansiDim, fmt.Sprintf("(%d nodes, %d tok)", child.summary.NodeCount, child.summary.TokenCount))
+			stats := paint(ansiDim, fmt.Sprintf("(%d nodes, %s tok)", child.summary.NodeCount, abbrevTokens(int64(child.summary.TokenCount))))
 			_, _ = fmt.Fprintf(w, "%s%s%s %s\n", prefix, branch, paint(ansiBrightWhite, k), stats)
 		} else {
 			_, _ = fmt.Fprintf(w, "%s%s%s\n", prefix, branch, paint(ansiYellow, k+"/"))
@@ -234,7 +240,17 @@ type ttyBranch struct {
 
 func num(n int) string { return paint(ansiBrightWhite, fmt.Sprintf("%d", n)) }
 
-func num64(n int64) string { return paint(ansiBrightWhite, fmt.Sprintf("%d", n)) }
+// Abbreviate a token count.
+func abbrevTokens(n int64) string {
+	switch {
+	case n < 1000:
+		return fmt.Sprintf("%d", n)
+	case n < 1_000_000:
+		return fmt.Sprintf("%.1fk", float64(n)/1000)
+	default:
+		return fmt.Sprintf("%.1fM", float64(n)/1_000_000)
+	}
+}
 
 func printStats(w io.Writer, s *inspect.Stats) {
 	header := "=== Database: " + s.DBPath
@@ -245,7 +261,7 @@ func printStats(w io.Writer, s *inspect.Stats) {
 	header += " ==="
 	_, _ = fmt.Fprintln(w, paint(ansiBold+ansiCyan, header))
 
-	nodesValue := fmt.Sprintf("%s (%s tokens)", num(s.NodeCount), num64(s.TokenCountTotal))
+	nodesValue := fmt.Sprintf("%s (%s tokens)", num(s.NodeCount), paint(ansiBrightWhite, abbrevTokens(s.TokenCountTotal)))
 	ttyRow(w, "Nodes:", nodesValue)
 	ttyBranches(w, mapTTYBranches(s.NodeCountsByType))
 
@@ -271,8 +287,8 @@ func printStats(w io.Writer, s *inspect.Stats) {
 	tempBranches := []ttyBranch{
 		{key: "avg:", value: tempPaint(s.AvgTemp)},
 		{key: "median:", value: tempPaint(s.MedianTemp)},
-		{key: fmt.Sprintf("hot (≥%.1f):", hotThreshold), value: num(s.HotCount)},
-		{key: fmt.Sprintf("cold (<%.1f):", coldThreshold), value: num(s.ColdCount)},
+		{key: fmt.Sprintf("hot (≥%.1f):", s.HotThreshold), value: num(s.HotCount)},
+		{key: fmt.Sprintf("cold (<%.1f):", s.ColdThreshold), value: num(s.ColdCount)},
 		{key: "pinned:", value: num(s.PinnedCount)},
 	}
 
@@ -346,7 +362,7 @@ func printTree(w io.Writer, children map[string][]*store.Node, n *store.Node, pa
 
 	_, _ = fmt.Fprintf(w, " %s %s)\n",
 		"temp="+tempPaint(n.Temperature),
-		paint(ansiDim, fmt.Sprintf("tok=%d", n.TokenCount)),
+		paint(ansiDim, fmt.Sprintf("tok=%s", abbrevTokens(int64(n.TokenCount)))),
 	)
 
 	if depth >= maxDepth {

@@ -6,12 +6,18 @@ import (
 	"log/slog"
 	"os"
 	"os/signal"
+	"strconv"
 	"syscall"
 	"time"
 
 	"github.com/radimsem/remindb/internal/redaction"
 	"github.com/radimsem/remindb/pkg/config"
+	"github.com/radimsem/remindb/pkg/logbuf"
 	remindb "github.com/radimsem/remindb/pkg/mcp"
+	"github.com/radimsem/remindb/pkg/mcp/rescan"
+	"github.com/radimsem/remindb/pkg/mcp/rescanlog"
+	"github.com/radimsem/remindb/pkg/mcp/rescanstat"
+	"github.com/radimsem/remindb/pkg/mcp/sessionlog"
 	"github.com/radimsem/remindb/pkg/store"
 	"github.com/radimsem/remindb/pkg/temperature"
 	"github.com/radimsem/remindb/pkg/version"
@@ -25,6 +31,14 @@ var (
 	verbose        bool
 	transport      string
 	listen         string
+	authToken      string
+	insecurePublic bool
+)
+
+const (
+	defaultLogBufferSize         = 1000
+	defaultSessionLogMaxFileSize = 10 << 20 // 10 MiB
+	defaultRescanLogMaxFileSize  = 10 << 20 // 10 MiB
 )
 
 var serveCmd = &cobra.Command{
@@ -39,6 +53,7 @@ func init() {
 	serveCmd.Flags().BoolVarP(&verbose, "verbose", "v", false, "Emit debug-level logs (default level is info)")
 	serveCmd.Flags().StringVar(&transport, "transport", remindb.TransportStdio, "Transport for the MCP server (stdio|http); falls back to REMINDB_TRANSPORT")
 	serveCmd.Flags().StringVar(&listen, "listen", remindb.DefaultListenAddr, "Listen address for HTTP transport, requires --transport=http; falls back to REMINDB_LISTEN")
+	serveCmd.Flags().BoolVar(&insecurePublic, "insecure-public", false, "Bind HTTP transport publicly without authentication (DANGEROUS), requires --transport=http; falls back to REMINDB_INSECURE_PUBLIC")
 	rootCmd.AddCommand(serveCmd)
 }
 
@@ -74,7 +89,7 @@ func runServe(cmd *cobra.Command, _ []string) error {
 		return err
 	}
 
-	logger, logFile, err := newServeLogger(verbose, workspaceCfg.Server.Logging)
+	logger, logFile, logBuf, err := newServeLogger(verbose, workspaceCfg.Server.Logging)
 	if err != nil {
 		return err
 	}
@@ -82,8 +97,15 @@ func runServe(cmd *cobra.Command, _ []string) error {
 		defer func() { _ = logFile.Close() }()
 	}
 
-	cfg := applyTemperatureOverrides(temperature.DefaultConfig(), workspaceCfg.Temperature)
-	if err := cfg.Validate(); err != nil {
+	if sourceDir != "" {
+		logger, err = withSessionLogs(logger, sourceDir, workspaceCfg.Server.Logging.SessionFiles)
+		if err != nil {
+			return err
+		}
+	}
+
+	startCfg := temperature.DefaultConfig().WithOverrides(workspaceCfg.Temperature)
+	if err := startCfg.Validate(); err != nil {
 		return fmt.Errorf("invalid temperature config in %s: %w", config.Path, err)
 	}
 
@@ -97,24 +119,36 @@ func runServe(cmd *cobra.Command, _ []string) error {
 		return fmt.Errorf("failed to build: redactor: %w", err)
 	}
 
-	tracker, err := temperature.NewTracker(st, cfg, logger)
+	tracker, err := temperature.NewTracker(st, sourceDir, temperature.DefaultConfig(), logger)
 	if err != nil {
 		return err
 	}
 
-	srv, err := remindb.NewServer(st, tracker, cfg,
+	rescanStatus := rescanstat.New()
+
+	srv, err := remindb.NewServer(st, tracker, startCfg,
 		remindb.WithSourceDir(sourceDir),
 		remindb.WithLogger(logger),
 		remindb.WithTransport(transport),
 		remindb.WithListen(listen),
+		remindb.WithAuthToken(authToken),
+		remindb.WithInsecurePublic(insecurePublic),
 		remindb.WithWorkspaceConfig(workspaceCfg),
 		remindb.WithRedactor(red),
+		remindb.WithLogBuffer(logBuf),
+		remindb.WithRescanStatus(rescanStatus),
 	)
 	if err != nil {
 		return fmt.Errorf("failed to build: server: %w", err)
 	}
 
-	logger.Info("serve: starting", startupAttrs(cfg.TickInterval)...)
+	logBuf.SetObserver(srv.NotifyLogRecord)
+	tracker.SetTickObserver(srv.NotifyTemperatureTick)
+
+	logLevel := effectiveLogLevel(verbose, workspaceCfg.Server.Logging)
+	rescanEff := rescan.EffectiveInterval(rescanInterval, workspaceCfg.Rescan)
+	rescanEnabled := workspaceCfg.Rescan.Enabled == nil || *workspaceCfg.Rescan.Enabled
+	logger.Info("serve: starting", startupAttrs(logLevel, startCfg.TickInterval, rescanEff, rescanEnabled, startCfg.Enabled)...)
 
 	go checkLatestVersion(ctx, version.Get(), logger)
 
@@ -139,15 +173,30 @@ func runServe(cmd *cobra.Command, _ []string) error {
 		})
 		return nil
 	})
+	g.Go(func() error {
+		srv.RunSessionLedger(ctx)
+		return nil
+	})
 
 	if sourceDir != "" {
-		rescan, err := remindb.NewRescanLoop(st, sourceDir, rescanInterval, workspaceCfg.Compile, logger)
+		rescanLog, err := newRescanLog(sourceDir, workspaceCfg.Server.RescanFiles)
 		if err != nil {
 			return err
 		}
 
+		rescanLoop, err := rescan.New(st, sourceDir, rescanInterval,
+			rescan.WithCompileConfig(workspaceCfg.Compile),
+			rescan.WithLogger(logger),
+			rescan.WithStatus(rescanStatus),
+			rescan.WithRescanLog(rescanLog),
+		)
+		if err != nil {
+			return err
+		}
+		rescanLoop.SetChangeObserver(srv.NotifyRescan)
+
 		g.Go(func() error {
-			rescan.Run(ctx)
+			rescanLoop.Run(ctx)
 			return nil
 		})
 	}
@@ -159,34 +208,6 @@ func runServe(cmd *cobra.Command, _ []string) error {
 	logger.Info("serve: stopped")
 
 	return nil
-}
-
-func applyTemperatureOverrides(base temperature.Config, o config.TemperatureConfig) temperature.Config {
-	if o.DecayRate != nil {
-		base.DecayRate = *o.DecayRate
-	}
-	if o.AccessBoost != nil {
-		base.AccessBoost = *o.AccessBoost
-	}
-	if o.ColdThreshold != nil {
-		base.ColdThreshold = *o.ColdThreshold
-	}
-	if o.NotifyThreshold != nil {
-		base.NotifyThreshold = *o.NotifyThreshold
-	}
-	if o.SummarizeRebound != nil {
-		base.SummarizeRebound = *o.SummarizeRebound
-	}
-	if o.TickInterval != nil {
-		base.TickInterval = time.Duration(*o.TickInterval)
-	}
-	if o.ColdNotifyTTL != nil {
-		base.ColdNotifyTTL = time.Duration(*o.ColdNotifyTTL)
-	}
-	if o.ColdNotifyLimit != nil {
-		base.ColdNotifyLimit = *o.ColdNotifyLimit
-	}
-	return base
 }
 
 func applyRedactionOverrides(base redaction.Config, o config.RedactionConfig) (redaction.Config, error) {
@@ -219,8 +240,7 @@ func applyRedactionOverrides(base redaction.Config, o config.RedactionConfig) (r
 	return base, nil
 }
 
-// Build the serve logger from config; --verbose forces debug and wins.
-func newServeLogger(verbose bool, lg config.LoggingConfig) (*slog.Logger, *os.File, error) {
+func effectiveLogLevel(verbose bool, lg config.LoggingConfig) slog.Level {
 	level := slog.LevelInfo
 	if lg.Level != nil {
 		level = parseLogLevel(*lg.Level)
@@ -228,13 +248,19 @@ func newServeLogger(verbose bool, lg config.LoggingConfig) (*slog.Logger, *os.Fi
 	if verbose {
 		level = slog.LevelDebug
 	}
+	return level
+}
+
+// Build the serve logger from config.
+func newServeLogger(verbose bool, lg config.LoggingConfig) (*slog.Logger, *os.File, *logbuf.Buffer, error) {
+	level := effectiveLogLevel(verbose, lg)
 
 	out := os.Stderr
 	var file *os.File
 	if lg.OutputPath != nil {
 		f, err := os.OpenFile(*lg.OutputPath, os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0o644)
 		if err != nil {
-			return nil, nil, fmt.Errorf("failed to open: log output %s: %w", *lg.OutputPath, err)
+			return nil, nil, nil, fmt.Errorf("failed to open: log output %s: %w", *lg.OutputPath, err)
 		}
 
 		out, file = f, f
@@ -246,7 +272,47 @@ func newServeLogger(verbose bool, lg config.LoggingConfig) (*slog.Logger, *os.Fi
 	if lg.Format != nil && *lg.Format == "json" {
 		h = slog.NewJSONHandler(out, opts)
 	}
-	return slog.New(h), file, nil
+
+	size := defaultLogBufferSize
+	if lg.BufferSize != nil {
+		size = *lg.BufferSize
+	}
+	buf := logbuf.NewBuffer(size)
+
+	return slog.New(logbuf.NewHandler(h, buf)), file, buf, nil
+}
+
+// withSessionLogs wraps logger with the outermost per-session file handler when enabled; otherwise returns it unchanged.
+func withSessionLogs(logger *slog.Logger, workspace string, sl config.SessionFilesConfig) (*slog.Logger, error) {
+	if sl.Enabled == nil || !*sl.Enabled {
+		return logger, nil
+	}
+
+	maxFileSize := int64(defaultSessionLogMaxFileSize)
+	if sl.MaxFileSize != nil {
+		maxFileSize = int64(*sl.MaxFileSize)
+	}
+
+	sink, err := sessionlog.New(workspace, maxFileSize)
+	if err != nil {
+		return nil, err
+	}
+
+	return slog.New(sessionlog.NewHandler(logger.Handler(), sink)), nil
+}
+
+// newRescanLog builds the durable rescan-tick sink when enabled; nil otherwise.
+func newRescanLog(workspace string, rf config.RescanFilesConfig) (*rescanlog.Sink, error) {
+	if rf.Enabled == nil || !*rf.Enabled {
+		return nil, nil
+	}
+
+	maxFileSize := int64(defaultRescanLogMaxFileSize)
+	if rf.MaxFileSize != nil {
+		maxFileSize = int64(*rf.MaxFileSize)
+	}
+
+	return rescanlog.New(workspace, maxFileSize)
 }
 
 func parseLogLevel(s string) slog.Level {
@@ -262,17 +328,18 @@ func parseLogLevel(s string) slog.Level {
 	}
 }
 
-func startupAttrs(tickInterval time.Duration) []any {
+func startupAttrs(logLevel slog.Level, tickInterval, rescanEff time.Duration, rescanEnabled, tempEnabled bool) []any {
 	attrs := []any{
 		"db", dbPath,
 		"transport", transport,
 		"tick_interval", tickInterval,
-		"verbose", verbose,
+		"temperature_enabled", tempEnabled,
+		"log_level", logLevel,
 		"version", version.Get(),
 	}
 
 	if sourceDir != "" {
-		attrs = append(attrs, "source", sourceDir, "rescan_interval", rescanInterval)
+		attrs = append(attrs, "source", sourceDir, "rescan_interval", rescanEff, "rescan_enabled", rescanEnabled)
 	}
 	if transport == remindb.TransportHttp {
 		attrs = append(attrs, "listen", listen)
@@ -312,6 +379,19 @@ func applyServeEnv(cmd *cobra.Command) error {
 		return fmt.Errorf("rescan interval requires --source (or REMINDB_SOURCE)")
 	}
 
+	authToken = os.Getenv("REMINDB_AUTH_TOKEN")
+
+	if !cmd.Flags().Changed("insecure-public") {
+		if v := os.Getenv("REMINDB_INSECURE_PUBLIC"); v != "" {
+			b, err := strconv.ParseBool(v)
+			if err != nil {
+				return fmt.Errorf("failed to parse: REMINDB_INSECURE_PUBLIC=%q: %w", v, err)
+			}
+
+			insecurePublic = b
+		}
+	}
+
 	return nil
 }
 
@@ -336,6 +416,10 @@ func resolveServerConfig(cmd *cobra.Command, sc config.ServerConfig) error {
 	listenSet := cmd.Flags().Changed("listen") || sc.Listen != nil || envPtr("REMINDB_LISTEN") != nil
 	if transport != remindb.TransportHttp && listenSet {
 		return fmt.Errorf("listen address requires --transport=http")
+	}
+
+	if transport != remindb.TransportHttp && insecurePublic {
+		return fmt.Errorf("insecure-public requires --transport=http")
 	}
 	return nil
 }

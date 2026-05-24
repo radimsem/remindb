@@ -27,13 +27,15 @@ OR   AND   NOT   NEAR(   "   :   *   (
 ```
 
 - If **any** appears → the query passes through unchanged (it's already FTS5).
-- Otherwise → it's whitespace-split and joined with ` OR `.
-- A single bare word passes through unchanged.
+- Otherwise → it's whitespace-split, each word is **quoted**, and the quoted terms are joined with ` OR `.
+
+Quoting each bare word makes internal punctuation (hyphens, dots) match as a literal phrase instead of leaking into FTS5 as an operator — so a single token like `ZEBRA-4471` just works.
 
 So a bare multi-word query is "match any of these words, rank by how many hit":
 
 ```
-"token bucket rate limit"  →  token OR bucket OR rate OR limit
+"token bucket rate limit"  →  "token" OR "bucket" OR "rate" OR "limit"
+"ZEBRA-4471"               →  "ZEBRA-4471" (punctuation matched literally, no error)
 "token AND bucket"         →  passed through (has AND): both required
 "\"token bucket\""         →  passed through (has "): exact adjacent phrase
 ```
@@ -43,7 +45,7 @@ The practical rules that fall out of this:
 1. **Send keyword lists, not sentences.** "how do I configure the rate limiter" becomes `how OR do OR I OR configure OR …` — the function words dilute the ranking. Strip them.
 2. **Bare multi-word = broad recall.** Use it when you want any-of matching ranked by overlap.
 3. **Reach for operators when you need precision.** `"exact phrase"`, `a AND b`, `a NOT b`, `prefix*`, `NEAR(a b, 5)`.
-4. **Quote internal punctuation.** Hyphens and dots are tokenizer boundaries — search `"rate-limit"` quoted to match the hyphenated form.
+4. **Internal punctuation is handled for you.** Hyphens and dots are tokenizer boundaries, but bare queries auto-quote each term, so `rate-limit` matches without erroring. Explicit quoting (`"rate-limit"`) still works when you want a multi-word phrase.
 
 ## Fetching what you found
 

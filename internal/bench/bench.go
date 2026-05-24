@@ -7,7 +7,6 @@ import (
 )
 
 type Config struct {
-	DBPath  string
 	Dir     string
 	Budget  int
 	Queries []string
@@ -16,7 +15,7 @@ type Config struct {
 }
 
 func Run(ctx context.Context, cfg Config) error {
-	stage, err := stageBench(ctx, cfg.DBPath, cfg.Dir)
+	stage, err := stageBench(ctx, cfg.Dir)
 	if err != nil {
 		return err
 	}

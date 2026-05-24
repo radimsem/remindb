@@ -33,6 +33,13 @@ jobs:
               exit 1
             fi
           done
+          # Hermes plugin manifest is YAML, not JSON
+          f=plugins/hermes-agent/memory/remindb/plugin.yaml
+          actual="$(sed -nE 's/^version:[[:space:]]*"?([^"[:space:]]+)"?.*/\1/p' "$f")"
+          if [ "$actual" != "$expected" ]; then
+            echo "::error file=$f::version $actual != tag $expected (run scripts/bump-version.sh $GITHUB_REF_NAME and recommit before tagging)"
+            exit 1
+          fi
 
       - name: Set up Go
         uses: actions/setup-go@v6

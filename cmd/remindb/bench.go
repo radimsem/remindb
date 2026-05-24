@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"errors"
 	"os"
 	"os/signal"
 	"syscall"
@@ -23,7 +24,7 @@ var benchCmd = &cobra.Command{
 }
 
 func init() {
-	benchCmd.Flags().StringVar(&benchDir, "dir", "", "Source directory (inferred from DB if omitted)")
+	benchCmd.Flags().StringVar(&benchDir, "dir", "", "Source directory to compile and benchmark (required)")
 	benchCmd.Flags().IntVar(&benchBudget, "budget", 1000, "Token budget for search and fetch scenarios")
 	benchCmd.Flags().StringArrayVar(&benchQueries, "query", nil, "Search query (repeatable); skips the search scenario if empty")
 	rootCmd.AddCommand(benchCmd)
@@ -32,15 +33,14 @@ func init() {
 func runBench(cmd *cobra.Command, _ []string) error {
 	cmd.SilenceUsage = true
 
-	if err := deriveDefaultDBPath(cmd, benchDir); err != nil {
-		return err
+	if benchDir == "" {
+		return errors.New("--dir is required")
 	}
 
 	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
 	defer stop()
 
 	return bench.Run(ctx, bench.Config{
-		DBPath:  dbPath,
 		Dir:     benchDir,
 		Budget:  benchBudget,
 		Queries: benchQueries,

@@ -17,6 +17,10 @@
 coverage.*
 *.prof
 
+# Python bytecode (plugins/hermes-agent)
+__pycache__/
+*.pyc
+
 # Editor and OS
 .vscode/
 .idea/

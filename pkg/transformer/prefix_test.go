@@ -65,6 +65,39 @@ func TestCompressPrefix_ExplicitRoot(t *testing.T) {
 	}
 }
 
+func TestStoredSourceFile_MatchesCompressPrefix(t *testing.T) {
+	cases := []struct {
+		name        string
+		path        string
+		compileRoot string
+		want        string
+	}{
+		{"trailing-separator", "/home/me/notes/foo.md", "/home/me/notes/", "foo.md"},
+		{"no-trailing-separator", "/home/me/notes/sub/bar.md", "/home/me/notes", "sub/bar.md"},
+		{"empty-root-returns-path", "/home/me/notes/foo.md", "", "/home/me/notes/foo.md"},
+		{"non-matching-root-returns-path", "rel/foo.md", "/home/me/notes", "rel/foo.md"},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			got := StoredSourceFile(tc.path, tc.compileRoot)
+			if got != tc.want {
+				t.Errorf("StoredSourceFile(%q, %q) = %q, want %q", tc.path, tc.compileRoot, got, tc.want)
+			}
+
+			// Parity: a node carrying the same path strips to the same key (empty root excluded —
+			// compressPrefix then derives a single-node common dir, a different code path).
+			if tc.compileRoot != "" {
+				node := []*parser.ContextNode{{SourceFile: tc.path}}
+				compressPrefix(node, tc.compileRoot)
+				if node[0].SourceFile != got {
+					t.Errorf("compressPrefix stripped to %q, StoredSourceFile gave %q", node[0].SourceFile, got)
+				}
+			}
+		})
+	}
+}
+
 func TestCompressPrefix_StableAcrossCallShapes(t *testing.T) {
 	const root = "/home/me/notes"
 

@@ -5,7 +5,8 @@ import (
 	"path/filepath"
 	"testing"
 
-	"github.com/radimsem/remindb/internal/ignore"
+	"github.com/radimsem/remindb/internal/pathmatch"
+	"github.com/radimsem/remindb/internal/tempfile"
 	"github.com/radimsem/remindb/pkg/config"
 )
 
@@ -28,11 +29,11 @@ func TestCopySourceTree_RespectsIgnore(t *testing.T) {
 	writeFile(t, src, "kept.md", "# Kept\n")
 	writeFile(t, src, "session.jsonl", `{"event":"chat"}`)
 	writeFile(t, src, "sessions/log.json", `{"id":1}`)
-	writeFile(t, src, ignore.Path, "*.jsonl\nsessions/\n")
+	writeFile(t, src, pathmatch.IgnorePath, "*.jsonl\nsessions/\n")
 
-	matcher, err := ignore.Load(src)
+	matcher, err := pathmatch.LoadIgnore(src)
 	if err != nil {
-		t.Fatalf("ignore.Load: %v", err)
+		t.Fatalf("pathmatch.LoadIgnore: %v", err)
 	}
 
 	if err := copySourceTree(src, dst, matcher); err != nil {
@@ -66,5 +67,57 @@ func TestCopySourceTree_NilMatcher(t *testing.T) {
 		if _, err := os.Stat(filepath.Join(dst, rel)); err != nil {
 			t.Errorf("expected %s in copy: %v", rel, err)
 		}
+	}
+}
+
+func TestCopySidecars_CopiesAllPresent(t *testing.T) {
+	src := t.TempDir()
+	dst := t.TempDir()
+
+	writeFile(t, src, pathmatch.IgnorePath, "*.jsonl\n")
+	writeFile(t, src, tempfile.Path, `{"doc.md": 0.9}`)
+	writeFile(t, src, pathmatch.PinnedPath, "doc.md\n")
+
+	if err := copySidecars(src, dst); err != nil {
+		t.Fatalf("copySidecars: %v", err)
+	}
+
+	for _, rel := range []string{pathmatch.IgnorePath, tempfile.Path, pathmatch.PinnedPath} {
+		if _, err := os.Stat(filepath.Join(dst, rel)); err != nil {
+			t.Errorf("expected %s in staged tree: %v", rel, err)
+		}
+	}
+}
+
+func TestCopySidecars_SkipsMissingSilently(t *testing.T) {
+	src := t.TempDir()
+	dst := t.TempDir()
+
+	writeFile(t, src, pathmatch.IgnorePath, "*.jsonl\n")
+
+	if err := copySidecars(src, dst); err != nil {
+		t.Fatalf("copySidecars: %v", err)
+	}
+
+	if _, err := os.Stat(filepath.Join(dst, pathmatch.IgnorePath)); err != nil {
+		t.Errorf("expected ignore sidecar in staged tree: %v", err)
+	}
+	for _, rel := range []string{tempfile.Path, pathmatch.PinnedPath} {
+		if _, err := os.Stat(filepath.Join(dst, rel)); !os.IsNotExist(err) {
+			t.Errorf("expected %s to be absent (not in source), got err=%v", rel, err)
+		}
+	}
+}
+
+func TestCopySidecars_NoneSourcePresent(t *testing.T) {
+	src := t.TempDir()
+	dst := t.TempDir()
+
+	if err := copySidecars(src, dst); err != nil {
+		t.Fatalf("copySidecars: %v", err)
+	}
+
+	if _, err := os.Stat(filepath.Join(dst, config.DirName)); !os.IsNotExist(err) {
+		t.Errorf("expected no .remindb dir in dst (no sidecars to copy), got err=%v", err)
 	}
 }

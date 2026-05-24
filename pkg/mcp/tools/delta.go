@@ -14,7 +14,7 @@ type DeltaInput struct {
 }
 
 func (d *Deps) HandleDelta(ctx context.Context, _ *gomcp.CallToolRequest, input DeltaInput) (_ *gomcp.CallToolResult, _ any, err error) {
-	defer d.logCall("MemoryDelta", &err, time.Now(), "since_snapshot", input.SinceSnapshot)
+	defer d.logCall(ctx, "MemoryDelta", &err, time.Now(), "since_snapshot", input.SinceSnapshot)
 
 	diffs, err := d.Engine.Delta(ctx, input.SinceSnapshot)
 	if err != nil {
@@ -22,16 +22,12 @@ func (d *Deps) HandleDelta(ctx context.Context, _ *gomcp.CallToolRequest, input 
 	}
 
 	if len(diffs) == 0 {
-		return &gomcp.CallToolResult{
-			Content: []gomcp.Content{&gomcp.TextContent{Text: "no changes"}},
-		}, nil, nil
+		return textResult("no changes"), nil, nil
 	}
 
 	var b strings.Builder
 	for _, dr := range diffs {
 		fmt.Fprintf(&b, "[%s] %s (snapshot %d)\n", dr.Op, dr.NodeID, dr.SnapshotID)
 	}
-	return &gomcp.CallToolResult{
-		Content: []gomcp.Content{&gomcp.TextContent{Text: b.String()}},
-	}, nil, nil
+	return textResult(b.String()), nil, nil
 }

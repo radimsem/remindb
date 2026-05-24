@@ -12,6 +12,7 @@ import (
 
 	gomcp "github.com/modelcontextprotocol/go-sdk/mcp"
 	"github.com/radimsem/remindb/internal/redaction"
+	"github.com/radimsem/remindb/internal/testutil"
 	"github.com/radimsem/remindb/pkg/compiler"
 	"github.com/radimsem/remindb/pkg/config"
 	"github.com/radimsem/remindb/pkg/query"
@@ -23,17 +24,9 @@ import (
 func setup(t *testing.T) (*Deps, *store.Store) {
 	t.Helper()
 
-	st, err := store.Open(":memory:")
-	if err != nil {
-		t.Fatalf("Open: %v", err)
-	}
+	st := testutil.OpenTestDB(t)
 
-	if err := st.Migrate(context.Background()); err != nil {
-		t.Fatalf("Migrate: %v", err)
-	}
-	t.Cleanup(func() { _ = st.Close() })
-
-	tracker, err := temperature.NewTracker(st, temperature.DefaultConfig(), nil)
+	tracker, err := temperature.NewTracker(st, "", temperature.DefaultConfig(), nil)
 	if err != nil {
 		t.Fatalf("NewTracker: %v", err)
 	}
@@ -384,7 +377,7 @@ func TestHandleWrite_ScrubsSecret(t *testing.T) {
 		t.Fatal("empty content — tool should still succeed on redaction")
 	}
 
-	stats, err := st.GetStats(ctx)
+	stats, err := st.GetStats(ctx, 0.5, 0.1)
 	if err != nil {
 		t.Fatalf("GetStats: %v", err)
 	}
@@ -475,7 +468,7 @@ func TestHandleCompile_AnchorsToSourceDir(t *testing.T) {
 		t.Fatalf("initial CompileDir: %v", err)
 	}
 
-	before, err := st.GetStats(ctx)
+	before, err := st.GetStats(ctx, 0.5, 0.1)
 	if err != nil {
 		t.Fatalf("GetStats before: %v", err)
 	}
@@ -493,7 +486,7 @@ func TestHandleCompile_AnchorsToSourceDir(t *testing.T) {
 		t.Fatalf("HandleCompile: %v", err)
 	}
 
-	after, err := st.GetStats(ctx)
+	after, err := st.GetStats(ctx, 0.5, 0.1)
 	if err != nil {
 		t.Fatalf("GetStats after: %v", err)
 	}
@@ -1108,7 +1101,7 @@ func TestHandleRelate_ResolvedHit(t *testing.T) {
 		t.Errorf("text = %q, want contains 'resolved'", text)
 	}
 
-	related, _ := st.GetRelatedNodes(ctx, src.ID, store.DirectionOut, 1, 0, 10)
+	related, _ := st.GetRelatedNodes(ctx, src.ID, store.WithDirection(store.DirectionOut), store.WithMaxDepth(1), store.WithLimit(10))
 	if len(related) != 1 || related[0].Node.ID != tgt.ID {
 		t.Fatalf("related = %+v, want [%s]", related, tgt.ID)
 	}
@@ -1298,7 +1291,7 @@ func TestHandleRelate_TargetIDMissGoesPending(t *testing.T) {
 	}
 
 	// No relations row should have been created.
-	related, _ := st.GetRelatedNodes(ctx, src.ID, store.DirectionOut, 1, 0, 10)
+	related, _ := st.GetRelatedNodes(ctx, src.ID, store.WithDirection(store.DirectionOut), store.WithMaxDepth(1), store.WithLimit(10))
 	if len(related) != 0 {
 		t.Errorf("got %d related, want 0 (target_id miss must not silently pick a label match)", len(related))
 	}
@@ -1401,7 +1394,7 @@ func TestHandleRelate_ManualEdgeSurvivesResolverRun(t *testing.T) {
 		t.Fatalf("relations.Run: %v", err)
 	}
 
-	related, _ := st.GetRelatedNodes(ctx, src.ID, store.DirectionOut, 1, 0, 10)
+	related, _ := st.GetRelatedNodes(ctx, src.ID, store.WithDirection(store.DirectionOut), store.WithMaxDepth(1), store.WithLimit(10))
 	if len(related) != 1 {
 		t.Fatalf("manual edge lost after resolver run: %+v", related)
 	}

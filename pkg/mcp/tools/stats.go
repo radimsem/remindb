@@ -12,9 +12,9 @@ import (
 type StatsInput struct{}
 
 func (d *Deps) HandleStats(ctx context.Context, _ *gomcp.CallToolRequest, _ StatsInput) (_ *gomcp.CallToolResult, _ any, err error) {
-	defer d.logCall("MemoryStats", &err, time.Now())
+	defer d.logCall(ctx, "MemoryStats", &err, time.Now())
 
-	stats, err := inspect.Collect(ctx, d.Store)
+	stats, err := inspect.Collect(ctx, d.Store, d.HotThreshold, d.ColdThreshold)
 	if err != nil {
 		return nil, nil, fmt.Errorf("failed to collect: stats: %w", err)
 	}

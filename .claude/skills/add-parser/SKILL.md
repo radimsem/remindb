@@ -47,6 +47,8 @@ Initialism rule (memory + `go-concise.md`): `TomlParser` not `TOMLParser`, `Json
 
 Error message rule (`go-concise.md` §5): action errors take a `failed to <verb>:` prefix and wrap with `%w`. Validation errors carry no prefix.
 
+Abort vs. skip on bad content: by default a parse failure aborts the whole-workspace compile (the `errgroup` fails fast). If a malformed file of your format should instead be **skipped with a warning** — like JSON config that routinely carries comments (#171) — wrap the decode failure with the `ErrMalformed` sentinel (`fmt.Errorf("%w: <format> %s: %v", ErrMalformed, path, err)`) instead of the `failed to <verb>:` form. `pkg/compiler/compiler.go` already skips `ErrMalformed` exactly as it skips `ErrUnsupportedExt`; no compiler change needed. Note this drops the loud error for genuine corruption, so reserve it for formats where unparseable input is expected noise, not a signal.
+
 ## The switch entry
 
 Open `pkg/parser/parser.go`, find `ParseBytes`, add the case in the alphabetic position you'd expect a reader to scan:
@@ -100,7 +102,7 @@ The fuzz invariant is "must never panic regardless of input." If your parser der
 - **Forgetting fuzz seeds.** The fuzz test will still run and pass, but it'll never exercise the new format. The fuzz step is what catches "decoder returns nil and parser deref's it" before it ships.
 - **Returning `(nil, nil)` for empty input but the test asserts `len(nodes) == 0`.** Both work since `len(nil) == 0`, but be explicit in the test about which one your parser actually returns. `yaml.go` short-circuits with `nil, nil` when the document is empty — mirror its style if your decoder gives you an obvious "no content" signal.
 - **Setting `SourceFile` to something other than the `path` arg.** Downstream code (search ranking, `MemoryFetch` ancestor walks) keys on it. Pass `path` straight through to `buildNode`.
-- **Shadowing the package error sentinels.** Use `ErrInvalidUTF8` and `ErrUnsupportedExt` from `parser.go`; don't redefine them per format.
+- **Shadowing the package error sentinels.** Use `ErrInvalidUTF8`, `ErrUnsupportedExt`, and `ErrMalformed` (skip-on-bad-content) from `parser.go`; don't redefine them per format.
 - **Stutter naming.** `parser.NewTomlParser()` is wrong; the empty struct is exposed bare as `TomlParser` and constructed with `TomlParser{}`. See `go-concise.md` §7.
 
 ## Cross-references

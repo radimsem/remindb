@@ -77,6 +77,64 @@ func TestUpsertNode_Update(t *testing.T) {
 	}
 }
 
+func TestUpsertNode_SeedPinned_InsertSetsPinned(t *testing.T) {
+	st := openTestDB(t)
+	ctx := context.Background()
+
+	n := testNode("aaaaaaaa", "")
+	n.SeedPinned = true
+	must(t, st.UpsertNode(ctx, n))
+
+	got, err := st.GetNode(ctx, "aaaaaaaa")
+	if err != nil {
+		t.Fatalf("GetNode: %v", err)
+	}
+
+	if !got.Pinned {
+		t.Error("Pinned = false, want true (SeedPinned applied on INSERT)")
+	}
+}
+
+func TestUpsertNode_SeedPinned_UpdateLeavesPinnedAlone(t *testing.T) {
+	st := openTestDB(t)
+	ctx := context.Background()
+
+	n := testNode("aaaaaaaa", "")
+	n.SeedPinned = true
+	must(t, st.UpsertNode(ctx, n))
+
+	n.SeedPinned = false
+	n.Content = "updated"
+	must(t, st.UpsertNode(ctx, n))
+
+	got, err := st.GetNode(ctx, "aaaaaaaa")
+	if err != nil {
+		t.Fatalf("GetNode: %v", err)
+	}
+
+	if !got.Pinned {
+		t.Error("Pinned = false, want true (UPDATE must not touch pinned column)")
+	}
+	if got.Content != "updated" {
+		t.Errorf("Content = %q, want %q (UPDATE applied content change)", got.Content, "updated")
+	}
+}
+
+func TestUpsertNode_NoSeedPinned_DefaultsToFalse(t *testing.T) {
+	st := openTestDB(t)
+	ctx := context.Background()
+
+	must(t, st.UpsertNode(ctx, testNode("aaaaaaaa", "")))
+
+	got, err := st.GetNode(ctx, "aaaaaaaa")
+	if err != nil {
+		t.Fatalf("GetNode: %v", err)
+	}
+	if got.Pinned {
+		t.Error("Pinned = true, want false (no SeedPinned set)")
+	}
+}
+
 func TestGetNodesByFile(t *testing.T) {
 	st := openTestDB(t)
 	ctx := context.Background()
@@ -411,7 +469,7 @@ func TestSnapshotAndCursor(t *testing.T) {
 	}
 
 	err = st.Tx(ctx, func(tx *sql.Tx) error {
-		snapID, err := st.CreateSnapshotTx(ctx, tx, "abcdef0123456789", "first", "")
+		snapID, err := st.CreateSnapshotTx(ctx, tx, WithCursorHash("abcdef0123456789"), WithMessage("first"))
 		if err != nil {
 			return err
 		}
@@ -731,7 +789,7 @@ func TestPruneSnapshotsAfterTx_KeepsTargetAndExcluded(t *testing.T) {
 	for i := range 4 {
 		err := st.Tx(ctx, func(tx *sql.Tx) error {
 			cursor := fmt.Sprintf("csr%013d", i)
-			id, err := st.CreateSnapshotTx(ctx, tx, cursor, "m", "")
+			id, err := st.CreateSnapshotTx(ctx, tx, WithCursorHash(cursor), WithMessage("m"))
 			if err != nil {
 				return err
 			}
@@ -750,7 +808,7 @@ func TestPruneSnapshotsAfterTx_KeepsTargetAndExcluded(t *testing.T) {
 	}
 
 	err := st.Tx(ctx, func(tx *sql.Tx) error {
-		id, err := st.CreateSnapshotWithParentTx(ctx, tx, "csr000000005", "rollback to 1", "", ids[0])
+		id, err := st.CreateSnapshotTx(ctx, tx, WithCursorHash("csr000000005"), WithMessage("rollback to 1"), WithParent(ids[0]))
 		if err != nil {
 			return err
 		}
@@ -805,7 +863,7 @@ func TestRestoreToSnapshot_PreMigrationOpRem_ReportsSkipped(t *testing.T) {
 
 	// Snap 1: empty baseline.
 	err := st.Tx(ctx, func(tx *sql.Tx) error {
-		id, err := st.CreateSnapshotTx(ctx, tx, "h0", "init", "")
+		id, err := st.CreateSnapshotTx(ctx, tx, WithCursorHash("h0"), WithMessage("init"))
 		if err != nil {
 			return err
 		}
@@ -815,7 +873,7 @@ func TestRestoreToSnapshot_PreMigrationOpRem_ReportsSkipped(t *testing.T) {
 	must(t, err)
 
 	err = st.Tx(ctx, func(tx *sql.Tx) error {
-		id, err := st.CreateSnapshotTx(ctx, tx, "h1", "remX", "")
+		id, err := st.CreateSnapshotTx(ctx, tx, WithCursorHash("h1"), WithMessage("remX"))
 		if err != nil {
 			return err
 		}
@@ -852,7 +910,7 @@ func TestRestoreToSnapshot_RemovesPostTargetAdditions(t *testing.T) {
 
 	// Snapshot 1: empty.
 	err := st.Tx(ctx, func(tx *sql.Tx) error {
-		id, err := st.CreateSnapshotTx(ctx, tx, "h0", "init", "")
+		id, err := st.CreateSnapshotTx(ctx, tx, WithCursorHash("h0"), WithMessage("init"))
 		if err != nil {
 			return err
 		}
@@ -867,7 +925,7 @@ func TestRestoreToSnapshot_RemovesPostTargetAdditions(t *testing.T) {
 			return err
 		}
 
-		id, err := st.CreateSnapshotTx(ctx, tx, "h1", "addA", "")
+		id, err := st.CreateSnapshotTx(ctx, tx, WithCursorHash("h1"), WithMessage("addA"))
 		if err != nil {
 			return err
 		}
@@ -898,7 +956,7 @@ func TestGetDiffsBySnapshot(t *testing.T) {
 	ctx := context.Background()
 
 	err := st.Tx(ctx, func(tx *sql.Tx) error {
-		snapID, err := st.CreateSnapshotTx(ctx, tx, "hash1111", "v1", "")
+		snapID, err := st.CreateSnapshotTx(ctx, tx, WithCursorHash("hash1111"), WithMessage("v1"))
 		if err != nil {
 			return err
 		}
@@ -930,7 +988,7 @@ func TestGetDiffsSince(t *testing.T) {
 
 	// Create two snapshots.
 	err := st.Tx(ctx, func(tx *sql.Tx) error {
-		id, err := st.CreateSnapshotTx(ctx, tx, "hash1111", "v1", "")
+		id, err := st.CreateSnapshotTx(ctx, tx, WithCursorHash("hash1111"), WithMessage("v1"))
 		if err != nil {
 			return err
 		}
@@ -945,7 +1003,7 @@ func TestGetDiffsSince(t *testing.T) {
 	must(t, err)
 
 	err = st.Tx(ctx, func(tx *sql.Tx) error {
-		id, err := st.CreateSnapshotTx(ctx, tx, "hash2222", "v2", "")
+		id, err := st.CreateSnapshotTx(ctx, tx, WithCursorHash("hash2222"), WithMessage("v2"))
 		if err != nil {
 			return err
 		}
@@ -994,7 +1052,7 @@ func TestGetStats(t *testing.T) {
 	ctx := context.Background()
 
 	// Empty DB.
-	stats, err := st.GetStats(ctx)
+	stats, err := st.GetStats(ctx, 0.5, 0.1)
 	if err != nil {
 		t.Fatalf("GetStats: %v", err)
 	}
@@ -1014,7 +1072,7 @@ func TestGetStats(t *testing.T) {
 	must(t, st.UpdateTemperature(ctx, "cccccccc", 0.4))
 	must(t, st.SetPinned(ctx, "aaaaaaaa", true, nil))
 
-	stats, err = st.GetStats(ctx)
+	stats, err = st.GetStats(ctx, 0.5, 0.1)
 	if err != nil {
 		t.Fatalf("GetStats: %v", err)
 	}
@@ -1100,10 +1158,13 @@ func TestRewriteQuery(t *testing.T) {
 		in   string
 		want string
 	}{
-		{"hello", "hello"},
+		{"hello", `"hello"`},
 		{"", ""},
-		{"hello world", "hello OR world"},
-		{"snapshot tests mock", "snapshot OR tests OR mock"},
+		{"hello world", `"hello" OR "world"`},
+		{"snapshot tests mock", `"snapshot" OR "tests" OR "mock"`},
+		// Bare terms with internal punctuation are quoted, not leaked to FTS5.
+		{"ZEBRA-4471", `"ZEBRA-4471"`},
+		{"rate-limit cache", `"rate-limit" OR "cache"`},
 		// FTS5 operators pass through unchanged.
 		{"snapshot OR tests", "snapshot OR tests"},
 		{"snapshot AND tests", "snapshot AND tests"},
@@ -1155,6 +1216,36 @@ func TestSearchMultiWord(t *testing.T) {
 	}
 }
 
+func TestSearchPunctuation(t *testing.T) {
+	st := openTestDB(t)
+	ctx := context.Background()
+
+	n := testNode("aaaaaaaa", "")
+	n.Content = "tracking error code ZEBRA-4471 in the rate-limit cache"
+	n.Label = "punctuated"
+	must(t, st.UpsertNode(ctx, n))
+
+	// Single-token punctuated query: pre-fix this leaked into FTS5 as
+	// `no such column: 4471`. It must match the literal, never error.
+	results, err := st.Search(ctx, "ZEBRA-4471", 10)
+	if err != nil {
+		t.Fatalf("Search(ZEBRA-4471): %v", err)
+	}
+	if len(results) != 1 {
+		t.Errorf("len = %d, want 1", len(results))
+	}
+
+	// Multi-word punctuated query OR-joins without erroring.
+	results, err = st.Search(ctx, "rate-limit cache", 10)
+	if err != nil {
+		t.Fatalf("Search(rate-limit cache): %v", err)
+	}
+
+	if len(results) != 1 {
+		t.Errorf("len = %d, want 1", len(results))
+	}
+}
+
 func TestListFileSummaries(t *testing.T) {
 	st := openTestDB(t)
 	ctx := context.Background()
@@ -1171,7 +1262,7 @@ func TestListFileSummaries(t *testing.T) {
 	upsert("dddddddd", "orphan.md", 2)
 
 	err := st.Tx(ctx, func(tx *sql.Tx) error {
-		sidA, err := st.CreateSnapshotTx(ctx, tx, "hash1111", "first", "/repo/a")
+		sidA, err := st.CreateSnapshotTx(ctx, tx, WithCursorHash("hash1111"), WithMessage("first"), WithCompileRoot("/repo/a"))
 		if err != nil {
 			return err
 		}
@@ -1182,7 +1273,7 @@ func TestListFileSummaries(t *testing.T) {
 			}
 		}
 
-		sidB, err := st.CreateSnapshotTx(ctx, tx, "hash2222", "second", "/repo/b")
+		sidB, err := st.CreateSnapshotTx(ctx, tx, WithCursorHash("hash2222"), WithMessage("second"), WithCompileRoot("/repo/b"))
 		if err != nil {
 			return err
 		}
@@ -1232,7 +1323,7 @@ func TestGetDiffsForNode(t *testing.T) {
 	ctx := context.Background()
 
 	err := st.Tx(ctx, func(tx *sql.Tx) error {
-		id, err := st.CreateSnapshotTx(ctx, tx, "hash1111", "v1", "")
+		id, err := st.CreateSnapshotTx(ctx, tx, WithCursorHash("hash1111"), WithMessage("v1"))
 		if err != nil {
 			return err
 		}
@@ -1271,7 +1362,7 @@ func upsertNodeAt(t *testing.T, st *Store, ctx context.Context, id, compileRoot 
 			return err
 		}
 
-		snapID, err := st.CreateSnapshotTx(ctx, tx, "h_"+id+"_"+compileRoot, "m", compileRoot)
+		snapID, err := st.CreateSnapshotTx(ctx, tx, WithCursorHash("h_"+id+"_"+compileRoot), WithMessage("m"), WithCompileRoot(compileRoot))
 		if err != nil {
 			return err
 		}

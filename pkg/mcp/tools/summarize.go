@@ -19,7 +19,7 @@ type SummarizeInput struct {
 }
 
 func (d *Deps) HandleSummarize(ctx context.Context, _ *gomcp.CallToolRequest, input SummarizeInput) (_ *gomcp.CallToolResult, _ any, err error) {
-	defer d.logCall("MemorySummarize", &err, time.Now(), "node_id", input.NodeID, "summary_bytes", len(input.Summary))
+	defer d.logCall(ctx, "MemorySummarize", &err, time.Now(), "node_id", input.NodeID, "summary_bytes", len(input.Summary))
 
 	if input.Temperature != nil && (*input.Temperature < 0 || *input.Temperature > 1) {
 		return nil, nil, fmt.Errorf("temperature must be in [0, 1], got %g", *input.Temperature)
@@ -62,12 +62,10 @@ func (d *Deps) HandleSummarize(ctx context.Context, _ *gomcp.CallToolRequest, in
 		Temperature: &rebound,
 	}
 
-	if err := emitNodeChange(ctx, d.Store, node, prev, "summarize:"+input.NodeID); err != nil {
+	if err := d.emitNodeChange(ctx, node, prev, "summarize:"+input.NodeID); err != nil {
 		return nil, nil, fmt.Errorf("failed to summarize: %w", err)
 	}
 
 	msg := fmt.Sprintf("summarized node %s (%d → %d tokens)", input.NodeID, oldTokens, tokenCount)
-	return &gomcp.CallToolResult{
-		Content: []gomcp.Content{&gomcp.TextContent{Text: msg}},
-	}, nil, nil
+	return textResult(msg), nil, nil
 }

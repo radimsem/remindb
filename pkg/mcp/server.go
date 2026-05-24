@@ -5,10 +5,19 @@ import (
 	"fmt"
 	"log/slog"
 	"net"
+	"time"
 
 	"github.com/modelcontextprotocol/go-sdk/mcp"
+	"github.com/radimsem/remindb/internal/loghelper"
 	"github.com/radimsem/remindb/internal/redaction"
 	"github.com/radimsem/remindb/pkg/config"
+	"github.com/radimsem/remindb/pkg/logbuf"
+	"github.com/radimsem/remindb/pkg/mcp/ledger"
+	"github.com/radimsem/remindb/pkg/mcp/notify"
+	"github.com/radimsem/remindb/pkg/mcp/rescanstat"
+	"github.com/radimsem/remindb/pkg/mcp/resources"
+	"github.com/radimsem/remindb/pkg/mcp/session"
+	"github.com/radimsem/remindb/pkg/mcp/sessionlog"
 	"github.com/radimsem/remindb/pkg/mcp/tools"
 	"github.com/radimsem/remindb/pkg/query"
 	"github.com/radimsem/remindb/pkg/relations"
@@ -22,6 +31,8 @@ const (
 	TransportHttp  = "http"
 
 	DefaultListenAddr = "127.0.0.1:7474"
+
+	DefaultSessionFlushInterval = 30 * time.Second
 )
 
 type Server struct {
@@ -31,6 +42,11 @@ type Server struct {
 	transport       string
 	listen          string
 	listener        net.Listener
+	authToken       string
+	insecurePublic  bool
+	notifier        *notify.Publisher
+	sessions        *session.Registry
+	sessionFlush    time.Duration
 }
 
 type Option func(*options)
@@ -41,8 +57,12 @@ type options struct {
 	transport       string
 	listen          string
 	listener        net.Listener
+	authToken       string
+	insecurePublic  bool
 	workspaceConfig config.Config
 	redactor        *redaction.Redactor
+	logBuffer       *logbuf.Buffer
+	rescanStatus    *rescanstat.Status
 }
 
 func WithSourceDir(dir string) Option {
@@ -65,6 +85,14 @@ func WithListener(l net.Listener) Option {
 	return func(o *options) { o.listener = l }
 }
 
+func WithAuthToken(t string) Option {
+	return func(o *options) { o.authToken = t }
+}
+
+func WithInsecurePublic(v bool) Option {
+	return func(o *options) { o.insecurePublic = v }
+}
+
 func WithWorkspaceConfig(c config.Config) Option {
 	return func(o *options) { o.workspaceConfig = c }
 }
@@ -73,16 +101,21 @@ func WithRedactor(r *redaction.Redactor) Option {
 	return func(o *options) { o.redactor = r }
 }
 
+func WithLogBuffer(b *logbuf.Buffer) Option {
+	return func(o *options) { o.logBuffer = b }
+}
+
+func WithRescanStatus(s *rescanstat.Status) Option {
+	return func(o *options) { o.rescanStatus = s }
+}
+
 func NewServer(st *store.Store, tracker *temperature.Tracker, cfg temperature.Config, opts ...Option) (*Server, error) {
 	var o options
 	for _, opt := range opts {
 		opt(&o)
 	}
 
-	logger := o.logger
-	if logger == nil {
-		logger = slog.New(slog.DiscardHandler)
-	}
+	logger := loghelper.OrDiscard(o.logger)
 
 	transport := o.transport
 	if transport == "" {
@@ -104,16 +137,53 @@ func NewServer(st *store.Store, tracker *temperature.Tracker, cfg temperature.Co
 		red = def
 	}
 
+	pub, err := notify.NewPublisher(o.workspaceConfig.Server.Resources, logger)
+	if err != nil {
+		return nil, fmt.Errorf("failed to build: resource notifier: %w", err)
+	}
+
+	mcpSrv := mcp.NewServer(&mcp.Implementation{
+		Name:    "remindb",
+		Version: version.Get(),
+	}, &mcp.ServerOptions{
+		SubscribeHandler:   pub.HandleSubscribe,
+		UnsubscribeHandler: pub.HandleUnsubscribe,
+	})
+	pub.Attach(mcpSrv)
+
+	var sessLedger *ledger.Ledger
+	if o.sourceDir != "" {
+		sessLedger, err = ledger.New(o.sourceDir, logger)
+		if err != nil {
+			return nil, fmt.Errorf("failed to build: session ledger: %w", err)
+		}
+	}
+
+	flush := DefaultSessionFlushInterval
+	if fi := o.workspaceConfig.Server.Sessions.FlushInterval; fi != nil {
+		flush = time.Duration(*fi)
+	}
+
+	sessions := session.NewRegistry(mcpSrv,
+		session.WithTransport(transport),
+		session.WithListen(listen),
+		session.WithLedger(sessLedger),
+		session.WithLogger(logger),
+	)
+	mcpSrv.AddReceivingMiddleware(sessions.Middleware)
+
 	s := &Server{
-		mcp: mcp.NewServer(&mcp.Implementation{
-			Name:    "remindb",
-			Version: version.Get(),
-		}, nil),
+		mcp:             mcpSrv,
 		logger:          logger,
 		notifyThreshold: cfg.NotifyThreshold,
 		transport:       transport,
 		listen:          listen,
 		listener:        o.listener,
+		authToken:       o.authToken,
+		insecurePublic:  o.insecurePublic,
+		notifier:        pub,
+		sessions:        sessions,
+		sessionFlush:    flush,
 	}
 
 	deps := &tools.Deps{
@@ -125,14 +195,53 @@ func NewServer(st *store.Store, tracker *temperature.Tracker, cfg temperature.Co
 		Logger:           logger,
 		SourceDir:        o.sourceDir,
 		WorkspaceConfig:  o.workspaceConfig,
+		HotThreshold:     cfg.HotThreshold,
+		ColdThreshold:    cfg.ColdThreshold,
 		SummarizeRebound: cfg.SummarizeRebound,
+		Notifier:         pub,
+	}
+
+	sessionLogDir := ""
+	if o.sourceDir != "" {
+		sessionLogDir = sessionlog.Dir(o.sourceDir)
 	}
 
 	registerTools(s.mcp, deps)
+	resources.Register(s.mcp, &resources.Deps{Store: st, HotThreshold: cfg.HotThreshold, ColdThreshold: cfg.ColdThreshold, LogBuffer: o.logBuffer, Sessions: sessions, Ledger: sessLedger, RescanStatus: o.rescanStatus, SessionLogDir: sessionLogDir})
 	return s, nil
 }
 
+// RunSessionLedger flushes the session ledger on its interval until ctx ends.
+func (s *Server) RunSessionLedger(ctx context.Context) {
+	s.sessions.Run(ctx, s.sessionFlush)
+}
+
+// FlushSessions forces a ledger flush — used at shutdown and in tests.
+func (s *Server) FlushSessions() {
+	s.sessions.Flush(time.Now().Unix())
+}
+
+// NotifyTemperatureTick signals that a temperature tick mutated heat values.
+func (s *Server) NotifyTemperatureTick() {
+	s.notifier.Touch(resources.TemperatureURI)
+}
+
+// NotifyRescan signals that a source rescan reshaped the compiled set.
+func (s *Server) NotifyRescan() {
+	s.notifier.Touch(resources.FilesURI)
+	s.notifier.Touch(resources.TreeURI)
+	s.notifier.Touch(resources.SnapshotsURI)
+	s.notifier.Touch(resources.RescanURI)
+}
+
+// NotifyLogRecord signals a new server log record (heavily coalesced).
+func (s *Server) NotifyLogRecord() {
+	s.notifier.Touch(resources.LogsURI)
+}
+
 func (s *Server) Run(ctx context.Context) error {
+	defer s.notifier.Close()
+
 	switch s.transport {
 	case TransportStdio:
 		return s.mcp.Run(ctx, &mcp.StdioTransport{})

@@ -18,7 +18,7 @@ Closes #<!-- required: replace with the GitHub issue number this PR addresses (e
 
 **MCP surface**
 
-- [ ] `pkg/mcp/` — `skills/remind` (read) or `skills/memoize` (write) updated
+- [ ] `pkg/mcp/` — `skills/remind` (read) or `skills/memorize` (write) updated
 - [ ] `pkg/temperature/` — both public skills reflect new values
 
 **Edges**

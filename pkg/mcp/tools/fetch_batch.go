@@ -18,7 +18,7 @@ type FetchBatchInput struct {
 
 func (d *Deps) HandleFetchBatch(ctx context.Context, _ *gomcp.CallToolRequest, input FetchBatchInput) (_ *gomcp.CallToolResult, _ any, err error) {
 	budget := resolveBudget(input.Budget, d.WorkspaceConfig.Budgets.FetchBatch, 0)
-	defer d.logCall("MemoryFetchBatch", &err, time.Now(), "ids", len(input.NodeIDs), "budget", budget)
+	defer d.logCall(ctx, "MemoryFetchBatch", &err, time.Now(), "ids", len(input.NodeIDs), "budget", budget)
 
 	if len(input.NodeIDs) == 0 {
 		return nil, nil, fmt.Errorf("node_ids must be non-empty")
@@ -34,7 +34,5 @@ func (d *Deps) HandleFetchBatch(ctx context.Context, _ *gomcp.CallToolRequest, i
 
 	d.boostResultNodes(ctx, result)
 	text := query.FormatBatch(result, input.NodeIDs, missing)
-	return &gomcp.CallToolResult{
-		Content: []gomcp.Content{&gomcp.TextContent{Text: text}},
-	}, nil, nil
+	return textResult(text), nil, nil
 }

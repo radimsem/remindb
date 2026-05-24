@@ -6,10 +6,14 @@ import (
 	"time"
 	"unicode/utf8"
 
+	gomcp "github.com/modelcontextprotocol/go-sdk/mcp"
 	"github.com/radimsem/remindb/internal/redaction"
 	"github.com/radimsem/remindb/pkg/config"
 	"github.com/radimsem/remindb/pkg/diff"
 	"github.com/radimsem/remindb/pkg/emitter"
+	"github.com/radimsem/remindb/pkg/mcp/notify"
+	"github.com/radimsem/remindb/pkg/mcp/resources"
+	"github.com/radimsem/remindb/pkg/mcp/sessionlog"
 	"github.com/radimsem/remindb/pkg/parser"
 	"github.com/radimsem/remindb/pkg/query"
 	"github.com/radimsem/remindb/pkg/relations"
@@ -26,10 +30,42 @@ type Deps struct {
 	Logger           *slog.Logger
 	SourceDir        string
 	WorkspaceConfig  config.Config
+	HotThreshold     float64
+	ColdThreshold    float64
 	SummarizeRebound float64
+	Notifier         *notify.Publisher
 }
 
-func (d *Deps) logCall(name string, errp *error, start time.Time, attrs ...any) {
+// touchSnapshot signals the resources a node-graph snapshot mutates.
+func (d *Deps) touchSnapshot() {
+	if d.Notifier == nil {
+		return
+	}
+
+	d.Notifier.Touch(resources.SnapshotsURI)
+	d.Notifier.Touch(resources.TreeURI)
+	d.Notifier.Touch(resources.GraphURI)
+}
+
+// touchCompile is touchSnapshot plus the file set, which only compile reshapes.
+func (d *Deps) touchCompile() {
+	if d.Notifier == nil {
+		return
+	}
+
+	d.touchSnapshot()
+	d.Notifier.Touch(resources.FilesURI)
+}
+
+func (d *Deps) touchGraph() {
+	if d.Notifier == nil {
+		return
+	}
+
+	d.Notifier.Touch(resources.GraphURI)
+}
+
+func (d *Deps) logCall(ctx context.Context, name string, errp *error, start time.Time, attrs ...any) {
 	if d.Logger == nil {
 		return
 	}
@@ -39,10 +75,10 @@ func (d *Deps) logCall(name string, errp *error, start time.Time, attrs ...any) 
 
 	if *errp != nil {
 		fields = append(fields, "err", *errp)
-		d.Logger.Error("mcp call failed", fields...)
+		d.Logger.ErrorContext(ctx, sessionlog.MsgToolCallFailed, fields...)
 		return
 	}
-	d.Logger.Debug("mcp call", fields...)
+	d.Logger.DebugContext(ctx, sessionlog.MsgToolCall, fields...)
 }
 
 func (d *Deps) logRedaction(source string, hits []redaction.Hit) {
@@ -67,19 +103,24 @@ func (d *Deps) boostResultNodes(ctx context.Context, result *query.Result) {
 	}
 
 	if err := d.Tracker.RecordAccess(ctx, ids); err != nil && d.Logger != nil {
-		d.Logger.Warn("failed to boost: access", "err", err, "count", len(ids), "ids", ids)
+		d.Logger.WarnContext(ctx, "failed to boost: access", "err", err, "count", len(ids), "ids", ids)
 	}
 }
 
-// Emit one snapshot for a single mutated or newly created node.
-func emitNodeChange(ctx context.Context, st *store.Store, node *parser.ContextNode, prev map[string]diff.NodeState, msg string) error {
+// Emit one snapshot for a single mutated or newly created node, then signal the resources that snapshot reshaped.
+func (d *Deps) emitNodeChange(ctx context.Context, node *parser.ContextNode, prev map[string]diff.NodeState, msg string) error {
 	roots := []*parser.ContextNode{node}
-	return emitter.Emit(ctx, st,
+	if err := emitter.Emit(ctx, d.Store,
 		emitter.WithRoots(roots),
 		emitter.WithDeltas(diff.Diff(roots, prev)),
 		emitter.WithCursorHash(diff.CursorHash(roots)),
 		emitter.WithMessage(msg),
-	)
+	); err != nil {
+		return err
+	}
+
+	d.touchSnapshot()
+	return nil
 }
 
 // Resolve a token budget: explicit call arg > configured default > built-in.
@@ -120,4 +161,10 @@ func truncate(s string, maxLen int) string {
 		end--
 	}
 	return s[:end] + "..."
+}
+
+func textResult(msg string) *gomcp.CallToolResult {
+	return &gomcp.CallToolResult{
+		Content: []gomcp.Content{&gomcp.TextContent{Text: msg}},
+	}
 }

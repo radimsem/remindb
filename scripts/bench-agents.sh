@@ -31,7 +31,6 @@ go build -o "$WORK_DIR/remindb" ./cmd/remindb
 
 for agent in "${AGENTS[@]}"; do
   src="$TESTDATA/$agent"
-  db="$WORK_DIR/$agent.db"
 
   if [[ ! -d "$src" ]]; then
     echo "skip: $agent (no such directory: $src)" >&2
@@ -41,8 +40,6 @@ for agent in "${AGENTS[@]}"; do
   echo
   echo "=== $agent ==="
 
-  "$WORK_DIR/remindb" compile "$src" --db "$db" >/dev/null
-
   # Split this agent's pipe-delimited query list into repeated --query flags.
   query_args=()
   IFS='|' read -ra agent_queries <<<"${QUERIES[$agent]}"
@@ -50,5 +47,5 @@ for agent in "${AGENTS[@]}"; do
     query_args+=(--query "$q")
   done
 
-  "$WORK_DIR/remindb" bench --db "$db" --dir "$src" --budget "$BUDGET" "${query_args[@]}"
+  "$WORK_DIR/remindb" bench --dir "$src" --budget "$BUDGET" "${query_args[@]}"
 done

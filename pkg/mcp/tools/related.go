@@ -6,6 +6,7 @@ import (
 	"time"
 
 	gomcp "github.com/modelcontextprotocol/go-sdk/mcp"
+	"github.com/radimsem/remindb/internal/treewalk"
 	"github.com/radimsem/remindb/pkg/query"
 	"github.com/radimsem/remindb/pkg/store"
 )
@@ -27,7 +28,7 @@ const (
 
 func (d *Deps) HandleRelated(ctx context.Context, _ *gomcp.CallToolRequest, input RelatedInput) (_ *gomcp.CallToolResult, _ any, err error) {
 	budget := resolveBudget(input.Budget, d.WorkspaceConfig.Budgets.Related, defaultRelatedBudget)
-	defer d.logCall("MemoryRelated", &err, time.Now(),
+	defer d.logCall(ctx, "MemoryRelated", &err, time.Now(),
 		"anchor", input.Anchor, "direction", input.Direction,
 		"depth", input.Depth, "budget", budget, "weight_min", input.WeightMin)
 
@@ -40,24 +41,21 @@ func (d *Deps) HandleRelated(ctx context.Context, _ *gomcp.CallToolRequest, inpu
 		direction = store.DirectionBoth
 	}
 
-	depth := input.Depth
-	if depth < 1 {
-		depth = defaultRelatedDepth
-	}
-	if depth > maxRelatedDepth {
-		depth = maxRelatedDepth
-	}
+	depth := treewalk.ClampDepth(input.Depth, defaultRelatedDepth, maxRelatedDepth)
 
-	related, err := d.Store.GetRelatedNodes(ctx, input.Anchor, direction, depth, input.WeightMin, relatedQueryLimit)
+	related, err := d.Store.GetRelatedNodes(ctx, input.Anchor,
+		store.WithDirection(direction),
+		store.WithMaxDepth(depth),
+		store.WithWeightMin(input.WeightMin),
+		store.WithLimit(relatedQueryLimit),
+	)
 	if err != nil {
 		return nil, nil, fmt.Errorf("failed to fetch: related nodes: %w", err)
 	}
 
 	d.boostRelatedNodes(ctx, related)
 
-	return &gomcp.CallToolResult{
-		Content: []gomcp.Content{&gomcp.TextContent{Text: query.FormatRelated(related, budget)}},
-	}, nil, nil
+	return textResult(query.FormatRelated(related, budget)), nil, nil
 }
 
 func (d *Deps) boostRelatedNodes(ctx context.Context, related []*store.RelatedNode) {
@@ -71,6 +69,6 @@ func (d *Deps) boostRelatedNodes(ctx context.Context, related []*store.RelatedNo
 	}
 
 	if err := d.Tracker.RecordAccess(ctx, ids); err != nil && d.Logger != nil {
-		d.Logger.Warn("failed to boost: related access", "err", err, "count", len(ids))
+		d.Logger.WarnContext(ctx, "failed to boost: related access", "err", err, "count", len(ids))
 	}
 }

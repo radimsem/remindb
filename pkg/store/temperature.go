@@ -3,7 +3,6 @@ package store
 import (
 	"context"
 	"database/sql"
-	"strings"
 	"time"
 )
 
@@ -35,16 +34,10 @@ func (s *Store) BoostTemperatureBatch(ctx context.Context, ids []string, boost f
 		return nil
 	}
 
-	placeholders := make([]string, len(ids))
-	args := make([]any, 0, len(ids)+2)
-	args = append(args, boost, time.Now().Unix())
+	clause, idArgs := bindStrings(ids)
+	args := append([]any{boost, time.Now().Unix()}, idArgs...)
+	query := qBoostTemperatureBatchPrefix + clause + `)`
 
-	for i, id := range ids {
-		placeholders[i] = "?"
-		args = append(args, id)
-	}
-
-	query := qBoostTemperatureBatchPrefix + strings.Join(placeholders, ",") + `)`
 	return s.Tx(ctx, func(tx *sql.Tx) error {
 		_, err := tx.ExecContext(ctx, query, args...)
 		return err
@@ -65,24 +58,40 @@ func (s *Store) DecayTemperatures(ctx context.Context, factor float64) (int64, e
 }
 
 func (s *Store) ResetTemperaturesByFiles(ctx context.Context, paths []string, temp float64) error {
+	return s.Tx(ctx, func(tx *sql.Tx) error {
+		return s.ResetTemperaturesByFilesTx(ctx, tx, paths, temp)
+	})
+}
+
+func (s *Store) ResetTemperaturesByFilesTx(ctx context.Context, tx *sql.Tx, paths []string, temp float64) error {
 	if len(paths) == 0 {
 		return nil
 	}
 
-	placeholders := make([]string, len(paths))
-	args := make([]any, 0, len(paths)+1)
-	args = append(args, temp)
+	clause, pathArgs := bindStrings(paths)
+	args := append([]any{temp}, pathArgs...)
+	query := qResetTemperaturesByFilesPrefix + clause + `)`
 
-	for i, p := range paths {
-		placeholders[i] = "?"
-		args = append(args, p)
+	_, err := tx.ExecContext(ctx, query, args...)
+	return err
+}
+
+func (s *Store) ResetPinnedByFiles(ctx context.Context, paths []string) error {
+	return s.Tx(ctx, func(tx *sql.Tx) error {
+		return s.ResetPinnedByFilesTx(ctx, tx, paths)
+	})
+}
+
+func (s *Store) ResetPinnedByFilesTx(ctx context.Context, tx *sql.Tx, paths []string) error {
+	if len(paths) == 0 {
+		return nil
 	}
 
-	query := qResetTemperaturesByFilesPrefix + strings.Join(placeholders, ",") + `)`
-	return s.Tx(ctx, func(tx *sql.Tx) error {
-		_, err := tx.ExecContext(ctx, query, args...)
-		return err
-	})
+	clause, args := bindStrings(paths)
+	query := qResetPinnedByFilesPrefix + clause + `)`
+
+	_, err := tx.ExecContext(ctx, query, args...)
+	return err
 }
 
 func (s *Store) GetColdNodes(ctx context.Context, threshold float64, limit int) ([]*Node, error) {

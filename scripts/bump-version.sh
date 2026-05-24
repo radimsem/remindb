@@ -17,7 +17,7 @@ unprefixed="${new#v}"
 
 cd "$(dirname "$0")/.."
 
-files=(
+json_files=(
 	plugins/claude-code/.claude-plugin/plugin.json
 	plugins/codex/remindb/.codex-plugin/plugin.json
 	plugins/gemini-cli/gemini-extension.json
@@ -26,11 +26,24 @@ files=(
 	plugins/openclaw/package.json
 )
 
-for f in "${files[@]}"; do
+yaml_files=(
+	plugins/hermes-agent/memory/remindb/plugin.yaml
+)
+
+for f in "${json_files[@]}"; do
 	if [ ! -f "$f" ]; then
 		echo "error: $f not found" >&2
 		exit 1
 	fi
 	sed -i 's/^\([[:space:]]*"version":[[:space:]]*"\)[^"]*"/\1'"$unprefixed"'"/' "$f"
+	echo "updated: $f -> $unprefixed"
+done
+
+for f in "${yaml_files[@]}"; do
+	if [ ! -f "$f" ]; then
+		echo "error: $f not found" >&2
+		exit 1
+	fi
+	sed -i 's/^\(version:[[:space:]]*\).*/\1'"$unprefixed"'/' "$f"
 	echo "updated: $f -> $unprefixed"
 done

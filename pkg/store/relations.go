@@ -5,7 +5,11 @@ import (
 	"database/sql"
 	"errors"
 	"fmt"
+	"strings"
 )
+
+// Escape SQLite LIKE metacharacters (\, %, _) using \ as the escape char.
+var likeEscaper = strings.NewReplacer(`\`, `\\`, `%`, `\%`, `_`, `\_`)
 
 const (
 	OriginParsed = "parsed"
@@ -114,11 +118,23 @@ func (s *Store) FindHeadingByLabel(ctx context.Context, label string) (string, e
 // Look up a heading node ID by label scoped to a source file.
 func (s *Store) FindHeadingByLabelInFile(ctx context.Context, sourceFile, label string) (string, error) {
 	var id string
-	err := s.db.QueryRowContext(ctx, qFindHeadingByLabelInFile, sourceFile, sourceFile, label).Scan(&id)
+	suffixPattern := "%/" + likeEscaper.Replace(sourceFile)
+
+	err := s.db.QueryRowContext(ctx, qFindHeadingByLabelInFile, sourceFile, suffixPattern, label).Scan(&id)
 	if errors.Is(err, sql.ErrNoRows) {
 		return "", nil
 	}
 	return id, err
+}
+
+func (s *Store) GetAllRelations(ctx context.Context) ([]*Relation, error) {
+	rows, err := s.db.QueryContext(ctx, qSelectAllRelations)
+	if err != nil {
+		return nil, err
+	}
+	defer func() { _ = rows.Close() }()
+
+	return collectRelationRows(rows)
 }
 
 func (s *Store) GetAllPendingRelations(ctx context.Context) ([]*PendingRelation, error) {
@@ -141,16 +157,46 @@ func (s *Store) GetPendingBySource(ctx context.Context, sourceID string) ([]*Pen
 	return collectPendingRows(rows)
 }
 
+type RelatedOption func(*relatedOptions)
+
+type relatedOptions struct {
+	direction string
+	maxDepth  int
+	weightMin float64
+	limit     int
+}
+
+func WithDirection(d string) RelatedOption {
+	return func(o *relatedOptions) { o.direction = d }
+}
+
+func WithMaxDepth(d int) RelatedOption {
+	return func(o *relatedOptions) { o.maxDepth = d }
+}
+
+func WithWeightMin(w float64) RelatedOption {
+	return func(o *relatedOptions) { o.weightMin = w }
+}
+
+func WithLimit(l int) RelatedOption {
+	return func(o *relatedOptions) { o.limit = l }
+}
+
 // Return nodes reachable from anchor via relations edges, up to maxDepth hops, filtered by weightMin.
-func (s *Store) GetRelatedNodes(ctx context.Context, anchorID, direction string, maxDepth int, weightMin float64, limit int) ([]*RelatedNode, error) {
-	if maxDepth < 1 {
-		maxDepth = 1
-	}
-	if limit < 1 {
-		limit = 100
+func (s *Store) GetRelatedNodes(ctx context.Context, anchorID string, opts ...RelatedOption) ([]*RelatedNode, error) {
+	o := relatedOptions{direction: DirectionBoth}
+	for _, opt := range opts {
+		opt(&o)
 	}
 
-	query, args := relatedQueryArgs(anchorID, direction, maxDepth, weightMin, limit)
+	if o.maxDepth < 1 {
+		o.maxDepth = 1
+	}
+	if o.limit < 1 {
+		o.limit = 100
+	}
+
+	query, args := relatedQueryArgs(anchorID, o.direction, o.maxDepth, o.weightMin, o.limit)
 
 	rows, err := s.db.QueryContext(ctx, query, args...)
 	if err != nil {
@@ -203,6 +249,33 @@ func scanRelatedNode(r RowScanner) (*RelatedNode, error) {
 
 	n.ParentID = parentID.String
 	return &RelatedNode{Node: &n, Weight: weight, Hop: hop}, nil
+}
+
+func scanRelation(r RowScanner) (*Relation, error) {
+	var rel Relation
+
+	err := r.Scan(
+		&rel.ID, &rel.SourceNodeID, &rel.TargetNodeID,
+		&rel.Weight, &rel.Origin, &rel.CreatedAt,
+	)
+	if err != nil {
+		return nil, err
+	}
+
+	return &rel, nil
+}
+
+func collectRelationRows(rows *sql.Rows) ([]*Relation, error) {
+	var out []*Relation
+	for rows.Next() {
+		rel, err := scanRelation(rows)
+		if err != nil {
+			return nil, err
+		}
+
+		out = append(out, rel)
+	}
+	return out, rows.Err()
 }
 
 func scanPending(r RowScanner) (*PendingRelation, error) {

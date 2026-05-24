@@ -5,25 +5,10 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/radimsem/remindb/internal/testutil"
 	"github.com/radimsem/remindb/pkg/inspect"
 	"github.com/radimsem/remindb/pkg/store"
 )
-
-func openTestStore(t *testing.T) *store.Store {
-	t.Helper()
-
-	st, err := store.Open(":memory:")
-	if err != nil {
-		t.Fatalf("Open: %v", err)
-	}
-
-	if err := st.Migrate(context.Background()); err != nil {
-		t.Fatalf("Migrate: %v", err)
-	}
-
-	t.Cleanup(func() { _ = st.Close() })
-	return st
-}
 
 func testNode(id, parent, nodeType string) *store.Node {
 	return &store.Node{
@@ -35,10 +20,10 @@ func testNode(id, parent, nodeType string) *store.Node {
 }
 
 func TestCollect_Empty(t *testing.T) {
-	st := openTestStore(t)
+	st := testutil.OpenTestDB(t)
 	ctx := context.Background()
 
-	s, err := inspect.Collect(ctx, st)
+	s, err := inspect.Collect(ctx, st, 0.5, 0.1)
 	if err != nil {
 		t.Fatalf("Collect: %v", err)
 	}
@@ -52,7 +37,7 @@ func TestCollect_Empty(t *testing.T) {
 }
 
 func TestCollect_PopulatesAllFields(t *testing.T) {
-	st := openTestStore(t)
+	st := testutil.OpenTestDB(t)
 	ctx := context.Background()
 
 	n1 := testNode("aaaaaaaa", "", "heading")
@@ -84,7 +69,7 @@ func TestCollect_PopulatesAllFields(t *testing.T) {
 		t.Fatalf("UpsertRelation: %v", err)
 	}
 
-	s, err := inspect.Collect(ctx, st)
+	s, err := inspect.Collect(ctx, st, 0.5, 0.1)
 	if err != nil {
 		t.Fatalf("Collect: %v", err)
 	}
@@ -109,6 +94,68 @@ func TestCollect_PopulatesAllFields(t *testing.T) {
 	}
 	if s.FTSRowCount != 3 {
 		t.Errorf("FTSRowCount = %d, want 3", s.FTSRowCount)
+	}
+}
+
+func TestCollect_RelationCountIncludesPending(t *testing.T) {
+	st := testutil.OpenTestDB(t)
+	ctx := context.Background()
+
+	for _, n := range []*store.Node{
+		testNode("aaaaaaaa", "", "heading"),
+		testNode("bbbbbbbb", "", "list"),
+	} {
+		if err := st.UpsertNode(ctx, n); err != nil {
+			t.Fatalf("UpsertNode: %v", err)
+		}
+	}
+
+	if err := st.UpsertRelation(ctx, &store.Relation{
+		SourceNodeID: "aaaaaaaa", TargetNodeID: "bbbbbbbb",
+		Weight: 1.0, Origin: store.OriginParsed,
+	}); err != nil {
+		t.Fatalf("UpsertRelation: %v", err)
+	}
+	for range 3 {
+		if err := st.InsertPendingRelation(ctx, &store.PendingRelation{
+			SourceNodeID: "aaaaaaaa", TargetLabel: "missing",
+			Weight: 1.0, Origin: store.OriginParsed,
+		}); err != nil {
+			t.Fatalf("InsertPendingRelation: %v", err)
+		}
+	}
+
+	s, err := inspect.Collect(ctx, st, 0.5, 0.1)
+	if err != nil {
+		t.Fatalf("Collect: %v", err)
+	}
+
+	originSum := 0
+	for _, v := range s.RelationsByOrigin {
+		originSum += v
+	}
+
+	want := originSum + s.PendingRelationCount
+	if s.RelationCount != want {
+		t.Errorf("RelationCount = %d, want Σorigins(%d) + pending(%d) = %d",
+			s.RelationCount, originSum, s.PendingRelationCount, want)
+	}
+	if s.PendingRelationCount != 3 {
+		t.Errorf("PendingRelationCount = %d, want 3", s.PendingRelationCount)
+	}
+}
+
+// MemoryStats stays lossless: large token totals render as exact integers.
+func TestFormat_TokenCountExact(t *testing.T) {
+	s := &inspect.Stats{
+		DBPath:          ":memory:",
+		NodeCount:       7,
+		TokenCountTotal: 359297,
+	}
+
+	out := inspect.Format(s)
+	if !strings.Contains(out, "359297 tokens") {
+		t.Errorf("Format must emit exact token count, got:\n%s", out)
 	}
 }
 

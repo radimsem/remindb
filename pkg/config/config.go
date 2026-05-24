@@ -2,6 +2,7 @@
 package config
 
 import (
+	"bytes"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -23,20 +24,45 @@ type Config struct {
 	Budgets     BudgetsConfig     `json:"budgets"`
 	Compile     CompileConfig     `json:"compile"`
 	Redaction   RedactionConfig   `json:"redaction"`
+	Rescan      RescanConfig      `json:"rescan"`
 	Server      ServerConfig      `json:"server"`
 	Temperature TemperatureConfig `json:"temperature"`
 }
 
 type ServerConfig struct {
-	Transport *string       `json:"transport,omitempty"`
-	Listen    *string       `json:"listen,omitempty"`
-	Logging   LoggingConfig `json:"logging,omitempty"`
+	Transport   *string           `json:"transport,omitempty"`
+	Listen      *string           `json:"listen,omitempty"`
+	Logging     LoggingConfig     `json:"logging"`
+	Resources   ResourcesConfig   `json:"resources"`
+	Sessions    SessionsConfig    `json:"sessions"`
+	RescanFiles RescanFilesConfig `json:"rescan_files"`
+}
+
+type RescanFilesConfig struct {
+	Enabled     *bool     `json:"enabled,omitempty"`
+	MaxFileSize *ByteSize `json:"max_file_size,omitempty"`
+}
+
+type SessionsConfig struct {
+	FlushInterval *Duration `json:"flush_interval,omitempty"`
+}
+
+type ResourcesConfig struct {
+	Debounce  *Duration            `json:"debounce,omitempty"`
+	Overrides map[string]*Duration `json:"overrides,omitempty"`
 }
 
 type LoggingConfig struct {
-	Level      *string `json:"level,omitempty"`
-	Format     *string `json:"format,omitempty"`
-	OutputPath *string `json:"output_path,omitempty"`
+	Level        *string            `json:"level,omitempty"`
+	Format       *string            `json:"format,omitempty"`
+	OutputPath   *string            `json:"output_path,omitempty"`
+	BufferSize   *int               `json:"buffer_size,omitempty"`
+	SessionFiles SessionFilesConfig `json:"session_files"`
+}
+
+type SessionFilesConfig struct {
+	Enabled     *bool     `json:"enabled,omitempty"`
+	MaxFileSize *ByteSize `json:"max_file_size,omitempty"`
 }
 
 type BudgetsConfig struct {
@@ -62,9 +88,17 @@ type RedactionPattern struct {
 	Pattern string `json:"pattern"`
 }
 
+type RescanConfig struct {
+	Enabled  *bool     `json:"enabled,omitempty"`
+	Interval *Duration `json:"interval,omitempty"`
+	Settle   *Duration `json:"settle,omitempty"`
+}
+
 type TemperatureConfig struct {
+	Enabled          *bool     `json:"enabled,omitempty"`
 	DecayRate        *float64  `json:"decay_rate,omitempty"`
 	AccessBoost      *float64  `json:"access_boost,omitempty"`
+	HotThreshold     *float64  `json:"hot_threshold,omitempty"`
 	ColdThreshold    *float64  `json:"cold_threshold,omitempty"`
 	NotifyThreshold  *float64  `json:"notify_threshold,omitempty"`
 	SummarizeRebound *float64  `json:"summarize_rebound,omitempty"`
@@ -157,17 +191,22 @@ func parseByteSize(s string) (int64, error) {
 
 // Read <workspace>/.remindb/config.json. Missing or empty → zero-value Config.
 func Load(workspace string) (Config, error) {
-	f, err := os.Open(filepath.Join(workspace, DirName, FileName))
+	data, err := os.ReadFile(filepath.Join(workspace, DirName, FileName))
 	if err != nil {
 		if errors.Is(err, os.ErrNotExist) {
 			return Config{}, nil
 		}
+
 		return Config{}, fmt.Errorf("failed to read: %s: %w", Path, err)
 	}
-	defer func() { _ = f.Close() }()
 
+	return Parse(data)
+}
+
+// Decode and validate raw config.json bytes. Empty → zero-value Config.
+func Parse(data []byte) (Config, error) {
 	var cfg Config
-	dec := json.NewDecoder(f)
+	dec := json.NewDecoder(bytes.NewReader(data))
 	dec.DisallowUnknownFields()
 
 	if err := dec.Decode(&cfg); err != nil {
@@ -215,6 +254,15 @@ func (c Config) Validate() error {
 		return errors.New("budgets.related must be positive")
 	}
 
+	rc := c.Rescan
+
+	if rc.Interval != nil && *rc.Interval <= 0 {
+		return errors.New("rescan.interval must be positive")
+	}
+	if rc.Settle != nil && *rc.Settle < 0 {
+		return errors.New("rescan.settle must not be negative")
+	}
+
 	sc := c.Server
 
 	if sc.Transport != nil {
@@ -240,6 +288,35 @@ func (c Config) Validate() error {
 		default:
 			return fmt.Errorf("server.logging.format must be \"text\" or \"json\", got %q", *lg.Format)
 		}
+	}
+	if lg.BufferSize != nil && *lg.BufferSize <= 0 {
+		return errors.New("server.logging.buffer_size must be positive")
+	}
+
+	rs := sc.Resources
+
+	if rs.Debounce != nil && *rs.Debounce < 0 {
+		return errors.New("server.resources.debounce must not be negative")
+	}
+	for name, d := range rs.Overrides {
+		if d == nil {
+			return fmt.Errorf("server.resources.overrides[%q] must be set", name)
+		}
+		if *d < 0 {
+			return fmt.Errorf("server.resources.overrides[%q] must not be negative", name)
+		}
+	}
+
+	if fi := sc.Sessions.FlushInterval; fi != nil && *fi <= 0 {
+		return errors.New("server.sessions.flush_interval must be positive")
+	}
+
+	if mfs := sc.Logging.SessionFiles.MaxFileSize; mfs != nil && *mfs <= 0 {
+		return errors.New("server.logging.session_files.max_file_size must be positive")
+	}
+
+	if mfs := sc.RescanFiles.MaxFileSize; mfs != nil && *mfs <= 0 {
+		return errors.New("server.rescan_files.max_file_size must be positive")
 	}
 
 	return nil

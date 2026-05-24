@@ -1,31 +1,36 @@
-package mcp
+package rescan
 
 import (
 	"bytes"
 	"context"
+	"encoding/json"
 	"errors"
 	"io/fs"
 	"log/slog"
 	"os"
 	"path/filepath"
 	"strings"
+	"sync/atomic"
 	"testing"
 	"time"
 
-	"github.com/radimsem/remindb/internal/ignore"
+	"github.com/radimsem/remindb/internal/pathmatch"
 	"github.com/radimsem/remindb/internal/testutil"
 	"github.com/radimsem/remindb/pkg/compiler"
 	"github.com/radimsem/remindb/pkg/config"
+	"github.com/radimsem/remindb/pkg/mcp/rescanlog"
+	"github.com/radimsem/remindb/pkg/mcp/rescanstat"
 	"github.com/radimsem/remindb/pkg/store"
 )
 
-func mustRescan(t *testing.T, st *store.Store, dir string, interval time.Duration, logger *slog.Logger) *RescanLoop {
+func mustRescan(t *testing.T, st *store.Store, dir string, interval time.Duration, logger *slog.Logger) *Loop {
 	t.Helper()
-	r, err := NewRescanLoop(st, dir, interval, config.CompileConfig{}, logger)
 
+	r, err := New(st, dir, interval, WithLogger(logger))
 	if err != nil {
-		t.Fatalf("NewRescanLoop: %v", err)
+		t.Fatalf("New: %v", err)
 	}
+
 	return r
 }
 
@@ -88,7 +93,6 @@ func TestRescanLoop_DetectsChanges(t *testing.T) {
 
 	ctx := context.Background()
 
-	// First scan compiles doc.md into the DB.
 	r.scan(ctx)
 	nodes, _ := st.GetAllNodes(ctx)
 	for _, n := range nodes {
@@ -97,7 +101,6 @@ func TestRescanLoop_DetectsChanges(t *testing.T) {
 		}
 	}
 
-	// Modify the file (bump mtime).
 	time.Sleep(10 * time.Millisecond)
 	writeFile(t, dir, "doc.md", "# Updated\n\nNew content.\n")
 
@@ -121,7 +124,6 @@ func TestRescanLoop_DebouncesMidSave(t *testing.T) {
 	st := testutil.OpenTestDB(t)
 	r := mustRescan(t, st, dir, time.Minute, nil)
 
-	// Freeze "now" so the file's mtime is always inside the settle window.
 	frozen := time.Now()
 	r.now = func() time.Time { return frozen }
 	writeFile(t, dir, "doc.md", "# Fresh\n\nContent.\n")
@@ -133,7 +135,6 @@ func TestRescanLoop_DebouncesMidSave(t *testing.T) {
 		t.Errorf("expected no nodes — file is still settling, got %d", len(roots))
 	}
 
-	// Advance past the settle window; now the file should be compiled.
 	r.now = func() time.Time { return frozen.Add(r.settle + time.Second) }
 	r.scan(ctx)
 	roots, _ = st.GetRootNodes(ctx)
@@ -145,7 +146,8 @@ func TestRescanLoop_DebouncesMidSave(t *testing.T) {
 func TestRescanLoop_CommitsMtimesOnlyAfterSuccess(t *testing.T) {
 	dir := t.TempDir()
 	writeFile(t, dir, "ok.md", "# OK\n")
-	writeFile(t, dir, "bad.json", `{"unterminated`)
+	// Invalid UTF-8 is a hard parse failure (unlike malformed JSON, which is skipped).
+	writeFile(t, dir, "bad.md", "\xff\xfe not valid utf-8")
 
 	st := testutil.OpenTestDB(t)
 	r := mustRescan(t, st, dir, time.Minute, nil)
@@ -158,7 +160,7 @@ func TestRescanLoop_CommitsMtimesOnlyAfterSuccess(t *testing.T) {
 		t.Errorf("mtimes = %d, want 0 (compile failed, nothing committed)", len(r.modTimes))
 	}
 
-	writeFile(t, dir, "bad.json", `{"valid": "now"}`)
+	writeFile(t, dir, "bad.md", "# Now valid\n")
 
 	r.scan(ctx)
 
@@ -178,7 +180,6 @@ func TestRescanLoop_ReconcilesDeletedFiles(t *testing.T) {
 
 	ctx := context.Background()
 
-	// First scan populates both.
 	r.scan(ctx)
 
 	before, err := st.GetNodesByFile(ctx, "gone.md")
@@ -189,12 +190,10 @@ func TestRescanLoop_ReconcilesDeletedFiles(t *testing.T) {
 		t.Fatal("expected gone.md nodes after initial scan")
 	}
 
-	// Delete the file from disk.
 	if err := os.Remove(filepath.Join(dir, "gone.md")); err != nil {
 		t.Fatal(err)
 	}
 
-	// Rescan should purge the orphaned nodes.
 	r.scan(ctx)
 
 	after, err := st.GetNodesByFile(ctx, "gone.md")
@@ -211,6 +210,125 @@ func TestRescanLoop_ReconcilesDeletedFiles(t *testing.T) {
 	}
 	if len(kept) == 0 {
 		t.Error("keep.md nodes should remain")
+	}
+}
+
+func TestRescanLoop_PublishesStatus(t *testing.T) {
+	dir := t.TempDir()
+	writeFile(t, dir, "keep.md", "# Keep\n")
+	writeFile(t, dir, "gone.md", "# Gone\n\nBody.\n")
+
+	st := testutil.OpenTestDB(t)
+	status := rescanstat.New()
+
+	r, err := New(st, dir, 90*time.Second, WithStatus(status))
+	if err != nil {
+		t.Fatalf("New: %v", err)
+	}
+
+	r.now = func() time.Time { return time.Now().Add(time.Hour) }
+
+	ctx := context.Background()
+	r.scan(ctx)
+
+	iv, snap := status.Get()
+	if iv != 90 {
+		t.Errorf("interval_s = %d, want 90", iv)
+	}
+
+	if snap.RunAt == 0 {
+		t.Error("run_at should be set after a scan")
+	}
+	if snap.Error != "" {
+		t.Errorf("error = %q, want empty after a clean scan", snap.Error)
+	}
+	if snap.Added == 0 {
+		t.Errorf("added = %d, want > 0 after the initial compile", snap.Added)
+	}
+	if len(snap.PurgedFiles) != 0 {
+		t.Errorf("purged_files = %v, want none before any deletion", snap.PurgedFiles)
+	}
+
+	goneNodes, err := st.GetNodesByFile(ctx, "gone.md")
+	if err != nil {
+		t.Fatalf("GetNodesByFile: %v", err)
+	}
+	if len(goneNodes) == 0 {
+		t.Fatal("expected gone.md nodes after initial scan")
+	}
+
+	if err := os.Remove(filepath.Join(dir, "gone.md")); err != nil {
+		t.Fatal(err)
+	}
+	r.scan(ctx)
+
+	_, snap = status.Get()
+	if len(snap.PurgedFiles) != 1 {
+		t.Fatalf("purged_files = %v, want exactly one entry", snap.PurgedFiles)
+	}
+
+	pf := snap.PurgedFiles[0]
+	if pf.Path != "gone.md" {
+		t.Errorf("purged path = %q, want %q", pf.Path, "gone.md")
+	}
+	if pf.Nodes != len(goneNodes) {
+		t.Errorf("purged nodes = %d, want %d", pf.Nodes, len(goneNodes))
+	}
+}
+
+func TestRescanLoop_PersistsTickAndExcludesFromWalk(t *testing.T) {
+	dir := t.TempDir()
+	writeFile(t, dir, "doc.md", "# Doc\n\nBody.\n")
+
+	st := testutil.OpenTestDB(t)
+	sink, err := rescanlog.New(dir, 1<<20)
+	if err != nil {
+		t.Fatalf("rescanlog.New: %v", err)
+	}
+
+	r, err := New(st, dir, 45*time.Second, WithRescanLog(sink))
+	if err != nil {
+		t.Fatalf("New: %v", err)
+	}
+	r.now = func() time.Time { return time.Now().Add(time.Hour) }
+
+	ctx := context.Background()
+	r.scan(ctx) // tick 1: compiles doc.md and writes rescan.jsonl
+	r.scan(ctx) // tick 2: rescan.jsonl is now on disk while the tree is walked
+
+	data, err := os.ReadFile(rescanlog.Path(dir))
+	if err != nil {
+		t.Fatalf("read rescan.jsonl: %v", err)
+	}
+
+	lines := strings.Split(strings.TrimRight(string(data), "\n"), "\n")
+	if len(lines) != 2 {
+		t.Fatalf("rescan.jsonl line count = %d, want 2 (one per tick)", len(lines))
+	}
+
+	for i, l := range lines {
+		var snap rescanstat.Snapshot
+		if err := json.Unmarshal([]byte(l), &snap); err != nil {
+			t.Fatalf("tick %d line not valid Snapshot JSON: %v", i, err)
+		}
+
+		if snap.RunAt == 0 {
+			t.Errorf("tick %d run_at unset", i)
+		}
+	}
+
+	nodes, err := st.GetAllNodes(ctx)
+	if err != nil {
+		t.Fatalf("GetAllNodes: %v", err)
+	}
+
+	if len(nodes) == 0 {
+		t.Fatal("expected doc.md nodes after scan")
+	}
+	for _, n := range nodes {
+		if strings.Contains(filepath.ToSlash(n.SourceFile), config.DirName+"/") {
+			t.Errorf("indexed file inside %s/: %s", config.DirName, n.SourceFile)
+		}
 	}
 }
 
@@ -330,7 +448,6 @@ func TestRescanLoop_NewFile(t *testing.T) {
 	ctx := context.Background()
 	r.scan(ctx)
 
-	// Add a new file after the first scan.
 	writeFile(t, dir, "new.md", "# New\n\nContent.\n")
 
 	r.scan(ctx)
@@ -383,11 +500,8 @@ func TestRescanLoop_RunCatchesStaleEditsAtStartup(t *testing.T) {
 		t.Fatalf("CompileDir: %v", err)
 	}
 
-	// User edits the file while serve was offline.
 	writeFile(t, dir, "doc.md", "# Before\n\nUpdated body.\n")
 
-	// Long interval — ticker must not fire during the test, so only the
-	// startup reconcile can catch the edit.
 	r := mustRescan(t, st, dir, time.Hour, nil)
 	r.now = func() time.Time { return time.Now().Add(time.Hour) }
 
@@ -418,7 +532,7 @@ func TestRescanLoop_RespectsIgnore(t *testing.T) {
 	dir := t.TempDir()
 	writeFile(t, dir, "kept.md", "# Kept\n")
 	writeFile(t, dir, "session.jsonl", `{"event":"chat"}`)
-	writeFile(t, dir, ignore.Path, "*.jsonl\n")
+	writeFile(t, dir, pathmatch.IgnorePath, "*.jsonl\n")
 
 	st := testutil.OpenTestDB(t)
 	r := mustRescan(t, st, dir, time.Minute, nil)
@@ -438,70 +552,200 @@ func TestRescanLoop_RespectsIgnore(t *testing.T) {
 
 func TestNewRescanLoop_FailsOnMalformedIgnore(t *testing.T) {
 	dir := t.TempDir()
-	writeFile(t, dir, ignore.Path, "a//b\n")
+	writeFile(t, dir, pathmatch.IgnorePath, "a//b\n")
 
 	st := testutil.OpenTestDB(t)
-	_, err := NewRescanLoop(st, dir, time.Minute, config.CompileConfig{}, nil)
+	_, err := New(st, dir, time.Minute)
 	if err == nil {
 		t.Fatal("expected error for malformed ignore file")
 	}
-	if !strings.Contains(err.Error(), ignore.Path) {
-		t.Errorf("error should mention %s, got: %v", ignore.Path, err)
+	if !strings.Contains(err.Error(), pathmatch.IgnorePath) {
+		t.Errorf("error should mention %s, got: %v", pathmatch.IgnorePath, err)
 	}
 }
 
-func TestMaybeInitialCompile_EmptyDB(t *testing.T) {
+func TestNewRescanLoop_FailsOnMalformedPinned(t *testing.T) {
 	dir := t.TempDir()
-	writeFile(t, dir, "a.md", "# A\n\nBody.\n")
-	writeFile(t, dir, "b.md", "# B\n\nBody.\n")
+	writeFile(t, dir, pathmatch.PinnedPath, "a//b\n")
 
 	st := testutil.OpenTestDB(t)
-	ctx := context.Background()
-
-	if err := MaybeInitialCompile(ctx, st, dir, nil); err != nil {
-		t.Fatalf("MaybeInitialCompile: %v", err)
+	_, err := New(st, dir, time.Minute)
+	if err == nil {
+		t.Fatal("expected error for malformed pinned file")
 	}
 
-	roots, err := st.GetRootNodes(ctx)
-	if err != nil {
-		t.Fatalf("GetRootNodes: %v", err)
-	}
-	if len(roots) == 0 {
-		t.Error("expected nodes to be compiled on empty DB")
+	if !strings.Contains(err.Error(), pathmatch.PinnedPath) {
+		t.Errorf("error should mention %s, got: %v", pathmatch.PinnedPath, err)
 	}
 }
 
-func TestMaybeInitialCompile_NonEmptyDB(t *testing.T) {
+func TestRescanLoop_AppliesPinnedSidecarOnChangedFile(t *testing.T) {
 	dir := t.TempDir()
-	writeFile(t, dir, "a.md", "# A\n\nBody.\n")
+	writeFile(t, dir, "doc.md", "# Hi\n\nBody.\n")
+	writeFile(t, dir, pathmatch.PinnedPath, "doc.md\n")
 
 	st := testutil.OpenTestDB(t)
-	ctx := context.Background()
+	r := mustRescan(t, st, dir, time.Minute, nil)
+	r.now = func() time.Time { return time.Now().Add(time.Hour) }
 
-	// Pre-populate so DB is not empty.
-	if err := MaybeInitialCompile(ctx, st, dir, nil); err != nil {
-		t.Fatalf("seed compile: %v", err)
-	}
+	r.scan(context.Background())
 
-	before, err := st.GetRootNodes(ctx)
+	nodes, err := st.GetNodesByFile(context.Background(), "doc.md")
 	if err != nil {
-		t.Fatal(err)
+		t.Fatalf("GetNodesByFile: %v", err)
 	}
 
-	// Add a new file, call MaybeInitialCompile again — must skip.
-	writeFile(t, dir, "new.md", "# New\n")
-
-	if err := MaybeInitialCompile(ctx, st, dir, nil); err != nil {
-		t.Fatalf("MaybeInitialCompile: %v", err)
+	if len(nodes) == 0 {
+		t.Fatal("no nodes for doc.md after rescan")
 	}
+	for i, n := range nodes {
+		if !n.Pinned {
+			t.Errorf("node[%d].Pinned = false, want true (matched .remindb/pinned)", i)
+		}
+	}
+}
 
-	after, err := st.GetRootNodes(ctx)
+func TestRescanLoop_PinnedSidecarDoesNotPinNonMatchingFile(t *testing.T) {
+	dir := t.TempDir()
+
+	writeFile(t, dir, "doc.md", "# A\n\nAlpha.\n")
+	writeFile(t, dir, "other.md", "# B\n\nBeta.\n")
+	writeFile(t, dir, pathmatch.PinnedPath, "doc.md\n")
+
+	st := testutil.OpenTestDB(t)
+	r := mustRescan(t, st, dir, time.Minute, nil)
+	r.now = func() time.Time { return time.Now().Add(time.Hour) }
+
+	r.scan(context.Background())
+
+	other, err := st.GetNodesByFile(context.Background(), "other.md")
 	if err != nil {
-		t.Fatal(err)
+		t.Fatalf("GetNodesByFile other.md: %v", err)
 	}
-	if len(after) != len(before) {
-		t.Errorf("root count changed: before=%d after=%d (MaybeInitialCompile ran on non-empty DB)", len(before), len(after))
+
+	if len(other) == 0 {
+		t.Fatal("no nodes for other.md")
 	}
+	for i, n := range other {
+		if n.Pinned {
+			t.Errorf("other.md node[%d].Pinned = true, want false (not matched)", i)
+		}
+	}
+}
+
+func TestRescanLoop_ReloadDefaultsWhenConfigAbsent(t *testing.T) {
+	dir := t.TempDir()
+	st := testutil.OpenTestDB(t)
+	r := mustRescan(t, st, dir, 42*time.Second, nil)
+
+	if changed := r.reloadConfig(); changed {
+		t.Error("interval should not change vs bootstrap when no config block present")
+	}
+	if !r.enabled {
+		t.Error("enabled should default to true when block absent")
+	}
+
+	if r.interval != 42*time.Second {
+		t.Errorf("interval = %v, want bootstrap 42s", r.interval)
+	}
+	if r.settle != defaultSettleTime {
+		t.Errorf("settle = %v, want default %v", r.settle, defaultSettleTime)
+	}
+}
+
+func TestRescanLoop_ReloadAppliesBlock(t *testing.T) {
+	dir := t.TempDir()
+	writeFile(t, dir, config.Path, `{"rescan":{"enabled":false,"interval":"5s","settle":"1s"}}`)
+
+	st := testutil.OpenTestDB(t)
+	r := mustRescan(t, st, dir, 30*time.Second, nil)
+
+	if !r.reloadConfig() {
+		t.Error("interval changed 30s→5s, want intervalChanged=true")
+	}
+	if r.enabled {
+		t.Error("enabled should be false from config")
+	}
+
+	if r.interval != 5*time.Second {
+		t.Errorf("interval = %v, want 5s", r.interval)
+	}
+	if r.settle != time.Second {
+		t.Errorf("settle = %v, want 1s", r.settle)
+	}
+
+	if r.reloadConfig() {
+		t.Error("re-reading identical config must report no interval change")
+	}
+}
+
+func TestRescanLoop_InvalidReloadKeepsLastGood(t *testing.T) {
+	dir := t.TempDir()
+	writeFile(t, dir, config.Path, `{"rescan":{"enabled":false,"interval":"5s"}}`)
+
+	st := testutil.OpenTestDB(t)
+	var buf bytes.Buffer
+	logger := slog.New(slog.NewTextHandler(&buf, &slog.HandlerOptions{Level: slog.LevelWarn}))
+	r := mustRescan(t, st, dir, 30*time.Second, logger)
+
+	r.reloadConfig()
+	if r.enabled || r.interval != 5*time.Second {
+		t.Fatalf("precondition: good config not applied (enabled=%v interval=%v)", r.enabled, r.interval)
+	}
+
+	writeFile(t, dir, config.Path, `{"rescan":{"interval":"-3s"}}`)
+	if r.reloadConfig() {
+		t.Error("invalid reload must not report an interval change")
+	}
+	if r.enabled || r.interval != 5*time.Second {
+		t.Errorf("last-good not retained: enabled=%v interval=%v", r.enabled, r.interval)
+	}
+	if !strings.Contains(buf.String(), "level=WARN") {
+		t.Errorf("expected WARN on invalid reload, got %q", buf.String())
+	}
+
+	writeFile(t, dir, config.Path, `{"rescan":{"interval":"7s"}}`)
+	r.reloadConfig()
+	if r.interval != 7*time.Second {
+		t.Errorf("recovery after invalid reload: interval = %v, want 7s", r.interval)
+	}
+}
+
+func TestRescanLoop_DisabledTickIsNoopThenResumes(t *testing.T) {
+	dir := t.TempDir()
+	st := testutil.OpenTestDB(t)
+	r := mustRescan(t, st, dir, 30*time.Second, nil)
+
+	var walks atomic.Int32
+	r.walkFn = func(root string, fn fs.WalkDirFunc) error {
+		walks.Add(1)
+		return nil
+	}
+
+	writeFile(t, dir, config.Path, `{"rescan":{"enabled":false,"interval":"20ms"}}`)
+
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	done := make(chan struct{})
+	go func() {
+		r.Run(ctx)
+		close(done)
+	}()
+
+	time.Sleep(150 * time.Millisecond) // many 20ms ticks while disabled
+	if n := walks.Load(); n != 0 {
+		t.Fatalf("disabled loop performed %d walks, want 0", n)
+	}
+
+	writeFile(t, dir, config.Path, `{"rescan":{"enabled":true,"interval":"20ms"}}`)
+	time.Sleep(150 * time.Millisecond) // a later tick reloads → enabled → scans
+
+	if walks.Load() == 0 {
+		t.Error("re-enabling did not resume scanning on a subsequent tick (no restart expected)")
+	}
+
+	cancel()
+	<-done
 }
 
 func writeFile(t *testing.T, dir, name, content string) {
@@ -514,4 +758,30 @@ func writeFile(t *testing.T, dir, name, content string) {
 	if err := os.WriteFile(p, []byte(content), 0o644); err != nil {
 		t.Fatal(err)
 	}
+}
+
+func TestEffectiveInterval(t *testing.T) {
+	tests := []struct {
+		name string
+		flag time.Duration
+		rc   config.RescanConfig
+		want time.Duration
+	}{
+		{"default when unset", 0, config.RescanConfig{}, defaultRescanInterval},
+		{"flag when set, no config", 10 * time.Second, config.RescanConfig{}, 10 * time.Second},
+		{"config overrides flag", 10 * time.Second, config.RescanConfig{Interval: durPtr(5 * time.Second)}, 5 * time.Second},
+		{"config overrides default", 0, config.RescanConfig{Interval: durPtr(5 * time.Second)}, 5 * time.Second},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if got := EffectiveInterval(tt.flag, tt.rc); got != tt.want {
+				t.Errorf("EffectiveInterval(%v, %+v) = %v, want %v", tt.flag, tt.rc, got, tt.want)
+			}
+		})
+	}
+}
+
+func durPtr(d time.Duration) *config.Duration {
+	cd := config.Duration(d)
+	return &cd
 }

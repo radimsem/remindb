@@ -94,8 +94,8 @@ const (
 
 	qUpsertNode = `
 		INSERT INTO nodes (id, parent_id, source_file, node_type, depth,
-				label, content, format, token_count, content_hash, temperature)
-		VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, COALESCE(?11, 0.5))
+				label, content, format, token_count, content_hash, temperature, pinned)
+		VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, COALESCE(?11, 0.5), COALESCE(?12, 0))
 		ON CONFLICT(id) DO UPDATE SET
 			parent_id = excluded.parent_id,
 			source_file = excluded.source_file,
@@ -128,12 +128,6 @@ const (
 		SELECT nid FROM desc_ids ORDER BY nid`
 
 	qReparentChildren = `UPDATE nodes SET parent_id = ?, updated_at = unixepoch() WHERE parent_id = ?`
-
-	qRewriteSourcePaths = `UPDATE nodes SET source_file = ? || substr(source_file, length(?) + 1)
-		WHERE source_file LIKE ? || '%'`
-
-	qRewriteCompileRoots = `UPDATE snapshots SET compile_root = ? || substr(compile_root, length(?) + 1)
-		WHERE compile_root LIKE ? || '%'`
 )
 
 // snapshots & diffs
@@ -230,6 +224,8 @@ const (
 
 // relations & pending_relations
 const (
+	relationColumns = `id, source_node_id, target_node_id, weight, origin, created_at`
+
 	pendingColumns = `id, source_node_id, target_label, target_source, target_id_hint,
 	weight, origin, created_at`
 
@@ -248,6 +244,8 @@ const (
 	qDeleteParsedPendingForSource = `
 		DELETE FROM pending_relations
 		WHERE source_node_id = ? AND origin = 'parsed'`
+
+	qSelectAllRelations = `SELECT ` + relationColumns + ` FROM relations ORDER BY id`
 
 	qSelectAllPendingRelations = `SELECT ` + pendingColumns + ` FROM pending_relations ORDER BY id`
 
@@ -298,7 +296,7 @@ const (
 	qFindHeadingByLabelInFile = `
 		SELECT id FROM nodes
 		WHERE node_type = 'heading'
-		  AND (source_file = ? OR source_file LIKE '%/' || ?)
+		  AND (source_file = ? OR source_file LIKE ? ESCAPE '\')
 		  AND LOWER(TRIM(label)) = LOWER(TRIM(?))
 		ORDER BY depth ASC, id ASC
 		LIMIT 1`
@@ -361,6 +359,10 @@ const (
 
 	// IN clause is closed by the caller after appending placeholders.
 	qResetTemperaturesByFilesPrefix = `UPDATE nodes SET temperature = ?, updated_at = unixepoch()
+		WHERE source_file IN (`
+
+	// IN clause is closed by the caller after appending placeholders.
+	qResetPinnedByFilesPrefix = `UPDATE nodes SET pinned = 1, updated_at = unixepoch()
 		WHERE source_file IN (`
 )
 

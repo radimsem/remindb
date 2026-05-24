@@ -2,14 +2,24 @@ package remindb_test
 
 import (
 	"context"
+	"encoding/json"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
+	"sync/atomic"
 	"testing"
+	"time"
 
 	gomcp "github.com/modelcontextprotocol/go-sdk/mcp"
 	"github.com/radimsem/remindb/internal/mcptest"
+	"github.com/radimsem/remindb/internal/pathmatch"
+	"github.com/radimsem/remindb/internal/testutil"
+	"github.com/radimsem/remindb/pkg/config"
+	remindb "github.com/radimsem/remindb/pkg/mcp"
+	"github.com/radimsem/remindb/pkg/mcp/sessionlog"
 	"github.com/radimsem/remindb/pkg/store"
+	"github.com/radimsem/remindb/pkg/temperature"
 )
 
 // Simulates an OpenClaw agent session.
@@ -909,6 +919,485 @@ func TestMcp_ToolDiscovery(t *testing.T) {
 	}
 }
 
+func TestMcp_OverviewResource(t *testing.T) {
+	env := mcptest.NewEnv(t)
+	ctx := context.Background()
+
+	// Seed a node + snapshot so the envelope carries non-zero counts.
+	writeResult := env.CallTool(t, "MemoryWrite", map[string]any{
+		"payload": "Overview resource smoke content.",
+	})
+	if !strings.Contains(env.TextContent(t, writeResult), "wrote node") {
+		t.Fatalf("seed write failed: %s", env.TextContent(t, writeResult))
+	}
+
+	listed, err := env.Session.ListResources(ctx, &gomcp.ListResourcesParams{})
+	if err != nil {
+		t.Fatalf("ListResources: %v", err)
+	}
+
+	var overview *gomcp.Resource
+	for _, r := range listed.Resources {
+		if r.URI == "remindb://overview" {
+			overview = r
+		}
+	}
+	if overview == nil {
+		t.Fatalf("resources/list missing remindb://overview, got %d resources", len(listed.Resources))
+	}
+	if overview.MIMEType != "application/json" {
+		t.Errorf("overview MIME type = %q, want application/json", overview.MIMEType)
+	}
+
+	read, err := env.Session.ReadResource(ctx, &gomcp.ReadResourceParams{URI: "remindb://overview"})
+	if err != nil {
+		t.Fatalf("ReadResource: %v", err)
+	}
+	if len(read.Contents) != 1 {
+		t.Fatalf("ReadResource returned %d contents, want 1", len(read.Contents))
+	}
+
+	content := read.Contents[0]
+	if content.MIMEType != "application/json" {
+		t.Errorf("content MIME type = %q, want application/json", content.MIMEType)
+	}
+	if content.URI != "remindb://overview" {
+		t.Errorf("content URI = %q, want remindb://overview", content.URI)
+	}
+
+	var env2 struct {
+		DBPath string `json:"db_path"`
+		Nodes  struct {
+			Total  int            `json:"total"`
+			ByType map[string]int `json:"by_type"`
+			Tokens int64          `json:"tokens"`
+		} `json:"nodes"`
+		Snapshots struct {
+			Count  int   `json:"count"`
+			HeadID int64 `json:"head_id"`
+		} `json:"snapshots"`
+		Temperature struct {
+			Avg float64 `json:"avg"`
+		} `json:"temperature"`
+		Relations struct {
+			ByOrigin map[string]int `json:"by_origin"`
+			Pending  int            `json:"pending"`
+		} `json:"relations"`
+		FTSRows int `json:"fts_rows"`
+	}
+	if err := json.Unmarshal([]byte(content.Text), &env2); err != nil {
+		t.Fatalf("overview JSON not parseable: %v\nbody: %s", err, content.Text)
+	}
+
+	if env2.Nodes.Total < 1 {
+		t.Errorf("nodes.total = %d, want >= 1 after a seeded write", env2.Nodes.Total)
+	}
+	if env2.Snapshots.Count < 1 || env2.Snapshots.HeadID < 1 {
+		t.Errorf("snapshots = %+v, want count>=1 and head_id>=1", env2.Snapshots)
+	}
+}
+
+func TestMcp_FilesResource(t *testing.T) {
+	env := mcptest.NewEnv(t)
+	ctx := context.Background()
+
+	// A compiled dir → files grouped under a non-empty compile root.
+	dir, _ := filepath.Abs("testdata/openclaw")
+	compileResult := env.CallTool(t, "MemoryCompile", map[string]any{
+		"path":    dir,
+		"message": "files-resource-init",
+	})
+	if !strings.Contains(env.TextContent(t, compileResult), "compiled") {
+		t.Fatalf("seed compile failed: %s", env.TextContent(t, compileResult))
+	}
+
+	// A freeform write → a file with no compile root (ungrouped bucket).
+	writeResult := env.CallTool(t, "MemoryWrite", map[string]any{
+		"payload": "Files resource ungrouped smoke content.",
+	})
+	if !strings.Contains(env.TextContent(t, writeResult), "wrote node") {
+		t.Fatalf("seed write failed: %s", env.TextContent(t, writeResult))
+	}
+
+	listed, err := env.Session.ListResources(ctx, &gomcp.ListResourcesParams{})
+	if err != nil {
+		t.Fatalf("ListResources: %v", err)
+	}
+
+	var files *gomcp.Resource
+	for _, r := range listed.Resources {
+		if r.URI == "remindb://files" {
+			files = r
+		}
+	}
+	if files == nil {
+		t.Fatalf("resources/list missing remindb://files, got %d resources", len(listed.Resources))
+	}
+	if files.MIMEType != "application/json" {
+		t.Errorf("files MIME type = %q, want application/json", files.MIMEType)
+	}
+
+	read, err := env.Session.ReadResource(ctx, &gomcp.ReadResourceParams{URI: "remindb://files"})
+	if err != nil {
+		t.Fatalf("ReadResource: %v", err)
+	}
+	if len(read.Contents) != 1 {
+		t.Fatalf("ReadResource returned %d contents, want 1", len(read.Contents))
+	}
+
+	content := read.Contents[0]
+	if content.MIMEType != "application/json" {
+		t.Errorf("content MIME type = %q, want application/json", content.MIMEType)
+	}
+	if content.URI != "remindb://files" {
+		t.Errorf("content URI = %q, want remindb://files", content.URI)
+	}
+
+	var env2 struct {
+		Roots []struct {
+			Root  string `json:"root"`
+			Files []struct {
+				Path   string `json:"path"`
+				Nodes  int    `json:"nodes"`
+				Tokens int    `json:"tokens"`
+			} `json:"files"`
+		} `json:"roots"`
+	}
+	if err := json.Unmarshal([]byte(content.Text), &env2); err != nil {
+		t.Fatalf("files JSON not parseable: %v\nbody: %s", err, content.Text)
+	}
+
+	if len(env2.Roots) < 2 {
+		t.Fatalf("roots = %d, want >= 2 (one compiled root + ungrouped)", len(env2.Roots))
+	}
+
+	// Roots sort ascending; the empty-string ("ungrouped") root sorts last.
+	if got := env2.Roots[len(env2.Roots)-1].Root; got != "" {
+		t.Errorf("last root = %q, want %q (ungrouped sorts last)", got, "")
+	}
+	for i := 1; i < len(env2.Roots)-1; i++ {
+		if env2.Roots[i-1].Root > env2.Roots[i].Root {
+			t.Errorf("roots not sorted ascending: %q before %q", env2.Roots[i-1].Root, env2.Roots[i].Root)
+		}
+	}
+
+	sawCompiled := false
+	for _, rg := range env2.Roots {
+		for _, f := range rg.Files {
+			if f.Path == "" {
+				t.Errorf("file with empty path in root %q", rg.Root)
+			}
+			if f.Nodes < 1 || f.Tokens < 1 {
+				t.Errorf("file %q: nodes=%d tokens=%d, want both >= 1", f.Path, f.Nodes, f.Tokens)
+			}
+		}
+		if rg.Root == dir && len(rg.Files) > 0 {
+			sawCompiled = true
+		}
+	}
+	if !sawCompiled {
+		t.Errorf("no file group under compiled root %q; roots=%+v", dir, env2.Roots)
+	}
+}
+
+type treeNodeJSON struct {
+	ID          string          `json:"id"`
+	Type        string          `json:"type"`
+	Label       string          `json:"label"`
+	Depth       int             `json:"depth"`
+	Tokens      int             `json:"tokens"`
+	Temperature float64         `json:"temperature"`
+	Source      string          `json:"source"`
+	Children    []*treeNodeJSON `json:"children"`
+}
+
+type treeEnvJSON struct {
+	Roots []*treeNodeJSON `json:"roots"`
+}
+
+func TestMcp_TreeResource(t *testing.T) {
+	env := mcptest.NewEnv(t)
+	ctx := context.Background()
+
+	dir, _ := filepath.Abs("testdata/openclaw")
+	compileResult := env.CallTool(t, "MemoryCompile", map[string]any{
+		"path":    dir,
+		"message": "tree-resource-init",
+	})
+	if !strings.Contains(env.TextContent(t, compileResult), "compiled") {
+		t.Fatalf("seed compile failed: %s", env.TextContent(t, compileResult))
+	}
+
+	listed, err := env.Session.ListResources(ctx, &gomcp.ListResourcesParams{})
+	if err != nil {
+		t.Fatalf("ListResources: %v", err)
+	}
+	var tree *gomcp.Resource
+	for _, r := range listed.Resources {
+		if r.URI == "remindb://tree" {
+			tree = r
+		}
+	}
+	if tree == nil {
+		t.Fatalf("resources/list missing remindb://tree, got %d resources", len(listed.Resources))
+	}
+	if tree.MIMEType != "application/json" {
+		t.Errorf("tree MIME type = %q, want application/json", tree.MIMEType)
+	}
+
+	read, err := env.Session.ReadResource(ctx, &gomcp.ReadResourceParams{URI: "remindb://tree"})
+	if err != nil {
+		t.Fatalf("ReadResource(tree): %v", err)
+	}
+	if len(read.Contents) != 1 {
+		t.Fatalf("ReadResource returned %d contents, want 1", len(read.Contents))
+	}
+	if read.Contents[0].URI != "remindb://tree" {
+		t.Errorf("content URI = %q, want remindb://tree", read.Contents[0].URI)
+	}
+
+	var full treeEnvJSON
+	if err := json.Unmarshal([]byte(read.Contents[0].Text), &full); err != nil {
+		t.Fatalf("tree JSON not parseable: %v\nbody: %s", err, read.Contents[0].Text)
+	}
+	if len(full.Roots) == 0 {
+		t.Fatalf("full tree has no roots")
+	}
+
+	// Find a node two levels deep so depth-bounding is observable: it must have a child that itself has children.
+	var pivot *treeNodeJSON
+	var find func(n *treeNodeJSON)
+
+	find = func(n *treeNodeJSON) {
+		if pivot != nil {
+			return
+		}
+
+		for _, c := range n.Children {
+			if len(c.Children) > 0 {
+				pivot = n
+				return
+			}
+		}
+
+		for _, c := range n.Children {
+			find(c)
+		}
+	}
+	for _, r := range full.Roots {
+		find(r)
+	}
+	if pivot == nil {
+		t.Fatalf("no node with a grandchild found; cannot assert depth bounding")
+	}
+
+	// Shape: every node carries the full field set.
+	if pivot.ID == "" || pivot.Type == "" || pivot.Source == "" {
+		t.Errorf("pivot missing required fields: %+v", pivot)
+	}
+
+	uri := "remindb://tree/" + pivot.ID + "?depth=1"
+	bounded, err := env.Session.ReadResource(ctx, &gomcp.ReadResourceParams{URI: uri})
+	if err != nil {
+		t.Fatalf("ReadResource(%s): %v", uri, err)
+	}
+	if bounded.Contents[0].URI != uri {
+		t.Errorf("content URI = %q, want %q", bounded.Contents[0].URI, uri)
+	}
+
+	var sub treeEnvJSON
+	if err := json.Unmarshal([]byte(bounded.Contents[0].Text), &sub); err != nil {
+		t.Fatalf("bounded tree JSON not parseable: %v\nbody: %s", err, bounded.Contents[0].Text)
+	}
+	if len(sub.Roots) != 1 {
+		t.Fatalf("bounded read roots = %d, want 1", len(sub.Roots))
+	}
+
+	root := sub.Roots[0]
+	if root.ID != pivot.ID {
+		t.Errorf("bounded root id = %q, want %q", root.ID, pivot.ID)
+	}
+	if len(root.Children) == 0 {
+		t.Fatalf("depth=1 should include the first child level; got none")
+	}
+
+	for _, c := range root.Children {
+		if len(c.Children) != 0 {
+			t.Errorf("depth=1 not bounded: child %q has %d grandchildren", c.ID, len(c.Children))
+		}
+	}
+
+	// Unknown root → error.
+	if _, err := env.Session.ReadResource(ctx, &gomcp.ReadResourceParams{URI: "remindb://tree/does-not-exist"}); err == nil {
+		t.Errorf("ReadResource for unknown root: want error, got nil")
+	}
+}
+
+type snapshotEntryJSON struct {
+	ID          int64  `json:"id"`
+	ParentID    *int64 `json:"parent_id"`
+	Message     string `json:"message"`
+	CompileRoot string `json:"compile_root"`
+	CreatedAt   int64  `json:"created_at"`
+	IsHead      bool   `json:"is_head"`
+}
+
+type snapshotsEnvJSON struct {
+	Snapshots []snapshotEntryJSON `json:"snapshots"`
+}
+
+type snapshotDiffsEnvJSON struct {
+	SnapshotID int64 `json:"snapshot_id"`
+	Diffs      []struct {
+		Op         string `json:"op"`
+		NodeID     string `json:"node_id"`
+		OldHash    string `json:"old_hash"`
+		NewHash    string `json:"new_hash"`
+		OldContent string `json:"old_content"`
+		NewContent string `json:"new_content"`
+	} `json:"diffs"`
+}
+
+func TestMcp_SnapshotsResource(t *testing.T) {
+	env := mcptest.NewEnv(t)
+	ctx := context.Background()
+
+	// Seed a chain: compile (snap1) → write (snap2) → write (snap3, HEAD).
+	dir, _ := filepath.Abs("testdata/openclaw")
+	compileResult := env.CallTool(t, "MemoryCompile", map[string]any{
+		"path":    dir,
+		"message": "snapshots-resource-init",
+	})
+	if !strings.Contains(env.TextContent(t, compileResult), "compiled") {
+		t.Fatalf("seed compile failed: %s", env.TextContent(t, compileResult))
+	}
+
+	env.CallTool(t, "MemoryWrite", map[string]any{"payload": "Snapshots resource note one."})
+	env.CallTool(t, "MemoryWrite", map[string]any{"payload": "Snapshots resource note two."})
+
+	listed, err := env.Session.ListResources(ctx, &gomcp.ListResourcesParams{})
+	if err != nil {
+		t.Fatalf("ListResources: %v", err)
+	}
+
+	var snapshots *gomcp.Resource
+	for _, r := range listed.Resources {
+		if r.URI == "remindb://snapshots" {
+			snapshots = r
+		}
+	}
+	if snapshots == nil {
+		t.Fatalf("resources/list missing remindb://snapshots, got %d resources", len(listed.Resources))
+	}
+	if snapshots.MIMEType != "application/json" {
+		t.Errorf("snapshots MIME type = %q, want application/json", snapshots.MIMEType)
+	}
+
+	// Full history: ordered newest-first, parent chain intact, exactly one HEAD.
+	read, err := env.Session.ReadResource(ctx, &gomcp.ReadResourceParams{URI: "remindb://snapshots"})
+	if err != nil {
+		t.Fatalf("ReadResource(snapshots): %v", err)
+	}
+	if len(read.Contents) != 1 {
+		t.Fatalf("ReadResource returned %d contents, want 1", len(read.Contents))
+	}
+	if read.Contents[0].URI != "remindb://snapshots" {
+		t.Errorf("content URI = %q, want remindb://snapshots", read.Contents[0].URI)
+	}
+
+	var full snapshotsEnvJSON
+	if err := json.Unmarshal([]byte(read.Contents[0].Text), &full); err != nil {
+		t.Fatalf("snapshots JSON not parseable: %v\nbody: %s", err, read.Contents[0].Text)
+	}
+	if len(full.Snapshots) < 3 {
+		t.Fatalf("snapshots = %d, want >= 3 (compile + 2 writes)", len(full.Snapshots))
+	}
+
+	for i := 1; i < len(full.Snapshots); i++ {
+		if full.Snapshots[i-1].ID <= full.Snapshots[i].ID {
+			t.Errorf("snapshots not newest-first: id %d before %d", full.Snapshots[i-1].ID, full.Snapshots[i].ID)
+		}
+	}
+
+	oldest := full.Snapshots[len(full.Snapshots)-1]
+	if oldest.ParentID != nil {
+		t.Errorf("oldest snapshot parent_id = %d, want null (root has no parent)", *oldest.ParentID)
+	}
+
+	for i := 0; i < len(full.Snapshots)-1; i++ {
+		s := full.Snapshots[i]
+		if s.ParentID == nil || *s.ParentID != full.Snapshots[i+1].ID {
+			t.Errorf("snapshot %d parent_id = %v, want %d (chains to previous)", s.ID, s.ParentID, full.Snapshots[i+1].ID)
+		}
+	}
+
+	headCount := 0
+	for _, s := range full.Snapshots {
+		if s.IsHead {
+			headCount++
+		}
+	}
+	if headCount != 1 {
+		t.Errorf("is_head count = %d, want exactly 1", headCount)
+	}
+	if !full.Snapshots[0].IsHead {
+		t.Errorf("newest snapshot %d is_head=false, want true (HEAD is the latest write)", full.Snapshots[0].ID)
+	}
+
+	// Templated ?limit bounds to the newest N.
+	limited, err := env.Session.ReadResource(ctx, &gomcp.ReadResourceParams{URI: "remindb://snapshots?limit=1"})
+	if err != nil {
+		t.Fatalf("ReadResource(snapshots?limit=1): %v", err)
+	}
+	if limited.Contents[0].URI != "remindb://snapshots?limit=1" {
+		t.Errorf("content URI = %q, want remindb://snapshots?limit=1", limited.Contents[0].URI)
+	}
+
+	var bounded snapshotsEnvJSON
+	if err := json.Unmarshal([]byte(limited.Contents[0].Text), &bounded); err != nil {
+		t.Fatalf("bounded snapshots JSON not parseable: %v\nbody: %s", err, limited.Contents[0].Text)
+	}
+	if len(bounded.Snapshots) != 1 {
+		t.Fatalf("limit=1 returned %d snapshots, want 1", len(bounded.Snapshots))
+	}
+	if bounded.Snapshots[0].ID != full.Snapshots[0].ID || !bounded.Snapshots[0].IsHead {
+		t.Errorf("limit=1 snapshot = %+v, want the HEAD (%d)", bounded.Snapshots[0], full.Snapshots[0].ID)
+	}
+
+	// Templated per-snapshot diffs for the HEAD write.
+	headID := full.Snapshots[0].ID
+	diffURI := "remindb://snapshots/" + strconv.FormatInt(headID, 10) + "/diffs"
+	diffRead, err := env.Session.ReadResource(ctx, &gomcp.ReadResourceParams{URI: diffURI})
+	if err != nil {
+		t.Fatalf("ReadResource(%s): %v", diffURI, err)
+	}
+	if diffRead.Contents[0].URI != diffURI {
+		t.Errorf("content URI = %q, want %q", diffRead.Contents[0].URI, diffURI)
+	}
+
+	var diffs snapshotDiffsEnvJSON
+	if err := json.Unmarshal([]byte(diffRead.Contents[0].Text), &diffs); err != nil {
+		t.Fatalf("snapshot diffs JSON not parseable: %v\nbody: %s", err, diffRead.Contents[0].Text)
+	}
+
+	if diffs.SnapshotID != headID {
+		t.Errorf("snapshot_id = %d, want %d", diffs.SnapshotID, headID)
+	}
+	if len(diffs.Diffs) == 0 {
+		t.Fatalf("HEAD write produced no diff records")
+	}
+	for _, d := range diffs.Diffs {
+		if d.Op == "" || d.NodeID == "" {
+			t.Errorf("diff missing op/node_id: %+v", d)
+		}
+	}
+
+	// A non-numeric snapshot id is an error, not an empty body.
+	if _, err := env.Session.ReadResource(ctx, &gomcp.ReadResourceParams{URI: "remindb://snapshots/not-an-int/diffs"}); err == nil {
+		t.Errorf("ReadResource for bad snapshot id: want error, got nil")
+	}
+}
+
 // Pulls every "id=XXXXXXXXXXX" occurrence out of a Format/FormatCompact output.
 func extractAllNodeIDs(s string) []string {
 	var out []string
@@ -972,6 +1461,246 @@ func extractFirstParenID(tree string) string {
 		}
 	}
 	return ""
+}
+
+func TestMcp_TemperatureResource(t *testing.T) {
+	env := mcptest.NewEnv(t)
+	ctx := context.Background()
+
+	// Seed nodes so the heatmap carries a non-empty unified array.
+	writeResult := env.CallTool(t, "MemoryWrite", map[string]any{
+		"payload": "Temperature resource smoke content.",
+	})
+	if !strings.Contains(env.TextContent(t, writeResult), "wrote node") {
+		t.Fatalf("seed write failed: %s", env.TextContent(t, writeResult))
+	}
+
+	listed, err := env.Session.ListResources(ctx, &gomcp.ListResourcesParams{})
+	if err != nil {
+		t.Fatalf("ListResources: %v", err)
+	}
+
+	var heat *gomcp.Resource
+	for _, r := range listed.Resources {
+		if r.URI == "remindb://temperature" {
+			heat = r
+		}
+	}
+	if heat == nil {
+		t.Fatalf("resources/list missing remindb://temperature, got %d resources", len(listed.Resources))
+	}
+	if heat.MIMEType != "application/json" {
+		t.Errorf("temperature MIME type = %q, want application/json", heat.MIMEType)
+	}
+
+	read, err := env.Session.ReadResource(ctx, &gomcp.ReadResourceParams{URI: "remindb://temperature"})
+	if err != nil {
+		t.Fatalf("ReadResource: %v", err)
+	}
+	if len(read.Contents) != 1 {
+		t.Fatalf("ReadResource returned %d contents, want 1", len(read.Contents))
+	}
+
+	content := read.Contents[0]
+	if content.URI != "remindb://temperature" {
+		t.Errorf("content URI = %q, want remindb://temperature", content.URI)
+	}
+
+	var env2 struct {
+		Summary struct {
+			Hot           int     `json:"hot"`
+			Cold          int     `json:"cold"`
+			Pinned        int     `json:"pinned"`
+			ColdThreshold float64 `json:"cold_threshold"`
+			HotThreshold  float64 `json:"hot_threshold"`
+		} `json:"summary"`
+		Nodes []struct {
+			ID          string  `json:"id"`
+			Temperature float64 `json:"temperature"`
+			Pinned      bool    `json:"pinned"`
+		} `json:"nodes"`
+	}
+	if err := json.Unmarshal([]byte(content.Text), &env2); err != nil {
+		t.Fatalf("temperature JSON not parseable: %v\nbody: %s", err, content.Text)
+	}
+
+	if len(env2.Nodes) < 1 {
+		t.Fatalf("nodes = %d, want >= 1 after a seeded write (unified array)", len(env2.Nodes))
+	}
+	// Default config (mcptest) → cold 0.1, fixed hot 0.5; both echoed.
+	if env2.Summary.ColdThreshold != 0.1 || env2.Summary.HotThreshold != 0.5 {
+		t.Errorf("thresholds = cold %v hot %v, want 0.1 / 0.5", env2.Summary.ColdThreshold, env2.Summary.HotThreshold)
+	}
+
+	// Summary must be derivable from the same nodes array — one fetch, no drift.
+	var wantHot, wantCold, wantPinned int
+	for _, n := range env2.Nodes {
+		if n.Temperature >= env2.Summary.HotThreshold {
+			wantHot++
+		}
+		if n.Temperature < env2.Summary.ColdThreshold {
+			wantCold++
+		}
+		if n.Pinned {
+			wantPinned++
+		}
+	}
+	if env2.Summary.Hot != wantHot || env2.Summary.Cold != wantCold || env2.Summary.Pinned != wantPinned {
+		t.Errorf("summary {hot:%d cold:%d pinned:%d} disagrees with nodes {hot:%d cold:%d pinned:%d}",
+			env2.Summary.Hot, env2.Summary.Cold, env2.Summary.Pinned, wantHot, wantCold, wantPinned)
+	}
+}
+
+func TestMcp_DoctorResource(t *testing.T) {
+	env := mcptest.NewEnv(t)
+	ctx := context.Background()
+
+	// A seeded write keeps the DB healthy → every check passes.
+	writeResult := env.CallTool(t, "MemoryWrite", map[string]any{
+		"payload": "Doctor resource smoke content.",
+	})
+	if !strings.Contains(env.TextContent(t, writeResult), "wrote node") {
+		t.Fatalf("seed write failed: %s", env.TextContent(t, writeResult))
+	}
+
+	listed, err := env.Session.ListResources(ctx, &gomcp.ListResourcesParams{})
+	if err != nil {
+		t.Fatalf("ListResources: %v", err)
+	}
+
+	var doctor *gomcp.Resource
+	for _, r := range listed.Resources {
+		if r.URI == "remindb://doctor" {
+			doctor = r
+		}
+	}
+	if doctor == nil {
+		t.Fatalf("resources/list missing remindb://doctor, got %d resources", len(listed.Resources))
+	}
+	if doctor.MIMEType != "application/json" {
+		t.Errorf("doctor MIME type = %q, want application/json", doctor.MIMEType)
+	}
+
+	read, err := env.Session.ReadResource(ctx, &gomcp.ReadResourceParams{URI: "remindb://doctor"})
+	if err != nil {
+		t.Fatalf("ReadResource: %v", err)
+	}
+	if len(read.Contents) != 1 {
+		t.Fatalf("ReadResource returned %d contents, want 1", len(read.Contents))
+	}
+
+	content := read.Contents[0]
+	if content.MIMEType != "application/json" {
+		t.Errorf("content MIME type = %q, want application/json", content.MIMEType)
+	}
+	if content.URI != "remindb://doctor" {
+		t.Errorf("content URI = %q, want remindb://doctor", content.URI)
+	}
+
+	var env2 struct {
+		Status string `json:"status"`
+		Checks []struct {
+			Name   string `json:"name"`
+			Status string `json:"status"`
+			Detail string `json:"detail"`
+		} `json:"checks"`
+	}
+	if err := json.Unmarshal([]byte(content.Text), &env2); err != nil {
+		t.Fatalf("doctor JSON not parseable: %v\nbody: %s", err, content.Text)
+	}
+
+	if env2.Status != "pass" {
+		t.Errorf("status = %q, want pass on a healthy seeded DB", env2.Status)
+	}
+	if len(env2.Checks) == 0 {
+		t.Fatalf("checks is empty; want the full doctor check set")
+	}
+	for _, c := range env2.Checks {
+		if c.Name == "" || c.Status == "" {
+			t.Errorf("check missing name/status: %+v", c)
+		}
+	}
+}
+
+func TestMcp_LogsResource(t *testing.T) {
+	env := mcptest.NewEnvWithLog(t)
+	ctx := context.Background()
+
+	writeResult := env.CallTool(t, "MemoryWrite", map[string]any{
+		"payload": "Logs resource smoke content.",
+	})
+	if !strings.Contains(env.TextContent(t, writeResult), "wrote node") {
+		t.Fatalf("seed write failed: %s", env.TextContent(t, writeResult))
+	}
+
+	listed, err := env.Session.ListResources(ctx, &gomcp.ListResourcesParams{})
+	if err != nil {
+		t.Fatalf("ListResources: %v", err)
+	}
+
+	var logs *gomcp.Resource
+	for _, r := range listed.Resources {
+		if r.URI == "remindb://logs" {
+			logs = r
+		}
+	}
+	if logs == nil {
+		t.Fatalf("resources/list missing remindb://logs, got %d resources", len(listed.Resources))
+	}
+	if logs.MIMEType != "application/json" {
+		t.Errorf("logs MIME type = %q, want application/json", logs.MIMEType)
+	}
+
+	read, err := env.Session.ReadResource(ctx, &gomcp.ReadResourceParams{URI: "remindb://logs"})
+	if err != nil {
+		t.Fatalf("ReadResource: %v", err)
+	}
+	if len(read.Contents) != 1 {
+		t.Fatalf("ReadResource returned %d contents, want 1", len(read.Contents))
+	}
+
+	content := read.Contents[0]
+	if content.MIMEType != "application/json" {
+		t.Errorf("content MIME type = %q, want application/json", content.MIMEType)
+	}
+	if content.URI != "remindb://logs" {
+		t.Errorf("content URI = %q, want remindb://logs", content.URI)
+	}
+
+	var envelope struct {
+		Records []struct {
+			Time  int64          `json:"time"`
+			Level string         `json:"level"`
+			Msg   string         `json:"msg"`
+			Attrs map[string]any `json:"attrs"`
+		} `json:"records"`
+		Dropped int64 `json:"dropped"`
+	}
+	if err := json.Unmarshal([]byte(content.Text), &envelope); err != nil {
+		t.Fatalf("logs JSON not parseable: %v\nbody: %s", err, content.Text)
+	}
+
+	if len(envelope.Records) == 0 {
+		t.Fatalf("records is empty; want the MemoryWrite tool-call trace captured")
+	}
+	if envelope.Dropped < 0 {
+		t.Errorf("dropped = %d, want >= 0", envelope.Dropped)
+	}
+
+	var sawToolCall bool
+	for _, r := range envelope.Records {
+		if r.Time <= 0 || r.Level == "" || r.Attrs == nil {
+			t.Errorf("malformed record: %+v", r)
+		}
+
+		if r.Msg == "mcp call" && r.Attrs["tool"] == "MemoryWrite" {
+			sawToolCall = true
+		}
+	}
+
+	if !sawToolCall {
+		t.Errorf("no \"mcp call\" record with tool=MemoryWrite; tool-call logs not reaching the resource")
+	}
 }
 
 func TestMcp_MemoryForget(t *testing.T) {
@@ -1174,5 +1903,627 @@ func seedForgetNode(t *testing.T, env *mcptest.Env, id, parent string) {
 	})
 	if err != nil {
 		t.Fatalf("seedForgetNode %s: %v", id, err)
+	}
+}
+
+type clientMetaJSON struct {
+	Name     string `json:"name"`
+	Title    string `json:"title"`
+	Version  string `json:"version"`
+	Protocol string `json:"protocol"`
+}
+
+type sessJSON struct {
+	ID             string         `json:"id"`
+	Client         clientMetaJSON `json:"client_meta"`
+	Transport      string         `json:"transport"`
+	Listen         string         `json:"listen,omitempty"`
+	ConnectedAt    int64          `json:"connected_at"`
+	LastActivity   int64          `json:"last_activity"`
+	CountToolCalls int64          `json:"count_tool_calls"`
+}
+
+type sessEnvJSON struct {
+	DBPath   string     `json:"db_path"`
+	Sessions []sessJSON `json:"sessions"`
+}
+
+func connectSessionClient(t *testing.T, srv *remindb.Server, name string) *gomcp.ClientSession {
+	t.Helper()
+
+	serverT, clientT := gomcp.NewInMemoryTransports()
+	if _, err := srv.Connect(context.Background(), serverT); err != nil {
+		t.Fatalf("server connect %s: %v", name, err)
+	}
+
+	c := gomcp.NewClient(&gomcp.Implementation{Name: name, Version: "0.1.0"}, nil)
+	cs, err := c.Connect(context.Background(), clientT, nil)
+	if err != nil {
+		t.Fatalf("client connect %s: %v", name, err)
+	}
+
+	return cs
+}
+
+func readSessionsEnv(t *testing.T, cs *gomcp.ClientSession) sessEnvJSON {
+	t.Helper()
+
+	res, err := cs.ReadResource(context.Background(), &gomcp.ReadResourceParams{URI: "remindb://sessions"})
+	if err != nil {
+		t.Fatalf("ReadResource(sessions): %v", err)
+	}
+
+	var env sessEnvJSON
+	if err := json.Unmarshal([]byte(res.Contents[0].Text), &env); err != nil {
+		t.Fatalf("sessions JSON not parseable: %v\nbody: %s", err, res.Contents[0].Text)
+	}
+	return env
+}
+
+// Exercises the remindb://sessions resource end-to-end.
+func TestMcp_SessionsResource(t *testing.T) {
+	st := testutil.OpenTestDB(t)
+	cfg := temperature.DefaultConfig()
+
+	tracker, err := temperature.NewTracker(st, "", cfg, nil)
+	if err != nil {
+		t.Fatalf("NewTracker: %v", err)
+	}
+	srv, err := remindb.NewServer(st, tracker, cfg)
+	if err != nil {
+		t.Fatalf("NewServer: %v", err)
+	}
+
+	ctx := context.Background()
+	a := connectSessionClient(t, srv, "agent-A")
+
+	env := readSessionsEnv(t, a)
+	if env.DBPath != st.Path {
+		t.Errorf("db_path: got %q, want %q", env.DBPath, st.Path)
+	}
+	if len(env.Sessions) != 1 {
+		t.Fatalf("after A connect: got %d sessions, want 1", len(env.Sessions))
+	}
+	if s := env.Sessions[0]; s.Transport != "stdio" || s.Listen != "" || s.CountToolCalls != 0 {
+		t.Errorf("session shape: %+v (want stdio, no listen, 0 tool calls)", s)
+	}
+	if c := env.Sessions[0].Client; c.Name != "agent-A" || c.Version != "0.1.0" || c.Protocol == "" {
+		t.Errorf("client_meta: %+v (want name=agent-A, version=0.1.0, non-empty protocol)", c)
+	}
+	if env.Sessions[0].ConnectedAt == 0 {
+		t.Error("connected_at not stamped on first-seen request")
+	}
+
+	if _, err := a.CallTool(ctx, &gomcp.CallToolParams{Name: "MemoryTree", Arguments: map[string]any{}}); err != nil {
+		t.Fatalf("CallTool MemoryTree: %v", err)
+	}
+	env = readSessionsEnv(t, a)
+	if env.Sessions[0].CountToolCalls != 1 {
+		t.Errorf("count_tool_calls after one MemoryTree (resource reads excluded): got %d, want 1", env.Sessions[0].CountToolCalls)
+	}
+
+	b := connectSessionClient(t, srv, "agent-B")
+	if got := len(readSessionsEnv(t, a).Sessions); got != 2 {
+		t.Fatalf("after B connect: got %d sessions, want 2", got)
+	}
+
+	if err := b.Close(); err != nil {
+		t.Fatalf("close B: %v", err)
+	}
+
+	var final sessEnvJSON
+	for range 50 {
+		final = readSessionsEnv(t, a)
+		if len(final.Sessions) == 1 {
+			break
+		}
+		time.Sleep(20 * time.Millisecond)
+	}
+	if len(final.Sessions) != 1 {
+		t.Fatalf("after B disconnect: got %d sessions, want 1 (lazy reconcile against SDK set)", len(final.Sessions))
+	}
+
+	_ = a.Close()
+}
+
+type rescanEnvJSON struct {
+	IntervalS int64 `json:"interval_s"`
+	LastMeta  struct {
+		RunAt       int64  `json:"run_at"`
+		Error       string `json:"error"`
+		Added       int    `json:"added"`
+		Modified    int    `json:"modified"`
+		Removed     int    `json:"removed"`
+		PurgedFiles []struct {
+			Path  string `json:"path"`
+			Nodes int    `json:"nodes"`
+		} `json:"purged_files"`
+	} `json:"last_meta"`
+}
+
+func readRescanEnv(t *testing.T, env *mcptest.Env) (rescanEnvJSON, string) {
+	t.Helper()
+
+	read, err := env.Session.ReadResource(context.Background(), &gomcp.ReadResourceParams{URI: "remindb://rescan"})
+	if err != nil {
+		t.Fatalf("ReadResource(rescan): %v", err)
+	}
+	if len(read.Contents) != 1 {
+		t.Fatalf("rescan contents = %d, want 1", len(read.Contents))
+	}
+
+	c := read.Contents[0]
+	if c.URI != "remindb://rescan" || c.MIMEType != "application/json" {
+		t.Fatalf("rescan envelope: uri=%q mime=%q", c.URI, c.MIMEType)
+	}
+
+	var e rescanEnvJSON
+	if err := json.Unmarshal([]byte(c.Text), &e); err != nil {
+		t.Fatalf("rescan JSON not parseable: %v\nbody: %s", err, c.Text)
+	}
+	return e, c.Text
+}
+
+func pollRescanEnv(t *testing.T, env *mcptest.Env, want func(rescanEnvJSON) bool) (rescanEnvJSON, string) {
+	t.Helper()
+
+	var (
+		e    rescanEnvJSON
+		body string
+	)
+	for range 250 {
+		e, body = readRescanEnv(t, env)
+		if want(e) {
+			return e, body
+		}
+		time.Sleep(40 * time.Millisecond)
+	}
+
+	t.Fatalf("rescan resource never reached expected state; last body: %s", body)
+	return e, body
+}
+
+func TestMcp_RescanResource(t *testing.T) {
+	env := mcptest.NewEnvWithRescan(t)
+	ctx := context.Background()
+
+	listed, err := env.Session.ListResources(ctx, &gomcp.ListResourcesParams{})
+	if err != nil {
+		t.Fatalf("ListResources: %v", err)
+	}
+
+	var rescan *gomcp.Resource
+	for _, r := range listed.Resources {
+		if r.URI == "remindb://rescan" {
+			rescan = r
+		}
+	}
+	if rescan == nil {
+		t.Fatalf("resources/list missing remindb://rescan, got %d resources", len(listed.Resources))
+	}
+	if rescan.MIMEType != "application/json" {
+		t.Errorf("rescan MIME type = %q, want application/json", rescan.MIMEType)
+	}
+
+	// The startup scan over the (still empty) source dir publishes a clean tick.
+	initial, body := pollRescanEnv(t, env, func(e rescanEnvJSON) bool { return e.LastMeta.RunAt != 0 })
+	if initial.IntervalS != 1 {
+		t.Errorf("interval_s = %d, want 1 (config sets interval 1s)", initial.IntervalS)
+	}
+	if initial.LastMeta.Error != "" {
+		t.Errorf("error = %q, want empty on a clean scan", initial.LastMeta.Error)
+	}
+	if initial.LastMeta.Added != 0 {
+		t.Errorf("added = %d, want 0 before any fixture exists", initial.LastMeta.Added)
+	}
+	if !strings.Contains(body, `"purged_files":[]`) {
+		t.Errorf("purged_files must marshal as [] not null; body: %s", body)
+	}
+
+	// A new source file → the next tick compiles it; counts surface in last_meta.
+	fixture := filepath.Join(env.RescanDir, "rescan-fixture.md")
+	if err := os.WriteFile(fixture, []byte("# Rescan Fixture\n\nFirst body paragraph.\n"), 0o644); err != nil {
+		t.Fatalf("write fixture: %v", err)
+	}
+
+	added, _ := pollRescanEnv(t, env, func(e rescanEnvJSON) bool { return e.LastMeta.Added > 0 })
+	if added.LastMeta.Error != "" {
+		t.Errorf("error = %q after a successful compile, want empty", added.LastMeta.Error)
+	}
+	if added.LastMeta.Removed != 0 {
+		t.Errorf("removed = %d on a pure add, want 0", added.LastMeta.Removed)
+	}
+
+	// Deleting it → that tick reports it under purged_files (whole-file purge).
+	if err := os.Remove(fixture); err != nil {
+		t.Fatalf("remove fixture: %v", err)
+	}
+
+	purged, _ := pollRescanEnv(t, env, func(e rescanEnvJSON) bool { return len(e.LastMeta.PurgedFiles) == 1 })
+	pf := purged.LastMeta.PurgedFiles[0]
+
+	if pf.Path != "rescan-fixture.md" {
+		t.Errorf("purged path = %q, want %q", pf.Path, "rescan-fixture.md")
+	}
+	if pf.Nodes < 1 {
+		t.Errorf("purged nodes = %d, want >= 1", pf.Nodes)
+	}
+}
+
+func TestMcp_ResourceSubscription_CoalescesToOneNotification(t *testing.T) {
+	st := testutil.OpenTestDB(t)
+	cfg := temperature.DefaultConfig()
+
+	tracker, err := temperature.NewTracker(st, "", cfg, nil)
+	if err != nil {
+		t.Fatalf("NewTracker: %v", err)
+	}
+
+	debounce := config.Duration(50 * time.Millisecond)
+	wsCfg := config.Config{Server: config.ServerConfig{
+		Resources: config.ResourcesConfig{Debounce: &debounce},
+	}}
+
+	srv, err := remindb.NewServer(st, tracker, cfg, remindb.WithWorkspaceConfig(wsCfg))
+	if err != nil {
+		t.Fatalf("NewServer: %v", err)
+	}
+
+	serverT, clientT := gomcp.NewInMemoryTransports()
+	if _, err := srv.Connect(context.Background(), serverT); err != nil {
+		t.Fatalf("server connect: %v", err)
+	}
+
+	var notifications atomic.Int32
+	c := gomcp.NewClient(&gomcp.Implementation{Name: "subscriber", Version: "0.1.0"}, &gomcp.ClientOptions{
+		ResourceUpdatedHandler: func(_ context.Context, req *gomcp.ResourceUpdatedNotificationRequest) {
+			if req.Params.URI == "remindb://graph" {
+				notifications.Add(1)
+			}
+		},
+	})
+
+	cs, err := c.Connect(context.Background(), clientT, nil)
+	if err != nil {
+		t.Fatalf("client connect: %v", err)
+	}
+	defer func() { _ = cs.Close() }()
+
+	if err := cs.Subscribe(context.Background(), &gomcp.SubscribeParams{URI: "remindb://graph"}); err != nil {
+		t.Fatalf("subscribe: %v", err)
+	}
+
+	// Non-subscribable URIs must be rejected.
+	if err := cs.Subscribe(context.Background(), &gomcp.SubscribeParams{URI: "remindb://overview"}); err == nil {
+		t.Fatal("expected subscribe to remindb://overview to be rejected")
+	}
+
+	dir := t.TempDir()
+	if err := os.WriteFile(filepath.Join(dir, "note.md"), []byte("# Title\n\nbody\n"), 0o644); err != nil {
+		t.Fatalf("write source: %v", err)
+	}
+
+	if _, err := cs.CallTool(context.Background(), &gomcp.CallToolParams{
+		Name:      "MemoryCompile",
+		Arguments: map[string]any{"path": dir},
+	}); err != nil {
+		t.Fatalf("MemoryCompile: %v", err)
+	}
+
+	time.Sleep(400 * time.Millisecond) // > debounce + slack
+	if n := notifications.Load(); n != 1 {
+		t.Fatalf("got %d graph notifications, want exactly 1 (coalesced)", n)
+	}
+}
+
+func TestMcp_SessionLedger(t *testing.T) {
+	env := mcptest.NewEnvWithSessionLedger(t)
+	dir, _ := filepath.Abs("testdata/openclaw")
+
+	// 1. Agent works: two tool calls accrue against its session.
+	env.CallTool(t, "MemoryCompile", map[string]any{"path": dir, "message": "ledger-init"})
+	env.CallTool(t, "MemorySearch", map[string]any{"query": "identity", "budget": 1000})
+
+	// 2. Flush checkpoints the still-open session.
+	env.FlushSessions()
+
+	type clientLedger struct {
+		Hash   string `json:"hash"`
+		Client struct {
+			Name string `json:"name"`
+		} `json:"client"`
+		Sessions        int   `json:"sessions"`
+		LifetimeSeconds int64 `json:"lifetime_seconds"`
+		ToolCalls       int64 `json:"tool_calls"`
+	}
+
+	var hist struct {
+		Clients []clientLedger `json:"clients"`
+	}
+	if err := json.Unmarshal([]byte(env.ReadResource(t, "remindb://sessions/history")), &hist); err != nil {
+		t.Fatalf("unmarshal history: %v", err)
+	}
+
+	if len(hist.Clients) != 1 {
+		t.Fatalf("clients: got %d, want 1", len(hist.Clients))
+	}
+	c := hist.Clients[0]
+
+	if c.Client.Name != "claude-code" {
+		t.Errorf("client name: got %q, want claude-code", c.Client.Name)
+	}
+	if c.Sessions != 1 {
+		t.Errorf("sessions: got %d, want 1", c.Sessions)
+	}
+	if c.ToolCalls < 2 {
+		t.Errorf("tool_calls: got %d, want >= 2 (compile + search)", c.ToolCalls)
+	}
+	if c.Hash == "" || c.LifetimeSeconds < 0 {
+		t.Errorf("bad ledger entry: %+v", c)
+	}
+
+	// 3. The by-hash resource resolves the same client.
+	var one clientLedger
+	if err := json.Unmarshal([]byte(env.ReadResource(t, "remindb://sessions/history/"+c.Hash)), &one); err != nil {
+		t.Fatalf("unmarshal by-hash: %v", err)
+	}
+	if one.Hash != c.Hash || one.ToolCalls != c.ToolCalls {
+		t.Errorf("by-hash mismatch: %+v vs %+v", one, c)
+	}
+
+	// 4. The on-disk file is named <client>-<hash>.jsonl under .remindb/sessions/.
+	glob := filepath.Join(env.WorkspaceDir, ".remindb", "sessions", "claude-code-*.jsonl")
+	files, err := filepath.Glob(glob)
+	if err != nil || len(files) != 1 {
+		t.Fatalf("ledger file glob %q: files=%v err=%v", glob, files, err)
+	}
+
+	// 5. Disconnect, then flush finalizes the session with a disconnect time.
+	_ = env.Session.Close()
+
+	var finalized bool
+	for i := 0; i < 30 && !finalized; i++ {
+		env.FlushSessions()
+
+		data, err := os.ReadFile(files[0])
+		if err != nil {
+			t.Fatalf("read ledger: %v", err)
+		}
+
+		for _, line := range strings.Split(strings.TrimSpace(string(data)), "\n") {
+			var rec struct {
+				DisconnectedAt int64 `json:"disconnected_at"`
+			}
+
+			if json.Unmarshal([]byte(line), &rec) == nil && rec.DisconnectedAt > 0 {
+				finalized = true
+				break
+			}
+		}
+		if !finalized {
+			time.Sleep(50 * time.Millisecond)
+		}
+	}
+	if !finalized {
+		t.Fatal("disconnected session was never finalized in the ledger")
+	}
+}
+
+func TestMcp_SessionLogs(t *testing.T) {
+	env := mcptest.NewEnvWithSessionLogs(t)
+
+	const secret = "TOP-SECRET-NODE-BODY-9f3c"
+	payload := secret + " plus filler so the node is non-trivial."
+
+	// 1. A write whose payload carries a recognizable secret. logCall records
+	//    only the byte count (mcp-tool-conventions §9), never the body.
+	writeResult := env.CallTool(t, "MemoryWrite", map[string]any{
+		"payload": payload,
+	})
+	if !strings.Contains(env.TextContent(t, writeResult), "wrote node") {
+		t.Fatalf("seed write failed: %s", env.TextContent(t, writeResult))
+	}
+
+	// 2. A read tool: its Debug "mcp call" trace must still reach the session
+	//    file even though the shared stream is gated at Info.
+	env.CallTool(t, "MemorySearch", map[string]any{"query": "filler", "budget": 1000})
+
+	// 3. A guaranteed tool failure → an Error "mcp call failed" record.
+	//    CallTool fatals on IsError, so drive the session directly here.
+	failed, err := env.Session.CallTool(context.Background(), &gomcp.CallToolParams{
+		Name:      "MemoryCompile",
+		Arguments: map[string]any{"path": "/no/such/workspace-xyz", "message": "boom"},
+	})
+	if err != nil {
+		t.Fatalf("CallTool MemoryCompile transport error: %v", err)
+	}
+	if !failed.IsError {
+		t.Fatal("expected MemoryCompile on a bogus path to be a tool error")
+	}
+
+	// 4. Exactly one per-session logfile, keyed by the registry session id.
+	logsDir := filepath.Join(env.WorkspaceDir, config.DirName, "logs")
+	entries, err := os.ReadDir(logsDir)
+	if err != nil {
+		t.Fatalf("read logs dir: %v", err)
+	}
+
+	if len(entries) != 1 {
+		t.Fatalf("session logfiles: got %d, want exactly 1 (%v)", len(entries), entries)
+	}
+	if !strings.HasSuffix(entries[0].Name(), ".log") {
+		t.Errorf("session logfile = %q, want a .log file (no rotation expected)", entries[0].Name())
+	}
+
+	data, err := os.ReadFile(filepath.Join(logsDir, entries[0].Name()))
+	if err != nil {
+		t.Fatalf("read session log: %v", err)
+	}
+	got := string(data)
+
+	// The file is JSONL: parse it back through the one shared Record
+	// definition the resource also uses.
+	recs, err := sessionlog.ParseLog(strings.NewReader(got))
+	if err != nil {
+		t.Fatalf("ParseLog: %v", err)
+	}
+
+	tools := map[string]sessionlog.Record{}
+	for _, r := range recs {
+		if tn, ok := r.Fields["tool"].(string); ok {
+			tools[tn] = r
+		}
+	}
+
+	w, ok := tools["MemoryWrite"]
+	if !ok || w.Msg != "mcp call" {
+		t.Fatalf("no MemoryWrite tool-call trace in session log\n--- log ---\n%s", got)
+	}
+
+	// payload_bytes carries the real length — proving a count, not the body.
+	if pb := w.Fields["payload_bytes"]; pb != float64(len(payload)) {
+		t.Errorf("payload_bytes = %v, want %d", pb, len(payload))
+	}
+	if _, ok := tools["MemorySearch"]; !ok {
+		t.Errorf("no MemorySearch trace in session log\n--- log ---\n%s", got)
+	}
+	if c, ok := tools["MemoryCompile"]; !ok || c.Msg != "mcp call failed" {
+		t.Errorf("no failed MemoryCompile record in session log\n--- log ---\n%s", got)
+	}
+
+	if strings.Contains(got, secret) {
+		t.Errorf("session log leaked payload body %q\n--- log ---\n%s", secret, got)
+	}
+}
+
+func TestMcp_SessionLogsResource(t *testing.T) {
+	env := mcptest.NewEnvWithSessionLogs(t)
+	ctx := context.Background()
+
+	const secret = "TOP-SECRET-NODE-BODY-r3s0urce"
+	payload := secret + " plus filler so the node is non-trivial."
+
+	if r := env.CallTool(t, "MemoryWrite", map[string]any{"payload": payload}); !strings.Contains(env.TextContent(t, r), "wrote node") {
+		t.Fatalf("seed write failed: %s", env.TextContent(t, r))
+	}
+	env.CallTool(t, "MemorySearch", map[string]any{"query": "filler", "budget": 1000})
+
+	failed, err := env.Session.CallTool(ctx, &gomcp.CallToolParams{
+		Name:      "MemoryCompile",
+		Arguments: map[string]any{"path": "/no/such/workspace-xyz", "message": "boom"},
+	})
+	if err != nil {
+		t.Fatalf("CallTool MemoryCompile transport error: %v", err)
+	}
+	if !failed.IsError {
+		t.Fatal("expected MemoryCompile on a bogus path to be a tool error")
+	}
+
+	// 1. Index lists exactly one session, not rotated.
+	var idx struct {
+		DBPath string `json:"db_path"`
+		Logs   []struct {
+			SessionID  string `json:"session_id"`
+			SizeBytes  int64  `json:"size_bytes"`
+			Rotated    bool   `json:"rotated"`
+			ModifiedAt int64  `json:"modified_at"`
+		} `json:"logs"`
+	}
+	if err := json.Unmarshal([]byte(env.ReadResource(t, "remindb://sessions/logs")), &idx); err != nil {
+		t.Fatalf("unmarshal index: %v", err)
+	}
+	if len(idx.Logs) != 1 {
+		t.Fatalf("index logs = %+v, want exactly 1", idx.Logs)
+	}
+
+	entry := idx.Logs[0]
+	if entry.SessionID == "" || entry.SizeBytes == 0 || entry.ModifiedAt == 0 || entry.Rotated {
+		t.Fatalf("index entry = %+v, want non-empty id/size/mtime and rotated=false", entry)
+	}
+
+	// 2. The per-session read returns the structured trace in append order.
+	body := env.ReadResource(t, "remindb://sessions/logs/"+entry.SessionID)
+	if strings.Contains(body, secret) {
+		t.Errorf("resource leaked payload body %q\n--- body ---\n%s", secret, body)
+	}
+
+	var env2 struct {
+		SessionID string              `json:"session_id"`
+		Entries   []sessionlog.Record `json:"entries"`
+	}
+	if err := json.Unmarshal([]byte(body), &env2); err != nil {
+		t.Fatalf("unmarshal session log: %v", err)
+	}
+	if env2.SessionID != entry.SessionID || len(env2.Entries) == 0 {
+		t.Fatalf("session log env = {%q, %d entries}, want id %q with entries", env2.SessionID, len(env2.Entries), entry.SessionID)
+	}
+
+	var write *sessionlog.Record
+	for i := range env2.Entries {
+		if env2.Entries[i].Fields["tool"] == "MemoryWrite" {
+			write = &env2.Entries[i]
+		}
+	}
+	if write == nil || write.Msg != "mcp call" {
+		t.Fatalf("no structured MemoryWrite trace in %+v", env2.Entries)
+	}
+	if pb := write.Fields["payload_bytes"]; pb != float64(len(payload)) {
+		t.Errorf("payload_bytes = %v, want %d (count, not body)", pb, len(payload))
+	}
+
+	// 3. An unknown session id is a clean error, never a panic.
+	if _, err := env.Session.ReadResource(ctx, &gomcp.ReadResourceParams{URI: "remindb://sessions/logs/does-not-exist"}); err == nil {
+		t.Error("reading an unknown session id should error")
+	}
+}
+
+func TestMcp_MemoryCompile_HonorsPinnedSidecar(t *testing.T) {
+	env := mcptest.NewEnv(t)
+
+	dir := t.TempDir()
+	if err := os.MkdirAll(filepath.Join(dir, config.DirName), 0o755); err != nil {
+		t.Fatal(err)
+	}
+
+	if err := os.WriteFile(filepath.Join(dir, config.DirName, pathmatch.PinnedFileName), []byte("doc.md\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, "doc.md"), []byte("# Doc\n\nBody.\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, "loose.md"), []byte("# Loose\n\nBody.\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	env.CallTool(t, "MemoryCompile", map[string]any{
+		"path":    dir,
+		"message": "mcp-pinned",
+	})
+
+	ctx := context.Background()
+
+	doc, err := env.Store.GetNodesByFile(ctx, "doc.md")
+	if err != nil {
+		t.Fatalf("GetNodesByFile doc.md: %v", err)
+	}
+
+	if len(doc) == 0 {
+		t.Fatal("no nodes for doc.md after MemoryCompile")
+	}
+	for i, n := range doc {
+		if !n.Pinned {
+			t.Errorf("doc.md node[%d].Pinned = false, want true (matched .remindb/pinned)", i)
+		}
+	}
+
+	loose, err := env.Store.GetNodesByFile(ctx, "loose.md")
+	if err != nil {
+		t.Fatalf("GetNodesByFile loose.md: %v", err)
+	}
+
+	for i, n := range loose {
+		if n.Pinned {
+			t.Errorf("loose.md node[%d].Pinned = true, want false (not matched)", i)
+		}
 	}
 }

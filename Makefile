@@ -1,4 +1,4 @@
-.PHONY: build run test fuzz test-all fmt lint tidy
+.PHONY: build run test fuzz test-all check-skills fmt lint tidy
 
 VERSION := $(shell git describe --tags --always --dirty 2>/dev/null || echo dev)
 LDFLAGS := -X main.version=$(VERSION)
@@ -17,6 +17,9 @@ fuzz:
 
 test-all:
 	./scripts/test.sh
+
+check-skills:
+	./scripts/check-skills.sh
 
 fmt:
 	gofmt -w .

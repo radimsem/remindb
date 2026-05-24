@@ -18,7 +18,7 @@ type CompileInput struct {
 }
 
 func (d *Deps) HandleCompile(ctx context.Context, _ *gomcp.CallToolRequest, input CompileInput) (_ *gomcp.CallToolResult, _ any, err error) {
-	defer d.logCall("MemoryCompile", &err, time.Now(), "path", input.Path, "message", input.Message)
+	defer d.logCall(ctx, "MemoryCompile", &err, time.Now(), "path", input.Path, "message", input.Message)
 
 	// Pure path normalization — runs before OpMu so EvalSymlinks doesn't block other writers.
 	path, err := canonicalizePath(input.Path, d.SourceDir)
@@ -52,12 +52,12 @@ func (d *Deps) HandleCompile(ctx context.Context, _ *gomcp.CallToolRequest, inpu
 		return nil, nil, fmt.Errorf("failed to compile: %w", err)
 	}
 
+	d.touchCompile()
+
 	text := fmt.Sprintf("compiled: %d added, %d modified, %d removed (%d ops)",
 		result.Added, result.Modified, result.Removed, result.Total)
 
-	return &gomcp.CallToolResult{
-		Content: []gomcp.Content{&gomcp.TextContent{Text: text}},
-	}, nil, nil
+	return textResult(text), nil, nil
 }
 
 func canonicalizePath(input, sourceDir string) (string, error) {

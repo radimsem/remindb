@@ -4,25 +4,10 @@ import (
 	"context"
 	"testing"
 
+	"github.com/radimsem/remindb/internal/testutil"
 	"github.com/radimsem/remindb/pkg/parser"
 	"github.com/radimsem/remindb/pkg/store"
 )
-
-func openTestDB(t *testing.T) *store.Store {
-	t.Helper()
-
-	st, err := store.Open(":memory:")
-	if err != nil {
-		t.Fatalf("Open: %v", err)
-	}
-
-	if err := st.Migrate(context.Background()); err != nil {
-		t.Fatalf("Migrate: %v", err)
-	}
-	t.Cleanup(func() { _ = st.Close() })
-
-	return st
-}
 
 func mustHeading(t *testing.T, st *store.Store, id, sourceFile, label string, depth int) *store.Node {
 	t.Helper()
@@ -45,7 +30,7 @@ func mustHeading(t *testing.T, st *store.Store, id, sourceFile, label string, de
 }
 
 func TestResolve_ByIDHint_Hit(t *testing.T) {
-	st := openTestDB(t)
+	st := testutil.OpenTestDB(t)
 	r := New(st)
 	ctx := context.Background()
 
@@ -62,7 +47,7 @@ func TestResolve_ByIDHint_Hit(t *testing.T) {
 
 // Per spec: missing IDHint does NOT fall back to label.
 func TestResolve_ByIDHint_MissNoFallback(t *testing.T) {
-	st := openTestDB(t)
+	st := testutil.OpenTestDB(t)
 	r := New(st)
 	ctx := context.Background()
 
@@ -81,7 +66,7 @@ func TestResolve_ByIDHint_MissNoFallback(t *testing.T) {
 }
 
 func TestResolve_ByLabel(t *testing.T) {
-	st := openTestDB(t)
+	st := testutil.OpenTestDB(t)
 	r := New(st)
 	ctx := context.Background()
 
@@ -97,7 +82,7 @@ func TestResolve_ByLabel(t *testing.T) {
 }
 
 func TestResolve_ByLabel_CaseInsensitive(t *testing.T) {
-	st := openTestDB(t)
+	st := testutil.OpenTestDB(t)
 	r := New(st)
 	ctx := context.Background()
 
@@ -115,7 +100,7 @@ func TestResolve_ByLabel_CaseInsensitive(t *testing.T) {
 }
 
 func TestResolve_ByLabel_OnlyHeadings(t *testing.T) {
-	st := openTestDB(t)
+	st := testutil.OpenTestDB(t)
 	r := New(st)
 	ctx := context.Background()
 
@@ -145,7 +130,7 @@ func TestResolve_ByLabel_OnlyHeadings(t *testing.T) {
 }
 
 func TestResolve_BySourceAndLabel(t *testing.T) {
-	st := openTestDB(t)
+	st := testutil.OpenTestDB(t)
 	r := New(st)
 	ctx := context.Background()
 
@@ -166,7 +151,7 @@ func TestResolve_BySourceAndLabel(t *testing.T) {
 
 // Suffix match: user provides "docs/x.md" and source_file is the absolute "/abs/docs/x.md".
 func TestResolve_BySourceQual_SuffixMatch(t *testing.T) {
-	st := openTestDB(t)
+	st := testutil.OpenTestDB(t)
 	r := New(st)
 	ctx := context.Background()
 
@@ -180,8 +165,76 @@ func TestResolve_BySourceQual_SuffixMatch(t *testing.T) {
 	}
 }
 
+// Regression: `_` and `%` in source-file names are LIKE wildcards. Without
+// escaping, looking up "a_b.md" would silently match "aXb.md" too.
+func TestResolve_BySourceQual_LikeWildcardsAreLiteral(t *testing.T) {
+	ctx := context.Background()
+
+	t.Run("underscore", func(t *testing.T) {
+		st := testutil.OpenTestDB(t)
+		r := New(st)
+
+		decoy := mustHeading(t, st, "decoy111111", "notes/aXb.md", "Topic", 1)
+		wanted := mustHeading(t, st, "want1111111", "notes/a_b.md", "Topic", 1)
+
+		got, err := r.Resolve(ctx, parser.WikilinkRef{
+			Label: "Topic", SourceQual: "a_b.md",
+		})
+		if err != nil {
+			t.Fatalf("Resolve: %v", err)
+		}
+
+		if got == decoy.ID {
+			t.Fatalf("underscore matched as LIKE wildcard: got decoy %q", got)
+		}
+		if got != wanted.ID {
+			t.Errorf("got %q, want %q", got, wanted.ID)
+		}
+	})
+
+	t.Run("percent", func(t *testing.T) {
+		st := testutil.OpenTestDB(t)
+		r := New(st)
+
+		decoy := mustHeading(t, st, "decoy111111", "notes/100XYZcoverage.md", "Topic", 1)
+		wanted := mustHeading(t, st, "want1111111", "notes/100%coverage.md", "Topic", 1)
+
+		got, err := r.Resolve(ctx, parser.WikilinkRef{
+			Label: "Topic", SourceQual: "100%coverage.md",
+		})
+		if err != nil {
+			t.Fatalf("Resolve: %v", err)
+		}
+
+		if got == decoy.ID {
+			t.Fatalf("percent matched as LIKE wildcard: got decoy %q", got)
+		}
+		if got != wanted.ID {
+			t.Errorf("got %q, want %q", got, wanted.ID)
+		}
+	})
+
+	t.Run("backslash", func(t *testing.T) {
+		st := testutil.OpenTestDB(t)
+		r := New(st)
+
+		wanted := mustHeading(t, st, "want1111111", `notes/a\b.md`, "Topic", 1)
+
+		got, err := r.Resolve(ctx, parser.WikilinkRef{
+			Label: "Topic", SourceQual: `a\b.md`,
+		})
+		if err != nil {
+			t.Fatalf("Resolve: %v", err)
+		}
+
+		if got != wanted.ID {
+			t.Errorf("got %q, want %q", got, wanted.ID)
+		}
+	})
+}
+
 func TestResolve_BySourceQual_MissNoFallback(t *testing.T) {
-	st := openTestDB(t)
+	st := testutil.OpenTestDB(t)
 	r := New(st)
 	ctx := context.Background()
 
@@ -199,7 +252,7 @@ func TestResolve_BySourceQual_MissNoFallback(t *testing.T) {
 }
 
 func TestResolve_EmptyRefReturnsEmpty(t *testing.T) {
-	st := openTestDB(t)
+	st := testutil.OpenTestDB(t)
 	r := New(st)
 
 	got, err := r.Resolve(context.Background(), parser.WikilinkRef{})
@@ -213,7 +266,7 @@ func TestResolve_EmptyRefReturnsEmpty(t *testing.T) {
 
 // Disambiguation: same label in multiple files picks the lowest source_file first.
 func TestResolve_ByLabel_DisambiguationBySourceFile(t *testing.T) {
-	st := openTestDB(t)
+	st := testutil.OpenTestDB(t)
 	r := New(st)
 	ctx := context.Background()
 
@@ -229,7 +282,7 @@ func TestResolve_ByLabel_DisambiguationBySourceFile(t *testing.T) {
 
 // End-to-end: Run() phase 1 emits a relation row for a resolved ref.
 func TestRun_Phase1_Hit(t *testing.T) {
-	st := openTestDB(t)
+	st := testutil.OpenTestDB(t)
 	ctx := context.Background()
 
 	src := mustHeading(t, st, "src11111111", "x.md", "Source", 1)
@@ -245,7 +298,7 @@ func TestRun_Phase1_Hit(t *testing.T) {
 		t.Fatalf("Run: %v", err)
 	}
 
-	related, err := st.GetRelatedNodes(ctx, src.ID, store.DirectionOut, 1, 0, 10)
+	related, err := st.GetRelatedNodes(ctx, src.ID, store.WithDirection(store.DirectionOut), store.WithMaxDepth(1), store.WithLimit(10))
 	if err != nil {
 		t.Fatalf("GetRelatedNodes: %v", err)
 	}
@@ -259,7 +312,7 @@ func TestRun_Phase1_Hit(t *testing.T) {
 
 // Phase 1 miss → pending row gets inserted with origin=parsed.
 func TestRun_Phase1_Miss_GoesPending(t *testing.T) {
-	st := openTestDB(t)
+	st := testutil.OpenTestDB(t)
 	ctx := context.Background()
 
 	src := mustHeading(t, st, "src11111111", "x.md", "Source", 1)
@@ -284,7 +337,7 @@ func TestRun_Phase1_Miss_GoesPending(t *testing.T) {
 
 // Recompiling the same source clears stale parsed pending entries first.
 func TestRun_Phase1_ClearsStaleParsedPending(t *testing.T) {
-	st := openTestDB(t)
+	st := testutil.OpenTestDB(t)
 	ctx := context.Background()
 
 	src := mustHeading(t, st, "src11111111", "x.md", "Source", 1)
@@ -323,7 +376,7 @@ func TestRun_Phase1_ClearsStaleParsedPending(t *testing.T) {
 
 // Phase 2: a previously-pending row resolves on the next compile.
 func TestRun_Phase2_RetriesPendingAndMoves(t *testing.T) {
-	st := openTestDB(t)
+	st := testutil.OpenTestDB(t)
 	ctx := context.Background()
 
 	src := mustHeading(t, st, "src11111111", "x.md", "Source", 1)
@@ -351,7 +404,7 @@ func TestRun_Phase2_RetriesPendingAndMoves(t *testing.T) {
 		t.Errorf("pending should be empty, got %+v", pending)
 	}
 
-	related, _ := st.GetRelatedNodes(ctx, src.ID, store.DirectionOut, 1, 0, 10)
+	related, _ := st.GetRelatedNodes(ctx, src.ID, store.WithDirection(store.DirectionOut), store.WithMaxDepth(1), store.WithLimit(10))
 	if len(related) != 1 || related[0].Node.ID != target.ID {
 		t.Fatalf("related = %+v, want [%s]", related, target.ID)
 	}
@@ -362,7 +415,7 @@ func TestRun_Phase2_RetriesPendingAndMoves(t *testing.T) {
 
 // Manual pending rows survive phase 1 (which only clears parsed pending).
 func TestRun_Phase1_DoesNotTouchManualPending(t *testing.T) {
-	st := openTestDB(t)
+	st := testutil.OpenTestDB(t)
 	ctx := context.Background()
 
 	src := mustHeading(t, st, "src11111111", "x.md", "Source", 1)

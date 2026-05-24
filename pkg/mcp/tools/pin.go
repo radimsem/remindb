@@ -20,7 +20,7 @@ type UnpinInput struct {
 }
 
 func (d *Deps) HandlePin(ctx context.Context, _ *gomcp.CallToolRequest, input PinInput) (_ *gomcp.CallToolResult, _ any, err error) {
-	defer d.logCall("MemoryPin", &err, time.Now(), "node_id", input.NodeID)
+	defer d.logCall(ctx, "MemoryPin", &err, time.Now(), "node_id", input.NodeID)
 
 	if input.Temperature != nil && (*input.Temperature < 0 || *input.Temperature > 1) {
 		return nil, nil, fmt.Errorf("temperature must be in [0, 1], got %g", *input.Temperature)
@@ -29,7 +29,7 @@ func (d *Deps) HandlePin(ctx context.Context, _ *gomcp.CallToolRequest, input Pi
 }
 
 func (d *Deps) HandleUnpin(ctx context.Context, _ *gomcp.CallToolRequest, input UnpinInput) (_ *gomcp.CallToolResult, _ any, err error) {
-	defer d.logCall("MemoryUnpin", &err, time.Now(), "node_id", input.NodeID)
+	defer d.logCall(ctx, "MemoryUnpin", &err, time.Now(), "node_id", input.NodeID)
 	return d.setPinned(ctx, input.NodeID, false, nil, "unpinned")
 }
 

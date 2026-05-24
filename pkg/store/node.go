@@ -5,7 +5,6 @@ import (
 	"database/sql"
 	"errors"
 	"fmt"
-	"strings"
 )
 
 type DeleteMode int
@@ -59,6 +58,7 @@ type Node struct {
 	CreatedAt    int64
 	UpdatedAt    int64
 	Pinned       bool
+	SeedPinned   bool
 	SeedTemp     *float64
 }
 
@@ -122,15 +122,9 @@ func (s *Store) GetNodesByFiles(ctx context.Context, paths []string) ([]*Node, e
 	if len(paths) == 0 {
 		return nil, nil
 	}
-	placeholders := make([]string, len(paths))
-	args := make([]any, len(paths))
 
-	for i, p := range paths {
-		placeholders[i] = "?"
-		args[i] = p
-	}
-
-	query := qSelectNodesByFilesPrefix + strings.Join(placeholders, ",") + `)`
+	clause, args := bindStrings(paths)
+	query := qSelectNodesByFilesPrefix + clause + `)`
 	rows, err := s.db.QueryContext(ctx, query, args...)
 	if err != nil {
 		return nil, err
@@ -144,15 +138,9 @@ func (s *Store) GetNodesByIDs(ctx context.Context, ids []string) ([]*Node, error
 	if len(ids) == 0 {
 		return nil, nil
 	}
-	placeholders := make([]string, len(ids))
-	args := make([]any, len(ids))
 
-	for i, id := range ids {
-		placeholders[i] = "?"
-		args[i] = id
-	}
-
-	query := qSelectNodesByIDsPrefix + strings.Join(placeholders, ",") + `)`
+	clause, args := bindStrings(ids)
+	query := qSelectNodesByIDsPrefix + clause + `)`
 	rows, err := s.db.QueryContext(ctx, query, args...)
 	if err != nil {
 		return nil, err
@@ -198,9 +186,14 @@ func upsertArgs(n *Node) []any {
 		seedTemp = *n.SeedTemp
 	}
 
+	seedPinned := 0
+	if n.SeedPinned {
+		seedPinned = 1
+	}
+
 	return []any{
 		n.ID, parentIDParam(n.ParentID), n.SourceFile, n.NodeType, n.Depth,
-		n.Label, n.Content, n.Format, n.TokenCount, n.ContentHash, seedTemp,
+		n.Label, n.Content, n.Format, n.TokenCount, n.ContentHash, seedTemp, seedPinned,
 	}
 }
 
@@ -308,14 +301,8 @@ func (s *Store) DeleteNodesByFiles(ctx context.Context, paths []string) error {
 		return nil
 	}
 
-	placeholders := make([]string, len(paths))
-	args := make([]any, len(paths))
-	for i, p := range paths {
-		placeholders[i] = "?"
-		args[i] = p
-	}
-
-	query := qDeleteNodesByFilesPrefix + strings.Join(placeholders, ",") + `)`
+	clause, args := bindStrings(paths)
+	query := qDeleteNodesByFilesPrefix + clause + `)`
 	_, err := s.db.ExecContext(ctx, query, args...)
 	return err
 }
@@ -376,17 +363,6 @@ func (s *Store) ListFileSummaries(ctx context.Context) ([]FileSummary, error) {
 		out = append(out, fs)
 	}
 	return out, rows.Err()
-}
-
-// Replace every source file prefix matching oldPrefix with newPrefix.
-func (s *Store) ExecRewriteSourcePaths(ctx context.Context, oldPrefix, newPrefix string) error {
-	_, err := s.db.ExecContext(ctx, qRewriteSourcePaths, newPrefix, oldPrefix, oldPrefix)
-	return err
-}
-
-func (s *Store) ExecRewriteCompileRoots(ctx context.Context, oldPrefix, newPrefix string) error {
-	_, err := s.db.ExecContext(ctx, qRewriteCompileRoots, newPrefix, oldPrefix, oldPrefix)
-	return err
 }
 
 func BuildTree(nodes []*Node) (roots []*Node, children map[string][]*Node) {

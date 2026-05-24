@@ -17,6 +17,7 @@ import (
 var (
 	compileMsg         string
 	compileReseedTemps bool
+	compileReseedPins  bool
 )
 
 var compileCmd = &cobra.Command{
@@ -29,6 +30,7 @@ var compileCmd = &cobra.Command{
 func init() {
 	compileCmd.Flags().StringVarP(&compileMsg, "message", "m", "", "Snapshot message")
 	compileCmd.Flags().BoolVar(&compileReseedTemps, "reseed-temperatures", false, "Override stored temperatures with .remindb/temperatures.json values on unchanged nodes (directory compiles only)")
+	compileCmd.Flags().BoolVar(&compileReseedPins, "reseed-pinned", false, "Re-apply pin status from .remindb/pinned to every node from matching files, overwriting MemoryUnpin choices (directory compiles only)")
 	rootCmd.AddCommand(compileCmd)
 }
 
@@ -88,6 +90,9 @@ func runCompile(cmd *cobra.Command, args []string) error {
 		dirOpts := slices.Clone(baseOpts)
 		if compileReseedTemps {
 			dirOpts = append(dirOpts, compiler.WithReseedTemperatures())
+		}
+		if compileReseedPins {
+			dirOpts = append(dirOpts, compiler.WithReseedPinned())
 		}
 
 		result, err = compiler.CompileDir(ctx, st, path, msg, dirOpts...)

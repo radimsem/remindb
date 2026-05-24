@@ -13,7 +13,6 @@ import (
 	"github.com/radimsem/remindb/internal/redaction"
 	"github.com/radimsem/remindb/pkg/config"
 	remindb "github.com/radimsem/remindb/pkg/mcp"
-	"github.com/radimsem/remindb/pkg/temperature"
 	"github.com/spf13/cobra"
 )
 
@@ -25,6 +24,7 @@ func newServeTestCmd(t *testing.T) *cobra.Command {
 	c := &cobra.Command{Use: "serve"}
 	c.Flags().StringVar(&transport, "transport", remindb.TransportStdio, "")
 	c.Flags().StringVar(&listen, "listen", remindb.DefaultListenAddr, "")
+	c.Flags().BoolVar(&insecurePublic, "insecure-public", false, "")
 
 	return c
 }
@@ -93,6 +93,33 @@ func TestResolveServerConfig_ConfigListenRequiresHTTP(t *testing.T) {
 	}
 }
 
+func TestResolveServerConfig_InsecurePublicTrueRequiresHTTP(t *testing.T) {
+	c := newServeTestCmd(t)
+	if err := c.Flags().Set("insecure-public", "true"); err != nil {
+		t.Fatal(err)
+	}
+
+	err := resolveServerConfig(c, config.ServerConfig{})
+	if err == nil {
+		t.Fatal("expected error: insecure-public with stdio transport")
+	}
+
+	if !strings.Contains(err.Error(), "--transport=http") {
+		t.Errorf("error should mention the http requirement, got: %v", err)
+	}
+}
+
+func TestResolveServerConfig_InsecurePublicFalseAllowsStdio(t *testing.T) {
+	c := newServeTestCmd(t)
+	if err := c.Flags().Set("insecure-public", "false"); err != nil {
+		t.Fatal(err)
+	}
+
+	if err := resolveServerConfig(c, config.ServerConfig{}); err != nil {
+		t.Errorf("explicit --insecure-public=false must not break stdio, got: %v", err)
+	}
+}
+
 func TestResolveServerConfig_UnsupportedTransport(t *testing.T) {
 	c := newServeTestCmd(t)
 	t.Setenv("REMINDB_TRANSPORT", "grpc")
@@ -107,7 +134,7 @@ func TestResolveServerConfig_UnsupportedTransport(t *testing.T) {
 }
 
 func TestNewServeLogger_ConfigLevel(t *testing.T) {
-	lg, file, err := newServeLogger(false, config.LoggingConfig{Level: ptr("warn")})
+	lg, file, _, err := newServeLogger(false, config.LoggingConfig{Level: ptr("warn")})
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -125,7 +152,7 @@ func TestNewServeLogger_ConfigLevel(t *testing.T) {
 }
 
 func TestNewServeLogger_VerboseBeatsConfig(t *testing.T) {
-	lg, _, err := newServeLogger(true, config.LoggingConfig{Level: ptr("error")})
+	lg, _, _, err := newServeLogger(true, config.LoggingConfig{Level: ptr("error")})
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -138,7 +165,7 @@ func TestNewServeLogger_VerboseBeatsConfig(t *testing.T) {
 func TestNewServeLogger_JsonFileOutput(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "r.log")
 
-	lg, file, err := newServeLogger(false, config.LoggingConfig{Format: ptr("json"), OutputPath: ptr(path)})
+	lg, file, _, err := newServeLogger(false, config.LoggingConfig{Format: ptr("json"), OutputPath: ptr(path)})
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -161,7 +188,7 @@ func TestNewServeLogger_JsonFileOutput(t *testing.T) {
 func TestNewServeLogger_OutputOpenFailsLoud(t *testing.T) {
 	bad := filepath.Join(t.TempDir(), "no-such-dir", "r.log")
 
-	_, _, err := newServeLogger(false, config.LoggingConfig{OutputPath: ptr(bad)})
+	_, _, _, err := newServeLogger(false, config.LoggingConfig{OutputPath: ptr(bad)})
 	if err == nil {
 		t.Fatal("expected loud failure when output_path cannot be opened")
 	}
@@ -170,70 +197,97 @@ func TestNewServeLogger_OutputOpenFailsLoud(t *testing.T) {
 	}
 }
 
-func TestApplyTemperatureOverrides_Empty(t *testing.T) {
-	base := temperature.DefaultConfig()
+func TestNewServeLogger_ConfiguredBufferCaptures(t *testing.T) {
+	lg, _, buf, err := newServeLogger(false, config.LoggingConfig{BufferSize: ptr(2)})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if buf == nil {
+		t.Fatal("buffer should be returned for the logs resource")
+	}
 
-	got := applyTemperatureOverrides(base, config.TemperatureConfig{})
-	if got != base {
-		t.Errorf("empty overrides changed the config: got %+v, want %+v", got, base)
+	lg.Info("a")
+	lg.Info("b")
+	lg.Info("c")
+
+	recs := buf.Records()
+	if len(recs) != 2 || recs[0].Msg != "b" || recs[1].Msg != "c" {
+		t.Errorf("configured size 2 not honored: got %d records %v", len(recs), recs)
+	}
+	if buf.Dropped() != 1 {
+		t.Errorf("dropped: got %d, want 1", buf.Dropped())
 	}
 }
 
-func TestApplyTemperatureOverrides_AllFields(t *testing.T) {
-	base := temperature.DefaultConfig()
-
-	o := config.TemperatureConfig{
-		DecayRate:        ptr(0.03),
-		AccessBoost:      ptr(0.2),
-		ColdThreshold:    ptr(0.08),
-		NotifyThreshold:  ptr(0.07),
-		SummarizeRebound: ptr(0.6),
-		TickInterval:     ptr(config.Duration(10 * time.Minute)),
-		ColdNotifyTTL:    ptr(config.Duration(2 * time.Hour)),
-		ColdNotifyLimit:  ptr(100),
+func TestEffectiveLogLevel(t *testing.T) {
+	tests := []struct {
+		name    string
+		verbose bool
+		lg      config.LoggingConfig
+		want    slog.Level
+	}{
+		{"default is info", false, config.LoggingConfig{}, slog.LevelInfo},
+		{"config level honored", false, config.LoggingConfig{Level: ptr("warn")}, slog.LevelWarn},
+		{"verbose forces debug over config", true, config.LoggingConfig{Level: ptr("error")}, slog.LevelDebug},
 	}
-
-	got := applyTemperatureOverrides(base, o)
-
-	want := temperature.Config{
-		DecayRate:        0.03,
-		AccessBoost:      0.2,
-		ColdThreshold:    0.08,
-		NotifyThreshold:  0.07,
-		SummarizeRebound: 0.6,
-		TickInterval:     10 * time.Minute,
-		ColdNotifyTTL:    2 * time.Hour,
-		ColdNotifyLimit:  100,
-	}
-	if got != want {
-		t.Errorf("applyTemperatureOverrides = %+v, want %+v", got, want)
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if got := effectiveLogLevel(tt.verbose, tt.lg); got != tt.want {
+				t.Errorf("effectiveLogLevel = %v, want %v", got, tt.want)
+			}
+		})
 	}
 }
 
-func TestApplyTemperatureOverrides_PartialKeepsBase(t *testing.T) {
-	base := temperature.DefaultConfig()
-
-	got := applyTemperatureOverrides(base, config.TemperatureConfig{DecayRate: ptr(0.99)})
-
-	if got.DecayRate != 0.99 {
-		t.Errorf("DecayRate = %g, want 0.99 (overridden)", got.DecayRate)
+func attrMap(attrs []any) map[string]any {
+	m := make(map[string]any, len(attrs)/2)
+	for i := 0; i+1 < len(attrs); i += 2 {
+		m[attrs[i].(string)] = attrs[i+1]
 	}
-	if got.AccessBoost != base.AccessBoost {
-		t.Errorf("AccessBoost = %g, want %g (untouched default)", got.AccessBoost, base.AccessBoost)
+
+	return m
+}
+
+func TestStartupAttrs_SurfacesEffectiveValues(t *testing.T) {
+	prevSource, prevTransport := sourceDir, transport
+	sourceDir, transport = "/some/source", remindb.TransportStdio
+	defer func() { sourceDir, transport = prevSource, prevTransport }()
+
+	attrs := startupAttrs(slog.LevelDebug, 90*time.Second, 45*time.Second, false, false)
+	m := attrMap(attrs)
+
+	if m["log_level"] != slog.LevelDebug {
+		t.Errorf("log_level = %v, want %v", m["log_level"], slog.LevelDebug)
 	}
-	if got.TickInterval != base.TickInterval {
-		t.Errorf("TickInterval = %s, want %s (untouched default)", got.TickInterval, base.TickInterval)
+	if m["rescan_interval"] != 45*time.Second {
+		t.Errorf("rescan_interval = %v, want 45s", m["rescan_interval"])
+	}
+	if m["rescan_enabled"] != false {
+		t.Errorf("rescan_enabled = %v, want false (disabled via config surfaces in the log)", m["rescan_enabled"])
+	}
+	if m["temperature_enabled"] != false {
+		t.Errorf("temperature_enabled = %v, want false", m["temperature_enabled"])
+	}
+	if _, ok := m["verbose"]; ok {
+		t.Error("raw verbose bool should be replaced by effective log_level")
 	}
 }
 
-// A zero override must overwrite the default — the reason fields are pointers.
-func TestApplyTemperatureOverrides_ExplicitZeroOverrides(t *testing.T) {
-	base := temperature.DefaultConfig()
+func TestStartupAttrs_OmitsRescanWithoutSource(t *testing.T) {
+	prevSource, prevTransport := sourceDir, transport
+	sourceDir, transport = "", remindb.TransportStdio
+	defer func() { sourceDir, transport = prevSource, prevTransport }()
 
-	got := applyTemperatureOverrides(base, config.TemperatureConfig{DecayRate: ptr(0.0)})
+	m := attrMap(startupAttrs(slog.LevelInfo, 90*time.Second, 30*time.Second, true, true))
 
-	if got.DecayRate != 0 {
-		t.Errorf("DecayRate = %g, want 0 (explicit zero must override default %g)", got.DecayRate, base.DecayRate)
+	if _, ok := m["rescan_interval"]; ok {
+		t.Error("rescan_interval should be omitted when no --source is set")
+	}
+	if _, ok := m["rescan_enabled"]; ok {
+		t.Error("rescan_enabled should be omitted when no --source is set")
+	}
+	if m["temperature_enabled"] != true {
+		t.Error("temperature_enabled should be logged regardless of --source")
 	}
 }
 

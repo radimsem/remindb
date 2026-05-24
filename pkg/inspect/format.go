@@ -8,9 +8,6 @@ import (
 )
 
 const (
-	hotThreshold  = 0.5
-	coldThreshold = 0.1
-
 	branchPad  = 4
 	glyphWidth = 2
 	subKeyPad  = 14
@@ -71,8 +68,8 @@ func writeTemperature(b *strings.Builder, s *Stats) {
 	branches := []branch{
 		{key: "avg:", value: fmt.Sprintf("%.2f", s.AvgTemp)},
 		{key: "median:", value: fmt.Sprintf("%.2f", s.MedianTemp)},
-		{key: fmt.Sprintf("hot (>=%.1f):", hotThreshold), value: fmt.Sprintf("%d", s.HotCount)},
-		{key: fmt.Sprintf("cold (<%.1f):", coldThreshold), value: fmt.Sprintf("%d", s.ColdCount)},
+		{key: fmt.Sprintf("hot (>=%.1f):", s.HotThreshold), value: fmt.Sprintf("%d", s.HotCount)},
+		{key: fmt.Sprintf("cold (<%.1f):", s.ColdThreshold), value: fmt.Sprintf("%d", s.ColdCount)},
 		{key: "pinned:", value: fmt.Sprintf("%d", s.PinnedCount)},
 	}
 	writeBranches(b, branches)

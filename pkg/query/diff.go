@@ -1,11 +1,8 @@
 package query
 
-import "github.com/radimsem/remindb/pkg/store"
-
-const (
-	opAdd = "add"
-	opMod = "mod"
-	opRem = "rem"
+import (
+	"github.com/radimsem/remindb/pkg/diff"
+	"github.com/radimsem/remindb/pkg/store"
 )
 
 // Collapse per-snapshot diff rows in a range into one record per changed node.
@@ -45,8 +42,8 @@ func consolidateDiffs(raw []*store.DiffRecord) []*store.DiffRecord {
 }
 
 func consolidateBracket(first, last *store.DiffRecord) (*store.DiffRecord, bool) {
-	existedAtFrom := first.Op != opAdd
-	existsAtTo := last.Op != opRem
+	existedAtFrom := first.Op != string(diff.OpAdd)
+	existsAtTo := last.Op != string(diff.OpRem)
 
 	switch {
 	case !existedAtFrom && !existsAtTo:
@@ -55,7 +52,7 @@ func consolidateBracket(first, last *store.DiffRecord) (*store.DiffRecord, bool)
 		return &store.DiffRecord{
 			SnapshotID: last.SnapshotID,
 			NodeID:     first.NodeID,
-			Op:         opAdd,
+			Op:         string(diff.OpAdd),
 			NewHash:    last.NewHash,
 			NewContent: last.NewContent,
 		}, true
@@ -63,7 +60,7 @@ func consolidateBracket(first, last *store.DiffRecord) (*store.DiffRecord, bool)
 		return &store.DiffRecord{
 			SnapshotID: last.SnapshotID,
 			NodeID:     first.NodeID,
-			Op:         opRem,
+			Op:         string(diff.OpRem),
 			OldHash:    first.OldHash,
 			OldContent: first.OldContent,
 		}, true
@@ -75,7 +72,7 @@ func consolidateBracket(first, last *store.DiffRecord) (*store.DiffRecord, bool)
 	return &store.DiffRecord{
 		SnapshotID: last.SnapshotID,
 		NodeID:     first.NodeID,
-		Op:         opMod,
+		Op:         string(diff.OpMod),
 		OldHash:    first.OldHash,
 		NewHash:    last.NewHash,
 		OldContent: first.OldContent,

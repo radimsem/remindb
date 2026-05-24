@@ -21,7 +21,7 @@ type ForgetInput struct {
 }
 
 func (d *Deps) HandleForget(ctx context.Context, _ *gomcp.CallToolRequest, input ForgetInput) (_ *gomcp.CallToolResult, _ any, err error) {
-	defer d.logCall("MemoryForget", &err, time.Now(), "node_id", input.NodeID, "mode", input.Mode)
+	defer d.logCall(ctx, "MemoryForget", &err, time.Now(), "node_id", input.NodeID, "mode", input.Mode)
 
 	mode, err := store.ParseDeleteMode(input.Mode)
 	if err != nil {
@@ -57,6 +57,8 @@ func (d *Deps) HandleForget(ctx context.Context, _ *gomcp.CallToolRequest, input
 	); err != nil {
 		return nil, nil, fmt.Errorf("failed to forget: %w", err)
 	}
+
+	d.touchSnapshot()
 
 	msg := fmt.Sprintf("forgot node %s (mode=%s, %d affected)", input.NodeID, mode, len(deltas))
 	return textResult(msg), nil, nil

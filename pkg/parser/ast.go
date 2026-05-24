@@ -38,6 +38,7 @@ type ContextNode struct {
 	Temperature  *float64
 	Depth        int
 	TokenCount   int
+	SeedPinned   bool
 	NodeType
 }
 

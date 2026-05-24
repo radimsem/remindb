@@ -60,28 +60,55 @@ type RestoreResult struct {
 	Skipped []SkippedRestore
 }
 
-func (s *Store) CreateSnapshotTx(ctx context.Context, tx *sql.Tx, cursorHash, message, compileRoot string) (int64, error) {
-	var parentID sql.NullInt64
-	row := tx.QueryRowContext(ctx, qSelectHeadCursorSnapID)
-	if err := row.Scan(&parentID); err != nil && err != sql.ErrNoRows {
-		return 0, err
-	}
+type SnapshotOption func(*snapshotOptions)
 
-	res, err := tx.ExecContext(ctx, qInsertSnapshot, cursorHash, parentID, message, compileRoot)
-	if err != nil {
-		return 0, err
-	}
-	return res.LastInsertId()
+type snapshotOptions struct {
+	cursorHash  string
+	message     string
+	compileRoot string
+	parentID    int64
+	hasParent   bool
 }
 
-// Insert a snapshot with an explicit parent_id (parentID == 0 records NULL).
-func (s *Store) CreateSnapshotWithParentTx(ctx context.Context, tx *sql.Tx, cursorHash, message, compileRoot string, parentID int64) (int64, error) {
-	var parent sql.NullInt64
-	if parentID > 0 {
-		parent = sql.NullInt64{Int64: parentID, Valid: true}
+func WithCursorHash(h string) SnapshotOption {
+	return func(o *snapshotOptions) { o.cursorHash = h }
+}
+
+func WithMessage(m string) SnapshotOption {
+	return func(o *snapshotOptions) { o.message = m }
+}
+
+func WithCompileRoot(r string) SnapshotOption {
+	return func(o *snapshotOptions) { o.compileRoot = r }
+}
+
+// WithParent sets an explicit parent (id == 0 records NULL).
+func WithParent(id int64) SnapshotOption {
+	return func(o *snapshotOptions) {
+		o.parentID = id
+		o.hasParent = true
+	}
+}
+
+func (s *Store) CreateSnapshotTx(ctx context.Context, tx *sql.Tx, opts ...SnapshotOption) (int64, error) {
+	var o snapshotOptions
+	for _, opt := range opts {
+		opt(&o)
 	}
 
-	res, err := tx.ExecContext(ctx, qInsertSnapshot, cursorHash, parent, message, compileRoot)
+	var parent sql.NullInt64
+	if o.hasParent {
+		if o.parentID > 0 {
+			parent = sql.NullInt64{Int64: o.parentID, Valid: true}
+		}
+	} else {
+		row := tx.QueryRowContext(ctx, qSelectHeadCursorSnapID)
+		if err := row.Scan(&parent); err != nil && err != sql.ErrNoRows {
+			return 0, err
+		}
+	}
+
+	res, err := tx.ExecContext(ctx, qInsertSnapshot, o.cursorHash, parent, o.message, o.compileRoot)
 	if err != nil {
 		return 0, err
 	}

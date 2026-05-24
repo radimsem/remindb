@@ -24,6 +24,8 @@ func FuzzParseBytes(f *testing.F) {
 	f.Add("file.md", []byte("---\nkey: val\n---\n# Body"))
 	f.Add("file.yaml", []byte("- a\n- b\n- c\n- d\n- e\n- f"))
 	f.Add("file.json", []byte(`{"a":{"b":{"c":{"d":"deep"}}}}`))
+	f.Add("file.json", []byte("{\n  // comment\n  \"a\": 1,\n}"))
+	f.Add("file.json", []byte(`{ /* block */ "a": 1, "b": [1,2,], }`))
 	f.Add("file.md", []byte("---\n+++\n---\n# mixed delimiters"))
 
 	f.Add("file.md", []byte{0xe3})

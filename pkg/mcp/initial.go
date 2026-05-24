@@ -5,17 +5,18 @@ import (
 	"fmt"
 	"log/slog"
 
+	"github.com/radimsem/remindb/internal/loghelper"
 	"github.com/radimsem/remindb/pkg/compiler"
 	"github.com/radimsem/remindb/pkg/store"
+	"github.com/radimsem/remindb/pkg/temperature"
 )
 
 // Run an initial compile when the store is empty; no-op otherwise.
 func MaybeInitialCompile(ctx context.Context, st *store.Store, dir string, logger *slog.Logger) error {
-	if logger == nil {
-		logger = slog.New(slog.DiscardHandler)
-	}
+	logger = loghelper.OrDiscard(logger)
 
-	stats, err := st.GetStats(ctx)
+	dflt := temperature.DefaultConfig()
+	stats, err := st.GetStats(ctx, dflt.HotThreshold, dflt.ColdThreshold)
 	if err != nil {
 		return fmt.Errorf("failed to stat: %w", err)
 	}

@@ -119,12 +119,12 @@ The one documented exception is `MemorySearch`'s `query` field — it's small, u
 
 ## 5. Nil-Logger Safety ★
 
-Library code — anything in `pkg/` — must accept a `nil` logger and behave silently. Two project conventions for the fallback:
+Library code — anything in `pkg/` — must accept a `nil` logger and behave silently. The two project conventions for the fallback are encoded once in `internal/loghelper`; **call the helper, never inline the `if logger == nil` block**:
 
-| Where | Fallback | Why |
+| Where | Helper | Why |
 |---|---|---|
-| `pkg/` libraries (`mcp`, `temperature`) | `slog.New(slog.DiscardHandler)` | Tests and embedders may not want output |
-| CLI-time code (`pkg/compiler` when invoked directly) | `slog.Default()` | Users running `remindb compile` want feedback |
+| `pkg/` libraries (`mcp`, `temperature`) | `loghelper.OrDiscard(l)` → `slog.New(slog.DiscardHandler)` | Tests and embedders may not want output |
+| CLI-time code (`pkg/compiler` when invoked directly) | `loghelper.OrDefault(l)` → `slog.Default()` | Users running `remindb compile` want feedback |
 
 ```go
 // Bad — assumes the caller passed a non-nil logger
@@ -134,7 +134,7 @@ func NewServer(st *store.Store, ..., logger *slog.Logger) *Server {
     return s
 }
 
-// Good — pkg/ library default
+// Bad — inlining the fallback; it now lives in one place
 func NewServer(st *store.Store, ..., logger *slog.Logger) *Server {
     if logger == nil {
         logger = slog.New(slog.DiscardHandler)
@@ -142,18 +142,20 @@ func NewServer(st *store.Store, ..., logger *slog.Logger) *Server {
     return &Server{logger: logger, ...}
 }
 
+// Good — pkg/ library default
+func NewServer(st *store.Store, ..., logger *slog.Logger) *Server {
+    return &Server{logger: loghelper.OrDiscard(logger), ...}
+}
+
 // Good — CLI-time default (used only when the call is the entry point)
 func Run(ctx context.Context, st *store.Store, opts ...Option) error {
     o := applyOptions(opts...)
-    logger := o.logger
-    if logger == nil {
-        logger = slog.Default()
-    }
+    logger := loghelper.OrDefault(o.logger)
     ...
 }
 ```
 
-See `pkg/mcp/server.go:26-28` and `pkg/temperature/tracker.go:30-32` for the discard pattern; `pkg/compiler/compiler.go:63-66` for the default pattern.
+`internal/loghelper/loghelper.go` is the canonical implementation of both conventions; every `pkg/` site resolves through it (`OrDiscard` for libraries, `OrDefault` for CLI-entry code). No `pkg/` file should still inline `if logger == nil { logger = slog.New(...) }`.
 
 ---
 
@@ -193,12 +195,14 @@ Tools in `pkg/mcp/tools/` use a deferred helper instead of two log calls (one be
 
 ```go
 func (d *Deps) HandleX(ctx ..., input XInput) (_ *gomcp.CallToolResult, _ any, err error) {
-    defer d.logCall("MemoryX", &err, time.Now(), "anchor", input.Anchor, "budget", input.Budget)
+    defer d.logCall(ctx, "MemoryX", &err, time.Now(), "anchor", input.Anchor, "budget", input.Budget)
     ...
 }
 ```
 
-This is the only sanctioned way to log MCP tool calls. `d.logCall` (in `pkg/mcp/tools/deps.go`) inspects the captured `err` and routes to `Debug` for success or `Error` for failure with the same structured fields. Don't add extra `Info` / `Debug` lines around tool bodies — they desync the trace and double the log volume.
+This is the only sanctioned way to log MCP tool calls. `d.logCall` (in `pkg/mcp/tools/deps.go`) inspects the captured `err` and routes to `DebugContext` for success or `ErrorContext` for failure with the same structured fields. `ctx` is **mandatory** — it carries the session id the registry middleware injected (`sessionlog.NewContext`), which the outermost `sessionlog.Handler` reads to tee the record into `.remindb/logs/<session-id>.log`. For the same reason, in-handler `Warn`/`Error` (e.g. boost failures) use the `*Context` variants (`WarnContext(ctx, …)`), not the bare ones, so they reach the right session file. Don't add extra `Info` / `Debug` lines around tool bodies — they desync the trace and double the log volume.
+
+The per-session sink inherits §4 unconditionally: it formats the *same* payload-free fields the shared handler does, so "never log the payload/body" already covers it — there is no separate session-log redaction step, and none is needed. The on-disk format is **JSONL** — one `sessionlog.Record` (`{time, level, msg, fields}`) per line, the single shared definition the `remindb://sessions/logs/{id}` resource deserializes back (render serializes it, the resource parses it; no second hand-rolled parser that could drift). §4 still binds the `fields` object exactly as it binds the shared handler's attrs. Any structured (non-`%v`) serialization of slog attrs must coerce `error` (and `fmt.Stringer`) to string before encoding — `json.Marshal` of an error yields `{}`, silently dropping the message the text handler keeps. `sessionlog.jsonable` is the chokepoint; route new structured sinks through it. The session file is opt-in (`server.logging.session_files.enabled`); disabled ⇒ the `sessionlog.Handler` is not in the chain at all and behavior is byte-identical to today.
 
 See `.claude/rules/mcp-tool-conventions.md` §9 for the full attr-selection rule.
 

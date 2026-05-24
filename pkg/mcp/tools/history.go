@@ -7,6 +7,7 @@ import (
 	"time"
 
 	gomcp "github.com/modelcontextprotocol/go-sdk/mcp"
+	"github.com/radimsem/remindb/internal/treewalk"
 )
 
 type HistoryInput struct {
@@ -15,25 +16,20 @@ type HistoryInput struct {
 }
 
 func (d *Deps) HandleHistory(ctx context.Context, _ *gomcp.CallToolRequest, input HistoryInput) (_ *gomcp.CallToolResult, _ any, err error) {
-	defer d.logCall("MemoryHistory", &err, time.Now(), "anchor", input.Anchor, "depth", input.Depth)
+	defer d.logCall(ctx, "MemoryHistory", &err, time.Now(), "anchor", input.Anchor, "depth", input.Depth)
 
 	diffs, err := d.Store.GetDiffsForNode(ctx, input.Anchor)
 	if err != nil {
 		return nil, nil, fmt.Errorf("failed to get history: %w", err)
 	}
 
-	limit := input.Depth
-	if limit <= 0 {
-		limit = 10
-	}
+	limit := treewalk.ClampDepth(input.Depth, 10, treewalk.MaxDepth)
 	if limit > len(diffs) {
 		limit = len(diffs)
 	}
 
 	if len(diffs) == 0 {
-		return &gomcp.CallToolResult{
-			Content: []gomcp.Content{&gomcp.TextContent{Text: "no history for " + input.Anchor}},
-		}, nil, nil
+		return textResult("no history for " + input.Anchor), nil, nil
 	}
 
 	var b strings.Builder
@@ -46,7 +42,5 @@ func (d *Deps) HandleHistory(ctx context.Context, _ *gomcp.CallToolRequest, inpu
 			fmt.Fprintf(&b, "  new: %s\n", truncate(dr.NewContent, 100))
 		}
 	}
-	return &gomcp.CallToolResult{
-		Content: []gomcp.Content{&gomcp.TextContent{Text: b.String()}},
-	}, nil, nil
+	return textResult(b.String()), nil, nil
 }

@@ -105,17 +105,20 @@ if len(result.Nodes) == 0 {
     return &gomcp.CallToolResult{}, nil, nil
 }
 
-// Good — happy path
-text := query.Format(result)
+// Bad — open-coded literal; use the textResult helper in deps.go
 return &gomcp.CallToolResult{
     Content: []gomcp.Content{&gomcp.TextContent{Text: text}},
 }, nil, nil
 
+// Good — happy path
+text := query.Format(result)
+return textResult(text), nil, nil
+
 // Good — explicit empty-state text
-return &gomcp.CallToolResult{
-    Content: []gomcp.Content{&gomcp.TextContent{Text: "no results"}},
-}, nil, nil
+return textResult("no results"), nil, nil
 ```
+
+`textResult(msg string) *gomcp.CallToolResult` lives in `pkg/mcp/tools/deps.go` alongside the other shared tool helpers; every text-content return goes through it.
 
 Use the existing formatters in `pkg/query/` (`Format`, `FormatCompact`) for query results. New tools that need a different format should add a formatter to the same package, not inline string-building.
 
@@ -262,21 +265,60 @@ The `query` string in `MemorySearch` is the one exception to "no user content" �
 
 ## 10. Update the Right Public Skill On Every Tool Change ★
 
-Two public skills under `skills/` form the client contract for what tools exist and how to call them. Pick the right one (or both) when you add, rename, or change semantics of a tool — the change must land in the same commit (or the immediate follow-up — see `.claude/rules/git-versioning.md` §2).
+Two tool-catalog skills under `skills/` form the client contract for what tools exist and how to call them. Both follow **progressive disclosure**: a compact `SKILL.md` router plus a `references/` subdir holding the depth. Pick the right one (or both) when you add, rename, or change semantics of a tool — the change must land in the same commit (or the immediate follow-up — see `.claude/rules/git-versioning.md` §2).
 
-| Tool kind | Skill to update |
-|---|---|
-| Read tools (`MemoryTree`, `MemorySearch`, `MemoryFetch`, `MemoryDelta`, `MemoryHistory`, `MemoryRelated`) | **`skills/remind/SKILL.md`** |
-| Write tools (`MemoryWrite`, `MemorySummarize`, `MemoryCompile`, `MemoryRelate`, `MemoryRollback`) | **`skills/memoize/SKILL.md`** |
-| A tool whose change crosses the boundary (e.g., new shared concept, mental-model field, threshold name) | **Both** — `remind` owns the mental model, `memoize` owns the write workflow that depends on it |
+| Tool kind | SKILL.md to update | Where the depth lives (`references/`) |
+|---|---|---|
+| Read tools (`MemoryTree`, `MemorySearch`, `MemoryFetch`, `MemoryDelta`, `MemoryHistory`, `MemoryRelated`) | **`skills/remind/SKILL.md`** | `fts5-syntax` (search), `snapshots-diffs` (delta/diff/history), `relations` (`MemoryRelated`), `resources` (`remindb://…`) |
+| Write tools (`MemoryWrite`, `MemorySummarize`, `MemoryCompile`, `MemoryRelate`, `MemoryRollback`) | **`skills/memorize/SKILL.md`** | `parser-mapping` (md→node + compaction), `lifecycle` (forget/rollback/pin/summarize/recompile), `wiki-links` (`MemoryRelate` + `[[Label]]`) |
+| A tool whose change crosses the boundary (e.g., new shared concept, mental-model field, threshold name) | **Both** — `remind` owns the mental model, `memorize` owns the write workflow that depends on it | the matching `references/*.md` on each side |
 
 For each affected skill:
 
-- Add or remove the tool from the frontmatter `description` list.
-- Update the opening / inventory paragraph to reflect the new surface.
-- Add at least one example call into the relevant pattern section.
+- Add or remove the tool from the frontmatter `description` list (keep it mechanism-level; the broad "remember/recall" intent belongs to the `remember` router, not `remind`/`memorize`).
+- Update the SKILL.md router (playbook table + inventory line) to reflect the new surface.
+- Put the mechanics where they belong: a one-liner + example in SKILL.md if it's a core router concept, otherwise the full detail in the matching `references/*.md`. Don't reinflate SKILL.md past its `scripts/check-skills.sh` line budget.
+- Run `make check-skills` — it gates frontmatter, line budgets, no relative `../../` links, and that every `references/` link resolves.
+
+The two router skills (`remember` front door, `remindb-setup` connectivity) are **not** tool catalogs — they need touching only when the *set* of tools or the connection/config story changes, not on a per-tool semantics edit.
 
 Tool exists in code but invisible to its public skill = invisible to future Claude sessions. The skills are part of the deployed surface, not auxiliary docs.
+
+---
+
+## 11. Resources Are Passive — The Inverse of a Read Tool ★
+
+MCP **resources** (`pkg/mcp/resources/`, registered via `srv.AddResource` / `srv.AddResourceTemplate`) are not tools and do not follow §5–7. A resource read is *passive observation* by a renderer (desktop client, dashboard), not the agent attending to memory. The contract is the inverse of a read tool:
+
+| | Read tool (`MemorySearch`, `MemoryFetch`, …) | Resource (`remindb://overview`) |
+|---|---|---|
+| Boost temperature | **Yes** — `boostResultNodes` | **Never** |
+| Take `Store.OpMu` | No | **Never** |
+| Emit a snapshot | No | **Never** |
+
+```go
+// Bad — resource handler boosting; the heatmap would measure its own rendering
+func (d *Deps) HandleOverview(ctx context.Context, _ *gomcp.ReadResourceRequest) (*gomcp.ReadResourceResult, error) {
+    stats, _ := inspect.Collect(ctx, d.Store)
+    d.Tracker.RecordAccess(ctx, ids)   // never — resources don't warm nodes
+    ...
+}
+
+// Bad — resource Deps carrying a Tracker/emitter at all; the invariant must be structural
+type Deps struct {
+    Store   *store.Store
+    Tracker *temperature.Tracker   // remove — a resource has nothing to boost
+}
+
+// Good — resource Deps has only what a pure read needs
+type Deps struct {
+    Store *store.Store
+}
+```
+
+Keep the no-boost/no-lock/no-snapshot guarantee structural: `resources.Deps` carries no `Tracker` and no emitter, so the invariant can't be broken by forgetting a convention. Resource handlers wrap errors per §8 (`failed to <verb>:` + `%w`) and return JSON via a typed envelope marshalled with `encoding/json` — never inline string-building, never a duplicate of a stat/query the tool layer already computes (`overview` is a pure projection of `inspect.Collect`, the same source `MemoryStats` formats as text).
+
+Adding, renaming, or reshaping a resource updates **`skills/remind/references/resources.md`** (the resource envelopes live there now — `skills/remind/SKILL.md` keeps only the one-line pointer) and **`docs/resources.md`** (the locked URI scheme + envelope) in the same commit, exactly as §10 requires for tools.
 
 ---
 
@@ -286,14 +328,19 @@ Tool exists in code but invisible to its public skill = invisible to future Clau
 - Anonymous-error-return signature on a handler.
 - Untyped `map[string]any` input or input without `jsonschema` tags.
 - Structured return; multi-content return; empty content array.
+- Open-coding `&gomcp.CallToolResult{Content: []gomcp.Content{&gomcp.TextContent{Text: x}}}` instead of calling `textResult(x)` (defined in `pkg/mcp/tools/deps.go`).
 - Read tool taking `Store.OpMu`; write tool not taking it.
 - Read tool skipping `boostResultNodes`; write tool calling it.
 - More than one snapshot row per tool call — whether via two `emitter.Emit` invocations or via an inlined-tx tool calling `CreateSnapshotWithParentTx` twice. The §7 invariant is "one snapshot per call", not "one `emitter.Emit` per call".
 - `log.Fatal` / `os.Exit` from a tool body.
 - Logging the full payload, summary text, node content, or any user-supplied body.
 - Wrapping the error with `%s` instead of `%w`.
-- Adding/renaming/removing a tool without updating its public skill (`skills/remind/SKILL.md` for read tools, `skills/memoize/SKILL.md` for write tools, both when the change crosses the read/write boundary).
+- Adding/renaming/removing a tool without updating its public skill (`skills/remind/SKILL.md` for read tools, `skills/memorize/SKILL.md` for write tools, both when the change crosses the read/write boundary).
 - Wrapping `Store.OpMu` in helper methods like `LockOp` / `UnlockOp` (memory: "no wrapper methods around sync primitives").
+- A resource that boosts temperature, takes `Store.OpMu`, emits a snapshot, or carries a `Tracker`/emitter in its `Deps` (§11).
+- Adding/renaming/reshaping a resource without updating `skills/remind/references/resources.md` and `docs/resources.md` in the same commit.
+- Adding/renaming/removing a tool without updating the matching `references/*.md` depth (not just SKILL.md) and running `make check-skills`.
+- Reinflating a tool-catalog SKILL.md past its `scripts/check-skills.sh` line budget instead of pushing depth into `references/`.
 
 ---
 
