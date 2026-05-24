@@ -1,6 +1,6 @@
 # Lifecycle — forget, rollback, pin, summarize, recompile
 
-Reference for `memoize`. Load when removing/reverting nodes, protecting them from decay, compacting cold nodes, re-syncing from disk, or deciding *when* to do each.
+Reference for `memorize`. Load when removing/reverting nodes, protecting them from decay, compacting cold nodes, re-syncing from disk, or deciding *when* to do each.
 
 ## Maintenance cadence — when to reach for each
 

@@ -1,6 +1,6 @@
 # Wiki-links and manual relations
 
-Reference for `memoize`. Load when authoring `[[Label]]` cross-references in a **compiled file** or connecting two existing nodes with `MemoryRelate`.
+Reference for `memorize`. Load when authoring `[[Label]]` cross-references in a **compiled file** or connecting two existing nodes with `MemoryRelate`.
 
 ## Authoring wiki-links — graph relations in compiled content
 

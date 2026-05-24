@@ -37,10 +37,10 @@ One git-diff block per **changed node**; intermediate jitter (`mod→mod→mod`,
 
 ## Inspect history before rewriting
 
-Before a `memoize`-side overwrite, check how a node evolved:
+Before a `memorize`-side overwrite, check how a node evolved:
 
 ```
 remindb__MemoryHistory(anchor="<node_id>", depth=10)
 ```
 
-Snapshot-ordered `add`/`mod`/`rem` with truncated old+new content. Use it to roll back (re-write the `old` payload via `memoize`'s `MemoryWrite`) or cite prior wording.
+Snapshot-ordered `add`/`mod`/`rem` with truncated old+new content. Use it to roll back (re-write the `old` payload via `memorize`'s `MemoryWrite`) or cite prior wording.

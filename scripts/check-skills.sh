@@ -28,7 +28,7 @@ cd "$REPO_ROOT"
 # skill dir -> SKILL.md line budget (ceiling).
 declare -A BUDGET=(
     [remind]=180
-    [memoize]=130
+    [memorize]=130
     [remember]=50
     [remindb-setup]=90
 )

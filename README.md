@@ -97,7 +97,7 @@ remindb --version
 
 ## Updating
 
-Two moving parts: the **binary** (release tags) and the **agent-side skills** (`remind`, `memoize` — the markdown your agent loads to learn how to call the MCP tools). They iterate on different cadences, so they update independently.
+Two moving parts: the **binary** (release tags) and the **agent-side skills** (`remind`, `memorize` — the markdown your agent loads to learn how to call the MCP tools). They iterate on different cadences, so they update independently.
 
 ### Binary
 
@@ -113,7 +113,7 @@ remindb update --force
 
 ### Skills
 
-The public skills live under [`skills/`](skills/): [`remember`](skills/remember/SKILL.md) (the plain-language front door), [`remind`](skills/remind/SKILL.md) (read path), [`memoize`](skills/memoize/SKILL.md) (write path), and [`remindb-setup`](skills/remindb-setup/SKILL.md) (connectivity/config). `remind` and `memoize` use progressive disclosure — a compact `SKILL.md` plus on-demand `references/`. They're refreshed by [`vercel-labs/skills`](https://github.com/vercel-labs/skills).
+The public skills live under [`skills/`](skills/): [`remember`](skills/remember/SKILL.md) (the plain-language front door), [`remind`](skills/remind/SKILL.md) (read path), [`memorize`](skills/memorize/SKILL.md) (write path), and [`remindb-setup`](skills/remindb-setup/SKILL.md) (connectivity/config). `remind` and `memorize` use progressive disclosure — a compact `SKILL.md` plus on-demand `references/`. They're refreshed by [`vercel-labs/skills`](https://github.com/vercel-labs/skills).
 
 First-time install — globally (every detected agent), or scoped to one agent:
 
@@ -147,7 +147,7 @@ The README is the trailer. The manual is in [`docs/`](./docs/) — each page ope
 
 ## MCP tools
 
-A `Memory*` tool suite, registered once, surfaced to any MCP-capable agent (Claude Code, Codex, Gemini CLI, OpenCode, OpenClaw, Hermes Agent, …). The read path is documented in the [`remind`](./skills/remind/) skill, the write path in [`memoize`](./skills/memoize/).
+A `Memory*` tool suite, registered once, surfaced to any MCP-capable agent (Claude Code, Codex, Gemini CLI, OpenCode, OpenClaw, Hermes Agent, …). The read path is documented in the [`remind`](./skills/remind/) skill, the write path in [`memorize`](./skills/memorize/).
 
 | Tool | Purpose |
 |------|---------|
@@ -204,7 +204,7 @@ Six plugin folders ship with the repo, one per supported agent host. Five are sh
 | Hermes Agent | [`plugins/hermes-agent/memory/remindb/`](./plugins/hermes-agent/memory/remindb/) | [plugins/hermes-agent/memory/remindb/README.md](./plugins/hermes-agent/memory/remindb/README.md) |
 
 > [!TIP]
-> **Pair the plugin with the two companion skills** — [`remind`](./skills/remind/) (read path) and [`memoize`](./skills/memoize/) (write path). They teach the agent the MCP tool suite so you don't re-explain it each session. Per-agent install instructions live in [`skills/README.md`](./skills/).
+> **Pair the plugin with the two companion skills** — [`remind`](./skills/remind/) (read path) and [`memorize`](./skills/memorize/) (write path). They teach the agent the MCP tool suite so you don't re-explain it each session. Per-agent install instructions live in [`skills/README.md`](./skills/).
 
 For any other MCP-capable agent, add this to its MCP config by hand. Stdio (the default — one server per client process):
 
@@ -250,7 +250,7 @@ You don't hand-write any of that, though — the **`remindb-setup`** skill (inst
 
 Codex, OpenCode, and Gemini CLI surface the same skill differently — the `/skills` picker, a `$remindb-setup` mention, or plain-language activation; each plugin README gives the exact invocation. Either way, it detects the host, authors `.remindb/` (`ignore`/`pinned`/`temperatures.json`/`config.json`) **before** compiling — so those settings apply at insert time, no reseed retrofit — runs the compile, offers to seed adjacent context (`CLAUDE.md`/`AGENTS.md`/`README`), and wires the MCP `env` for you using your host's durable mechanism. Then you enable the plugin and restart; re-running the wizard with the server attached is the verify pass (`MemoryStats` + `remindb://doctor`). Per-host invocation and env details live in [`skills/remindb-setup/`](./skills/remindb-setup/). (Hermes Agent is a memory-provider bridge, not an MCP-config host — it uses `hermes memory setup` instead; see its [plugin README](./plugins/hermes-agent/memory/remindb/).)
 
-Once that's done, talking to your memory is plain language — the **`/remember`** front door routes recall to `remind` and saves to `memoize`, so you never name a tool:
+Once that's done, talking to your memory is plain language — the **`/remember`** front door routes recall to `remind` and saves to `memorize`, so you never name a tool:
 
 ```
 /remember what did we decide about <topic>? Pull it from memory — don't re-read the files.

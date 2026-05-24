@@ -30,7 +30,7 @@ Verify: `remindb --version`.
 
 ### 2. Install the companion skills
 
-Pulls the `remindb-setup` wizard plus the `remind` (read) and `memoize` (write) skills:
+Pulls the `remindb-setup` wizard plus the `remind` (read) and `memorize` (write) skills:
 
 ```bash
 npx skills@latest add radimsem/remindb/skills -a codex

@@ -1,6 +1,6 @@
 # Write paths — file (compile plane) vs MemoryWrite (flat plane)
 
-Reference for `memoize`. Load when deciding *how* to persist memory, or when authoring a source file for the compile plane.
+Reference for `memorize`. Load when deciding *how* to persist memory, or when authoring a source file for the compile plane.
 
 ## Why the plane matters
 

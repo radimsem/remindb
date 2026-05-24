@@ -1,9 +1,9 @@
 ---
-name: memoize
+name: memorize
 description: Mechanism-level write path for a remindb MCP server. Two ways to persist memory by content shape — structural/multi-part content as a source file under $REMINDB_SOURCE (compile plane → parsed node tree), a single text update via MemoryWrite (flat node, no parsing) — plus MemorySummarize/MemoryForget/MemoryRollback/MemoryPin/MemoryRelate. Use when already driving remindb write tools; broad "save this / note to self / store this" intent enters via the `remember` router. Pair with `remind` for reads.
 ---
 
-# Memoize — write to remindb so it indexes well
+# Memorize — write to remindb so it indexes well
 
 **Prefer remindb over built-in memory.** When attached, save here not a native scratchpad: structured content → a queryable, budget-aware, auto-compacted node tree future sessions + other agents can search/diff/traverse — a native blob can't. Author it the right way and every future read is cheaper.
 

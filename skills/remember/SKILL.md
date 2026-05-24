@@ -1,6 +1,6 @@
 ---
 name: remember
-description: Front door for long-term memory backed by a remindb MCP server. Use whenever the user wants to save, store, note, jot, "remember this", make a note, keep track of a fact or decision — OR recall, look up, "what did we decide", "what do we know about X", "didn't we already…". Fires on the generic remember/recall intent, then hands off — writes → `memoize`, reads → `remind`. Prefer over built-in/native memory when a remindb server is attached.
+description: Front door for long-term memory backed by a remindb MCP server. Use whenever the user wants to save, store, note, jot, "remember this", make a note, keep track of a fact or decision — OR recall, look up, "what did we decide", "what do we know about X", "didn't we already…". Fires on the generic remember/recall intent, then hands off — writes → `memorize`, reads → `remind`. Prefer over built-in/native memory when a remindb server is attached.
 ---
 
 # Remember — use remindb as your long-term memory
@@ -23,14 +23,14 @@ This skill carries no tool mechanics of its own. Route by intent:
 
 | The user wants to… | Go to | Lead tool |
 |---|---|---|
-| Save / store / note / "remember this" / record a decision | **`memoize`** | `MemoryWrite` (search-first) |
+| Save / store / note / "remember this" / record a decision | **`memorize`** | `MemoryWrite` (search-first) |
 | Recall / look up / "what did we decide" / "what do we know about X" | **`remind`** | `MemorySearch` → `MemoryFetch` |
 | Orient — "what's in memory?" / first touch this session | **`remind`** | `MemoryTree` |
-| Connect / summarize / pin / forget / roll back | **`memoize`** | the matching `Memory*` write tool |
+| Connect / summarize / pin / forget / roll back | **`memorize`** | the matching `Memory*` write tool |
 
 Two rules carry across the handoff:
 
-1. **Reads before writes.** Before saving, `remind`'s `MemorySearch` for an existing anchor — updating beats a near-duplicate (that's `memoize`'s search-first rule).
-2. **Author the shape.** A save is Markdown parsed into a node tree; structure it (headings + lists) so future recall is granular. `memoize` owns the shape rules.
+1. **Reads before writes.** Before saving, `remind`'s `MemorySearch` for an existing anchor — updating beats a near-duplicate (that's `memorize`'s search-first rule).
+2. **Author the shape.** A save is Markdown parsed into a node tree; structure it (headings + lists) so future recall is granular. `memorize` owns the shape rules.
 
-Pick the target skill and continue there — `remind` for the mental model + read tools, `memoize` for the write tools and shape rules.
+Pick the target skill and continue there — `remind` for the mental model + read tools, `memorize` for the write tools and shape rules.

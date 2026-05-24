@@ -37,7 +37,7 @@ The binary is a hard prerequisite — `hermes memory setup` configures paths but
 
 ### 2. Install the companion skills
 
-This pulls `remindb-setup` (used scoped in step 3), `remind` (read tools), and `memoize` (write tools) via [`vercel-labs/skills`](https://github.com/vercel-labs/skills):
+This pulls `remindb-setup` (used scoped in step 3), `remind` (read tools), and `memorize` (write tools) via [`vercel-labs/skills`](https://github.com/vercel-labs/skills):
 
 ```bash
 npx skills@latest add radimsem/remindb/skills -a hermes-agent

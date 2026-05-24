@@ -56,4 +56,4 @@ Close Pass 1 by telling the user that once the host has reloaded, the server att
   ```
   **Warn:** `--reseed-pinned` re-applies `.remindb/pinned` to every match, **overwriting manual `MemoryUnpin` choices**. WAL + `busy_timeout(5s)` makes it safe while `serve` holds the file. `MemoryCompile` (the tool) never reseeds pins — hence the CLI.
 
-Done? You're ready: `remember` (plain-language front door), `remind` (read tools), `memoize` (write tools).
+Done? You're ready: `remember` (plain-language front door), `remind` (read tools), `memorize` (write tools).

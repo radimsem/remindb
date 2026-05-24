@@ -6,7 +6,7 @@ Reference for `remind`'s `MemoryRelated`. Load when you follow a `[[Label]]` cro
 
 Directed weighted edges beyond the parent/child tree. Two kinds:
 
-- **Resolved** — `source → target` between real node IDs. From the parser (`[[Label]]` wiki-link in source) or `MemoryRelate` (a `memoize` tool).
+- **Resolved** — `source → target` between real node IDs. From the parser (`[[Label]]` wiki-link in source) or `MemoryRelate` (a `memorize` tool).
 - **Pending** — target unresolved at compile time (forward ref, typo, not yet compiled). Stored with the hint, retried every compile.
 
 Fields: `weight` (`REAL`, default `1.0`; higher = more important; ranks `MemoryRelated`, filters via `weight_min`; not yet in `MemorySearch` ranking). `origin` = `parsed` or `manual` (both can coexist per pair; `UNIQUE(source, target, origin)`). Direction is one-way (Obsidian-style); backlinks via `direction=in`.

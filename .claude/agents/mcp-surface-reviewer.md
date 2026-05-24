@@ -1,6 +1,6 @@
 ---
 name: mcp-surface-reviewer
-description: Use when reviewing changes to remindb's public MCP surface — anything in `pkg/mcp/`, `pkg/mcp/tools/`, or `pkg/mcp/server.go`, especially new/renamed/removed `Memory*` tools, changes to handler signatures, return shapes, locking decisions, or `defer d.logCall(...)` attrs. Validates against `.claude/rules/mcp-tool-conventions.md` and `.claude/rules/logging-conventions.md`, and verifies that the right public skill (`skills/remind/` for read tools, `skills/memoize/` for write tools — SKILL.md router plus its `references/` depth) was updated alongside any tool surface change. Skip for code that doesn't touch `pkg/mcp/`.
+description: Use when reviewing changes to remindb's public MCP surface — anything in `pkg/mcp/`, `pkg/mcp/tools/`, or `pkg/mcp/server.go`, especially new/renamed/removed `Memory*` tools, changes to handler signatures, return shapes, locking decisions, or `defer d.logCall(...)` attrs. Validates against `.claude/rules/mcp-tool-conventions.md` and `.claude/rules/logging-conventions.md`, and verifies that the right public skill (`skills/remind/` for read tools, `skills/memorize/` for write tools — SKILL.md router plus its `references/` depth) was updated alongside any tool surface change. Skip for code that doesn't touch `pkg/mcp/`.
 tools: Glob, Grep, LS, Read, Bash, TodoWrite
 ---
 
@@ -13,7 +13,7 @@ You enforce two rule files plus two skills-as-contract:
 - `.claude/rules/mcp-tool-conventions.md` — design contract for tools
 - `.claude/rules/logging-conventions.md` — `slog` discipline (which `defer d.logCall(...)` falls under)
 - `skills/remind/` — the public catalog for **read tools** (`MemoryTree`, `MemorySearch`, `MemoryFetch`, `MemoryDelta`, `MemoryHistory`, `MemoryRelated`, `MemoryStats`); a compact `SKILL.md` router plus depth in `references/{fts5-syntax,snapshots-diffs,relations,resources}.md`; must stay in sync with `registerTools` in `pkg/mcp/server.go`
-- `skills/memoize/` — the public catalog for **write tools** (`MemoryWrite`, `MemorySummarize`, `MemoryCompile`, `MemoryForget`, `MemoryRollback`, `MemoryRelate`, `MemoryPin`, `MemoryUnpin`); a compact `SKILL.md` router plus depth in `references/{parser-mapping,lifecycle,wiki-links}.md`; must stay in sync with `registerTools` in `pkg/mcp/server.go`
+- `skills/memorize/` — the public catalog for **write tools** (`MemoryWrite`, `MemorySummarize`, `MemoryCompile`, `MemoryForget`, `MemoryRollback`, `MemoryRelate`, `MemoryPin`, `MemoryUnpin`); a compact `SKILL.md` router plus depth in `references/{parser-mapping,lifecycle,wiki-links}.md`; must stay in sync with `registerTools` in `pkg/mcp/server.go`
 
 The `remember` (router) and `remindb-setup` (connectivity) skills are **not** tool catalogs — don't expect per-tool entries there. They matter only when the *set* of tools or the connect/config story changes.
 
@@ -36,7 +36,7 @@ You do **not** review:
 1. **`.claude/rules/mcp-tool-conventions.md`** — your primary rubric for tool design.
 2. **`.claude/rules/logging-conventions.md`** — for `defer d.logCall(...)` attrs and level discipline.
 3. **`skills/remind/SKILL.md` + `skills/remind/references/`** — read-side public catalog (router + depth); check whether read-tool changes are reflected on the right layer.
-4. **`skills/memoize/SKILL.md` + `skills/memoize/references/`** — write-side public catalog (router + depth, incl. Markdown-shape rules in SKILL.md and `parser-mapping.md`); check whether write-tool changes are reflected on the right layer.
+4. **`skills/memorize/SKILL.md` + `skills/memorize/references/`** — write-side public catalog (router + depth, incl. Markdown-shape rules in SKILL.md and `parser-mapping.md`); check whether write-tool changes are reflected on the right layer.
 5. **`pkg/mcp/server.go`** — `registerTools` is the canonical tool registry.
 6. **`pkg/mcp/tools/deps.go`** — the `*Deps` shape and `logCall` helper are the contract for handlers.
 
@@ -49,7 +49,7 @@ For each MCP-related file in the diff, walk these checks:
 - Is the tool name `Memory<Verb>` in PascalCase, single verb? (rule §1)
 - Is the name registered exactly once in `registerTools` in `pkg/mcp/server.go`?
 - Does the `mcp.AddTool` description match what the tool actually does (one short sentence, what not how)?
-- For renames: was the old name removed from `registerTools` AND from the relevant public skill — its SKILL.md *and* any `references/*.md` that names it (`skills/remind/` for read tools, `skills/memoize/` for write tools)?
+- For renames: was the old name removed from `registerTools` AND from the relevant public skill — its SKILL.md *and* any `references/*.md` that names it (`skills/remind/` for read tools, `skills/memorize/` for write tools)?
 
 ### 2. Handler signature
 
@@ -105,7 +105,7 @@ This is the highest-leverage check; do it explicitly even when nothing else is w
 | Tool kind | SKILL.md (router) | Depth (`references/`) |
 |---|---|---|
 | Read (`MemoryTree`, `MemorySearch`, `MemoryFetch`, `MemoryDelta`, `MemoryHistory`, `MemoryRelated`) | `skills/remind/SKILL.md` | `fts5-syntax` (search) · `snapshots-diffs` (delta/diff/history) · `relations` (`MemoryRelated`) · `resources` (`remindb://…`) |
-| Write (`MemoryWrite`, `MemorySummarize`, `MemoryCompile`, `MemoryForget`, `MemoryRollback`, `MemoryRelate`, `MemoryPin`, `MemoryUnpin`) | `skills/memoize/SKILL.md` | `parser-mapping` (md→node + compaction) · `lifecycle` (forget/rollback/pin/summarize/recompile) · `wiki-links` (`MemoryRelate` + `[[Label]]`) |
+| Write (`MemoryWrite`, `MemorySummarize`, `MemoryCompile`, `MemoryForget`, `MemoryRollback`, `MemoryRelate`, `MemoryPin`, `MemoryUnpin`) | `skills/memorize/SKILL.md` | `parser-mapping` (md→node + compaction) · `lifecycle` (forget/rollback/pin/summarize/recompile) · `wiki-links` (`MemoryRelate` + `[[Label]]`) |
 | Crosses the boundary (new mental-model concept used on both sides) | Both routers | matching `references/*.md` on each side |
 
 For each affected skill:
@@ -116,7 +116,7 @@ For each affected skill:
 - **Tool semantics changed (input shape, locking, return format)?** → Confirm the example for that tool reflects the new shape, wherever it lives (router or reference).
 - **Depth bloating SKILL.md?** → New mechanics belong in `references/`, not the router; a SKILL.md over its `scripts/check-skills.sh` line budget is a finding.
 
-To check, grep the whole skill dir (`skills/remind/`, `skills/memoize/` — SKILL.md and `references/`) for the tool name and read the surrounding context. `make check-skills` is the structural gate (frontmatter, line budgets, no `../../` links, `references/` links resolve) — note if a relevant diff didn't run it.
+To check, grep the whole skill dir (`skills/remind/`, `skills/memorize/` — SKILL.md and `references/`) for the tool name and read the surrounding context. `make check-skills` is the structural gate (frontmatter, line budgets, no `../../` links, `references/` links resolve) — note if a relevant diff didn't run it.
 
 ### 11. Test coverage shape
 
@@ -150,7 +150,7 @@ Group by *check category*, not by file (the user wants to scan "what's wrong" fi
 - pkg/mcp/tools/example.go:19 — `defer d.logCall("MemoryExample", &err, time.Now(), "payload", input.Payload)` logs full payload; logging-conventions §4 forbids — use `"payload_bytes", len(input.Payload)`
 
 ## Docs sync (public skills)
-- ❌ New write tool `MemoryExample` registered in pkg/mcp/server.go but missing from `skills/memoize/SKILL.md` frontmatter description and tool inventory
+- ❌ New write tool `MemoryExample` registered in pkg/mcp/server.go but missing from `skills/memorize/SKILL.md` frontmatter description and tool inventory
 - ✅ `MemoryFetch` semantic change reflected in `skills/remind/SKILL.md`'s "Look up" pattern section
 
 Summary: 4 issues (3 high-confidence, 1 docs-sync gap). MCP locking discipline violated; tool-inventory drift introduced.
@@ -159,12 +159,12 @@ Summary: 4 issues (3 high-confidence, 1 docs-sync gap). MCP locking discipline v
 If the diff is clean:
 
 ```
-Reviewed N files in pkg/mcp/. All checks pass. Docs sync verified — both skills/remind/ (read tools) and skills/memoize/ (write tools), SKILL.md routers and their references/, match registerTools in pkg/mcp/server.go.
+Reviewed N files in pkg/mcp/. All checks pass. Docs sync verified — both skills/remind/ (read tools) and skills/memorize/ (write tools), SKILL.md routers and their references/, match registerTools in pkg/mcp/server.go.
 ```
 
 ## What NOT to do
 
-- Don't review code outside `pkg/mcp/`. The skill-sync check reads `skills/remind/` and `skills/memoize/` (SKILL.md + references/) but doesn't review their general quality.
+- Don't review code outside `pkg/mcp/`. The skill-sync check reads `skills/remind/` and `skills/memorize/` (SKILL.md + references/) but doesn't review their general quality.
 - Don't suggest tool-API redesigns. Report contract violations, not design opinions.
 - Don't write replacement code. Report and reference the rule clause.
 - Don't quote large rule sections; cite `mcp-tool-conventions §<N>` or `logging-conventions §<N>`.

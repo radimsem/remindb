@@ -267,12 +267,12 @@ Two tool-catalog skills under `skills/` form the client contract for what tools 
 | Tool kind | SKILL.md to update | Where the depth lives (`references/`) |
 |---|---|---|
 | Read tools (`MemoryTree`, `MemorySearch`, `MemoryFetch`, `MemoryDelta`, `MemoryHistory`, `MemoryRelated`) | **`skills/remind/SKILL.md`** | `fts5-syntax` (search), `snapshots-diffs` (delta/diff/history), `relations` (`MemoryRelated`), `resources` (`remindb://…`) |
-| Write tools (`MemoryWrite`, `MemorySummarize`, `MemoryCompile`, `MemoryRelate`, `MemoryRollback`) | **`skills/memoize/SKILL.md`** | `parser-mapping` (md→node + compaction), `lifecycle` (forget/rollback/pin/summarize/recompile), `wiki-links` (`MemoryRelate` + `[[Label]]`) |
-| A tool whose change crosses the boundary (e.g., new shared concept, mental-model field, threshold name) | **Both** — `remind` owns the mental model, `memoize` owns the write workflow that depends on it | the matching `references/*.md` on each side |
+| Write tools (`MemoryWrite`, `MemorySummarize`, `MemoryCompile`, `MemoryRelate`, `MemoryRollback`) | **`skills/memorize/SKILL.md`** | `parser-mapping` (md→node + compaction), `lifecycle` (forget/rollback/pin/summarize/recompile), `wiki-links` (`MemoryRelate` + `[[Label]]`) |
+| A tool whose change crosses the boundary (e.g., new shared concept, mental-model field, threshold name) | **Both** — `remind` owns the mental model, `memorize` owns the write workflow that depends on it | the matching `references/*.md` on each side |
 
 For each affected skill:
 
-- Add or remove the tool from the frontmatter `description` list (keep it mechanism-level; the broad "remember/recall" intent belongs to the `remember` router, not `remind`/`memoize`).
+- Add or remove the tool from the frontmatter `description` list (keep it mechanism-level; the broad "remember/recall" intent belongs to the `remember` router, not `remind`/`memorize`).
 - Update the SKILL.md router (playbook table + inventory line) to reflect the new surface.
 - Put the mechanics where they belong: a one-liner + example in SKILL.md if it's a core router concept, otherwise the full detail in the matching `references/*.md`. Don't reinflate SKILL.md past its `scripts/check-skills.sh` line budget.
 - Run `make check-skills` — it gates frontmatter, line budgets, no relative `../../` links, and that every `references/` link resolves.
@@ -331,7 +331,7 @@ Adding, renaming, or reshaping a resource updates **`skills/remind/references/re
 - `log.Fatal` / `os.Exit` from a tool body.
 - Logging the full payload, summary text, node content, or any user-supplied body.
 - Wrapping the error with `%s` instead of `%w`.
-- Adding/renaming/removing a tool without updating its public skill (`skills/remind/SKILL.md` for read tools, `skills/memoize/SKILL.md` for write tools, both when the change crosses the read/write boundary).
+- Adding/renaming/removing a tool without updating its public skill (`skills/remind/SKILL.md` for read tools, `skills/memorize/SKILL.md` for write tools, both when the change crosses the read/write boundary).
 - Wrapping `Store.OpMu` in helper methods like `LockOp` / `UnlockOp` (memory: "no wrapper methods around sync primitives").
 - A resource that boosts temperature, takes `Store.OpMu`, emits a snapshot, or carries a `Tracker`/emitter in its `Deps` (§11).
 - Adding/renaming/reshaping a resource without updating `skills/remind/references/resources.md` and `docs/resources.md` in the same commit.

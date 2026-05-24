@@ -6,12 +6,12 @@ Four skills that teach an agent how to actually *use* remindb's MCP tool suite. 
 
 | Skill | Purpose |
 |---|---|
-| [`remember/`](./remember/) | **Front door (router).** Broadest trigger — fires on the generic "remember this / save that / what did we decide" intent, frames remindb as preferable to native memory, and immediately hands off (writes → `memoize`, reads → `remind`). Thin by design; carries no tool mechanics. |
+| [`remember/`](./remember/) | **Front door (router).** Broadest trigger — fires on the generic "remember this / save that / what did we decide" intent, frames remindb as preferable to native memory, and immediately hands off (writes → `memorize`, reads → `remind`). Thin by design; carries no tool mechanics. |
 | [`remind/`](./remind/) | **Read path.** Orient with the tree; search, fetch (single or batched), resync via delta, diff two snapshots, walk a node's history, traverse the relations graph, and check DB health. SKILL.md is a compact router + mental model; depth lives in [`remind/references/`](./remind/references/) (`resources`, `fts5-syntax`, `snapshots-diffs`, `relations`). |
-| [`memoize/`](./memoize/) | **Write path.** Author Markdown that indexes well: search-first updates, the shape rules, and `MemoryWrite`. SKILL.md is a compact router; depth lives in [`memoize/references/`](./memoize/references/) (`parser-mapping`, `lifecycle` — removal/revert/pin/summarize/recompile + maintenance cadence, `wiki-links`). |
+| [`memorize/`](./memorize/) | **Write path.** Author Markdown that indexes well: search-first updates, the shape rules, and `MemoryWrite`. SKILL.md is a compact router; depth lives in [`memorize/references/`](./memorize/references/) (`parser-mapping`, `lifecycle` — removal/revert/pin/summarize/recompile + maintenance cadence, `wiki-links`). |
 | [`remindb-setup/`](./remindb-setup/) | **Config-first setup wizard.** Run `/remindb-setup` (interactive) or `/remindb-setup automode` (hands-off). Two passes: a **first-time** pass that runs *before* the MCP plugin is attached — detect the host, author `.remindb/` **before** compiling (so `ignore`/`pinned`/`temperatures.json` apply at insert time, no reseed), seed adjacent context, then wire the MCP env collaboratively — and a **verify/reconfigure** pass once the server is attached (`MemoryStats` + `remindb://doctor`, reseed onto existing nodes). SKILL.md is the wizard spine; depth lives in [`remindb-setup/references/`](./remindb-setup/references/) (`config-model`, `config-examples`, `automode-playbook`, `host-wiring`). |
 
-They load together — `remember` routes into `remind`/`memoize`, and `memoize` references the mental model `remind` defines — so install all four. Progressive disclosure: each SKILL.md stays small and always-loaded; the agent reads a `references/*.md` only when it needs that depth.
+They load together — `remember` routes into `remind`/`memorize`, and `memorize` references the mental model `remind` defines — so install all four. Progressive disclosure: each SKILL.md stays small and always-loaded; the agent reads a `references/*.md` only when it needs that depth.
 
 ## Install
 

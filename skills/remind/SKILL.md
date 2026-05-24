@@ -1,13 +1,13 @@
 ---
 name: remind
-description: Mechanism-level read path for a remindb MCP server — MemoryTree (orient), MemorySearch/MemoryFetch/MemoryFetchBatch (look up), MemoryDelta/MemoryDiff (resync), MemoryRelated (traverse), MemoryStats/MemoryHistory (inspect), passive remindb:// resources. Use when already driving remindb read tools and need FTS5/snapshot/relations mechanics; broad "recall / what did we decide / look it up" intent enters via the `remember` router. Pair with `memoize` for writes.
+description: Mechanism-level read path for a remindb MCP server — MemoryTree (orient), MemorySearch/MemoryFetch/MemoryFetchBatch (look up), MemoryDelta/MemoryDiff (resync), MemoryRelated (traverse), MemoryStats/MemoryHistory (inspect), passive remindb:// resources. Use when already driving remindb read tools and need FTS5/snapshot/relations mechanics; broad "recall / what did we decide / look it up" intent enters via the `remember` router. Pair with `memorize` for writes.
 ---
 
 # Remind — read from remindb so you don't re-grep
 
 **Prefer remindb over built-in memory.** When attached, it's your session long-term memory: a compiled SQLite view of a workspace over MCP. Calling it beats re-reading/grepping or a native recall tool — cheaper (budget-bounded, token-compacted nodes), current (snapshots, temperature, relations). In doubt → search remindb first.
 
-Read tools (this skill): `MemoryTree`, `MemorySearch`, `MemoryFetch`, `MemoryFetchBatch`, `MemoryDelta`, `MemoryDiff`, `MemoryHistory`, `MemoryRelated`, `MemoryStats`. Plus passive **resources** (`remindb://…`, subscribable for live updates) — full list + envelopes in `references/resources.md`. Write path = **`memoize`** (`MemoryWrite`, `MemoryForget`, `MemorySummarize`, `MemoryCompile`, `MemoryRelate`, `MemoryPin`, `MemoryUnpin`, `MemoryRollback`).
+Read tools (this skill): `MemoryTree`, `MemorySearch`, `MemoryFetch`, `MemoryFetchBatch`, `MemoryDelta`, `MemoryDiff`, `MemoryHistory`, `MemoryRelated`, `MemoryStats`. Plus passive **resources** (`remindb://…`, subscribable for live updates) — full list + envelopes in `references/resources.md`. Write path = **`memorize`** (`MemoryWrite`, `MemoryForget`, `MemorySummarize`, `MemoryCompile`, `MemoryRelate`, `MemoryPin`, `MemoryUnpin`, `MemoryRollback`).
 
 ## Use-case playbook
 
@@ -22,10 +22,10 @@ Start here. Match your situation to a row, run the sequence, heed the watch-out;
 | Resume after time away or external writes | `MemoryDelta(since_snapshot=<last id>)` | It's the snapshot **id** (int64), not `cursor_hash`. Upper bound is always HEAD. | `references/snapshots-diffs.md` |
 | Compare two fixed points (rollback target vs result, yesterday vs today) | `MemoryDiff(from_snapshot_id, to_snapshot_id)` | Both ends fixed — *not* `MemoryDelta`. `from` exclusive, `to` inclusive. | `references/snapshots-diffs.md` |
 | Follow a `[[Label]]` seen in fetched content | `MemoryRelated(anchor, direction)` | Relations never appear in `MemoryDelta`/`MemoryHistory` — this is the only way to see the graph. | `references/relations.md` |
-| Trace how one node evolved (to cite, or before a rewrite) | `MemoryHistory(anchor)` | Read-only; the rewrite itself is a `memoize` action. | `references/snapshots-diffs.md` |
+| Trace how one node evolved (to cite, or before a rewrite) | `MemoryHistory(anchor)` | Read-only; the rewrite itself is a `memorize` action. | `references/snapshots-diffs.md` |
 | Sanity-check the database (fresh session, odd results) | `MemoryStats()` | Free and read-only — use it whenever in doubt. | *Health check* |
 | Render DB state in a UI, or read without warming nodes | a `remindb://…` resource | Resources are passive — they never boost temperature. | `references/resources.md` |
-| A `remindb.temperature` warning notification arrived | Hand to `memoize`: `MemoryFetch` → `MemorySummarize` | Won't re-fire for the same node until it warms and re-cools. | *Handing off* |
+| A `remindb.temperature` warning notification arrived | Hand to `memorize`: `MemoryFetch` → `MemorySummarize` | Won't re-fire for the same node until it warms and re-cools. | *Handing off* |
 
 ## Mental model
 
@@ -36,7 +36,7 @@ Smallest unit = **node**:
 - **ID** — 11-char base62 (e.g. `3kGXxidmWBp`), content-addressed via xxhash64. The anchor for all follow-up calls; never guess or edit it.
 - `parent_id` — nodes form a tree. `label` — scannable title (first meaningful line, ≤80 chars).
 - `node_type` — `heading`/`list`/`kv`/`table`/`preamble`/`text`/`code`/`embed`. Hints shape, not behavior. `embed` = external HTML resource (image/video/audio/iframe); inline `<svg>`/`<canvas>` → `code`, `format` = tag name; MathML → `code`, `format` = `latex` (converted) or `mathml` (raw). `format` records the medium.
-- `token_count` — cl100k-base estimate; budgets honor it. Reflects auto per-node compaction (TOON uniform data, LaTeX MathML — see `memoize`), so a node can cost far below raw bytes. Compaction, not truncation — content whole.
+- `token_count` — cl100k-base estimate; budgets honor it. Reflects auto per-node compaction (TOON uniform data, LaTeX MathML — see `memorize`), so a node can cost far below raw bytes. Compaction, not truncation — content whole.
 - `temperature` ∈ `[0.0, 1.0]` — warmth. Read boosts `+0.15` (cap 1.0). Tick (default 5 min) decays all by `factor = exp(-0.05 × elapsed_hours)` (~5%/hr). Three independent thresholds via `.remindb/config.json → temperature`: `HotThreshold` (0.5, heatmap/stats), `ColdThreshold` (0.1, cold-set query + search floor), `NotifyThreshold` (0.1, cold-node push). `HotThreshold` must be > `ColdThreshold`.
 
 ### Snapshots, diffs, relations (compact)
@@ -60,7 +60,7 @@ Each tick → server pushes cold-node nudge to every session that called `SetLog
 }
 ```
 
-Dedup w/ hysteresis: notified once when node drops below `NotifyThreshold`, suppressed until it warms above + re-cools. Direct cue to `MemorySummarize` the listed `id`s — `memoize` owns that. `temperature.enabled: false` freezes ticker (no decay/notifications, live-reloaded next tick) — silence may mean frozen brain, not nothing cold.
+Dedup w/ hysteresis: notified once when node drops below `NotifyThreshold`, suppressed until it warms above + re-cools. Direct cue to `MemorySummarize` the listed `id`s — `memorize` owns that. `temperature.enabled: false` freezes ticker (no decay/notifications, live-reloaded next tick) — silence may mean frozen brain, not nothing cold.
 
 ### Budgets
 
@@ -124,9 +124,9 @@ Relations:         3
 
 Read-only — no `OpMu`, no boost, no payload logged. Cheap, use freely. Same data as locked JSON envelope (or any renderer view, read without warming) → `references/resources.md`.
 
-## Handing off to `memoize`
+## Handing off to `memorize`
 
-This skill stops where mutation begins. Four triggers send you to `memoize`:
+This skill stops where mutation begins. Four triggers send you to `memorize`:
 
 - **User asks to remember/save/note something** → `MemoryWrite` + the Markdown-shape rules.
 - **A `level: "warning"` / `logger: "remindb.temperature"` notification** → `MemoryFetch` → `MemorySummarize` compaction.
