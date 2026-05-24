@@ -5,7 +5,11 @@ import (
 	"database/sql"
 	"errors"
 	"fmt"
+	"strings"
 )
+
+// Escape SQLite LIKE metacharacters (\, %, _) using \ as the escape char.
+var likeEscaper = strings.NewReplacer(`\`, `\\`, `%`, `\%`, `_`, `\_`)
 
 const (
 	OriginParsed = "parsed"
@@ -114,7 +118,9 @@ func (s *Store) FindHeadingByLabel(ctx context.Context, label string) (string, e
 // Look up a heading node ID by label scoped to a source file.
 func (s *Store) FindHeadingByLabelInFile(ctx context.Context, sourceFile, label string) (string, error) {
 	var id string
-	err := s.db.QueryRowContext(ctx, qFindHeadingByLabelInFile, sourceFile, sourceFile, label).Scan(&id)
+	suffixPattern := "%/" + likeEscaper.Replace(sourceFile)
+
+	err := s.db.QueryRowContext(ctx, qFindHeadingByLabelInFile, sourceFile, suffixPattern, label).Scan(&id)
 	if errors.Is(err, sql.ErrNoRows) {
 		return "", nil
 	}

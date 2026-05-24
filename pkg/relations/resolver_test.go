@@ -165,6 +165,74 @@ func TestResolve_BySourceQual_SuffixMatch(t *testing.T) {
 	}
 }
 
+// Regression: `_` and `%` in source-file names are LIKE wildcards. Without
+// escaping, looking up "a_b.md" would silently match "aXb.md" too.
+func TestResolve_BySourceQual_LikeWildcardsAreLiteral(t *testing.T) {
+	ctx := context.Background()
+
+	t.Run("underscore", func(t *testing.T) {
+		st := testutil.OpenTestDB(t)
+		r := New(st)
+
+		decoy := mustHeading(t, st, "decoy111111", "notes/aXb.md", "Topic", 1)
+		wanted := mustHeading(t, st, "want1111111", "notes/a_b.md", "Topic", 1)
+
+		got, err := r.Resolve(ctx, parser.WikilinkRef{
+			Label: "Topic", SourceQual: "a_b.md",
+		})
+		if err != nil {
+			t.Fatalf("Resolve: %v", err)
+		}
+
+		if got == decoy.ID {
+			t.Fatalf("underscore matched as LIKE wildcard: got decoy %q", got)
+		}
+		if got != wanted.ID {
+			t.Errorf("got %q, want %q", got, wanted.ID)
+		}
+	})
+
+	t.Run("percent", func(t *testing.T) {
+		st := testutil.OpenTestDB(t)
+		r := New(st)
+
+		decoy := mustHeading(t, st, "decoy111111", "notes/100XYZcoverage.md", "Topic", 1)
+		wanted := mustHeading(t, st, "want1111111", "notes/100%coverage.md", "Topic", 1)
+
+		got, err := r.Resolve(ctx, parser.WikilinkRef{
+			Label: "Topic", SourceQual: "100%coverage.md",
+		})
+		if err != nil {
+			t.Fatalf("Resolve: %v", err)
+		}
+
+		if got == decoy.ID {
+			t.Fatalf("percent matched as LIKE wildcard: got decoy %q", got)
+		}
+		if got != wanted.ID {
+			t.Errorf("got %q, want %q", got, wanted.ID)
+		}
+	})
+
+	t.Run("backslash", func(t *testing.T) {
+		st := testutil.OpenTestDB(t)
+		r := New(st)
+
+		wanted := mustHeading(t, st, "want1111111", `notes/a\b.md`, "Topic", 1)
+
+		got, err := r.Resolve(ctx, parser.WikilinkRef{
+			Label: "Topic", SourceQual: `a\b.md`,
+		})
+		if err != nil {
+			t.Fatalf("Resolve: %v", err)
+		}
+
+		if got != wanted.ID {
+			t.Errorf("got %q, want %q", got, wanted.ID)
+		}
+	})
+}
+
 func TestResolve_BySourceQual_MissNoFallback(t *testing.T) {
 	st := testutil.OpenTestDB(t)
 	r := New(st)

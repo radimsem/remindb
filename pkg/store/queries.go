@@ -296,7 +296,7 @@ const (
 	qFindHeadingByLabelInFile = `
 		SELECT id FROM nodes
 		WHERE node_type = 'heading'
-		  AND (source_file = ? OR source_file LIKE '%/' || ?)
+		  AND (source_file = ? OR source_file LIKE ? ESCAPE '\')
 		  AND LOWER(TRIM(label)) = LOWER(TRIM(?))
 		ORDER BY depth ASC, id ASC
 		LIMIT 1`
