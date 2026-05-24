@@ -74,7 +74,5 @@ func (d *Deps) HandleWrite(ctx context.Context, _ *gomcp.CallToolRequest, input 
 	}
 
 	msg := fmt.Sprintf("wrote node %s (%d tokens)", nodeID, tokenCount)
-	return &gomcp.CallToolResult{
-		Content: []gomcp.Content{&gomcp.TextContent{Text: msg}},
-	}, nil, nil
+	return textResult(msg), nil, nil
 }

@@ -55,9 +55,7 @@ func (d *Deps) HandleRelated(ctx context.Context, _ *gomcp.CallToolRequest, inpu
 
 	d.boostRelatedNodes(ctx, related)
 
-	return &gomcp.CallToolResult{
-		Content: []gomcp.Content{&gomcp.TextContent{Text: query.FormatRelated(related, budget)}},
-	}, nil, nil
+	return textResult(query.FormatRelated(related, budget)), nil, nil
 }
 
 func (d *Deps) boostRelatedNodes(ctx context.Context, related []*store.RelatedNode) {

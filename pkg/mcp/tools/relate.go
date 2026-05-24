@@ -94,9 +94,3 @@ func (d *Deps) HandleRelate(ctx context.Context, _ *gomcp.CallToolRequest, input
 	d.touchGraph()
 	return textResult(fmt.Sprintf("edge created (pending): %s -> %q", input.SourceID, input.TargetLabel)), nil, nil
 }
-
-func textResult(msg string) *gomcp.CallToolResult {
-	return &gomcp.CallToolResult{
-		Content: []gomcp.Content{&gomcp.TextContent{Text: msg}},
-	}
-}

@@ -29,9 +29,7 @@ func (d *Deps) HandleHistory(ctx context.Context, _ *gomcp.CallToolRequest, inpu
 	}
 
 	if len(diffs) == 0 {
-		return &gomcp.CallToolResult{
-			Content: []gomcp.Content{&gomcp.TextContent{Text: "no history for " + input.Anchor}},
-		}, nil, nil
+		return textResult("no history for " + input.Anchor), nil, nil
 	}
 
 	var b strings.Builder
@@ -44,7 +42,5 @@ func (d *Deps) HandleHistory(ctx context.Context, _ *gomcp.CallToolRequest, inpu
 			fmt.Fprintf(&b, "  new: %s\n", truncate(dr.NewContent, 100))
 		}
 	}
-	return &gomcp.CallToolResult{
-		Content: []gomcp.Content{&gomcp.TextContent{Text: b.String()}},
-	}, nil, nil
+	return textResult(b.String()), nil, nil
 }

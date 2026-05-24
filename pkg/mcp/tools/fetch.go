@@ -26,7 +26,5 @@ func (d *Deps) HandleFetch(ctx context.Context, _ *gomcp.CallToolRequest, input 
 
 	d.boostResultNodes(ctx, result)
 	text := query.Format(result)
-	return &gomcp.CallToolResult{
-		Content: []gomcp.Content{&gomcp.TextContent{Text: text}},
-	}, nil, nil
+	return textResult(text), nil, nil
 }
