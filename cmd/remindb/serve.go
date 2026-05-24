@@ -6,6 +6,7 @@ import (
 	"log/slog"
 	"os"
 	"os/signal"
+	"strconv"
 	"syscall"
 	"time"
 
@@ -30,6 +31,8 @@ var (
 	verbose        bool
 	transport      string
 	listen         string
+	authToken      string
+	insecurePublic bool
 )
 
 const (
@@ -50,6 +53,7 @@ func init() {
 	serveCmd.Flags().BoolVarP(&verbose, "verbose", "v", false, "Emit debug-level logs (default level is info)")
 	serveCmd.Flags().StringVar(&transport, "transport", remindb.TransportStdio, "Transport for the MCP server (stdio|http); falls back to REMINDB_TRANSPORT")
 	serveCmd.Flags().StringVar(&listen, "listen", remindb.DefaultListenAddr, "Listen address for HTTP transport, requires --transport=http; falls back to REMINDB_LISTEN")
+	serveCmd.Flags().BoolVar(&insecurePublic, "insecure-public", false, "Bind HTTP transport publicly without authentication (DANGEROUS), requires --transport=http; falls back to REMINDB_INSECURE_PUBLIC")
 	rootCmd.AddCommand(serveCmd)
 }
 
@@ -127,6 +131,8 @@ func runServe(cmd *cobra.Command, _ []string) error {
 		remindb.WithLogger(logger),
 		remindb.WithTransport(transport),
 		remindb.WithListen(listen),
+		remindb.WithAuthToken(authToken),
+		remindb.WithInsecurePublic(insecurePublic),
 		remindb.WithWorkspaceConfig(workspaceCfg),
 		remindb.WithRedactor(red),
 		remindb.WithLogBuffer(logBuf),
@@ -373,6 +379,19 @@ func applyServeEnv(cmd *cobra.Command) error {
 		return fmt.Errorf("rescan interval requires --source (or REMINDB_SOURCE)")
 	}
 
+	authToken = os.Getenv("REMINDB_AUTH_TOKEN")
+
+	if !cmd.Flags().Changed("insecure-public") {
+		if v := os.Getenv("REMINDB_INSECURE_PUBLIC"); v != "" {
+			b, err := strconv.ParseBool(v)
+			if err != nil {
+				return fmt.Errorf("failed to parse: REMINDB_INSECURE_PUBLIC=%q: %w", v, err)
+			}
+
+			insecurePublic = b
+		}
+	}
+
 	return nil
 }
 
@@ -397,6 +416,10 @@ func resolveServerConfig(cmd *cobra.Command, sc config.ServerConfig) error {
 	listenSet := cmd.Flags().Changed("listen") || sc.Listen != nil || envPtr("REMINDB_LISTEN") != nil
 	if transport != remindb.TransportHttp && listenSet {
 		return fmt.Errorf("listen address requires --transport=http")
+	}
+
+	if transport != remindb.TransportHttp && insecurePublic {
+		return fmt.Errorf("insecure-public requires --transport=http")
 	}
 	return nil
 }

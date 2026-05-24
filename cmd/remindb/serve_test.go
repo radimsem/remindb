@@ -24,6 +24,7 @@ func newServeTestCmd(t *testing.T) *cobra.Command {
 	c := &cobra.Command{Use: "serve"}
 	c.Flags().StringVar(&transport, "transport", remindb.TransportStdio, "")
 	c.Flags().StringVar(&listen, "listen", remindb.DefaultListenAddr, "")
+	c.Flags().BoolVar(&insecurePublic, "insecure-public", false, "")
 
 	return c
 }
@@ -89,6 +90,33 @@ func TestResolveServerConfig_ConfigListenRequiresHTTP(t *testing.T) {
 	}
 	if !strings.Contains(err.Error(), "--transport=http") {
 		t.Errorf("error should mention the http requirement, got: %v", err)
+	}
+}
+
+func TestResolveServerConfig_InsecurePublicTrueRequiresHTTP(t *testing.T) {
+	c := newServeTestCmd(t)
+	if err := c.Flags().Set("insecure-public", "true"); err != nil {
+		t.Fatal(err)
+	}
+
+	err := resolveServerConfig(c, config.ServerConfig{})
+	if err == nil {
+		t.Fatal("expected error: insecure-public with stdio transport")
+	}
+
+	if !strings.Contains(err.Error(), "--transport=http") {
+		t.Errorf("error should mention the http requirement, got: %v", err)
+	}
+}
+
+func TestResolveServerConfig_InsecurePublicFalseAllowsStdio(t *testing.T) {
+	c := newServeTestCmd(t)
+	if err := c.Flags().Set("insecure-public", "false"); err != nil {
+		t.Fatal(err)
+	}
+
+	if err := resolveServerConfig(c, config.ServerConfig{}); err != nil {
+		t.Errorf("explicit --insecure-public=false must not break stdio, got: %v", err)
 	}
 }
 
