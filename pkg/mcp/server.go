@@ -42,6 +42,8 @@ type Server struct {
 	transport       string
 	listen          string
 	listener        net.Listener
+	authToken       string
+	insecurePublic  bool
 	notifier        *notify.Publisher
 	sessions        *session.Registry
 	sessionFlush    time.Duration
@@ -55,6 +57,8 @@ type options struct {
 	transport       string
 	listen          string
 	listener        net.Listener
+	authToken       string
+	insecurePublic  bool
 	workspaceConfig config.Config
 	redactor        *redaction.Redactor
 	logBuffer       *logbuf.Buffer
@@ -79,6 +83,14 @@ func WithListen(addr string) Option {
 
 func WithListener(l net.Listener) Option {
 	return func(o *options) { o.listener = l }
+}
+
+func WithAuthToken(t string) Option {
+	return func(o *options) { o.authToken = t }
+}
+
+func WithInsecurePublic(v bool) Option {
+	return func(o *options) { o.insecurePublic = v }
 }
 
 func WithWorkspaceConfig(c config.Config) Option {
@@ -167,6 +179,8 @@ func NewServer(st *store.Store, tracker *temperature.Tracker, cfg temperature.Co
 		transport:       transport,
 		listen:          listen,
 		listener:        o.listener,
+		authToken:       o.authToken,
+		insecurePublic:  o.insecurePublic,
 		notifier:        pub,
 		sessions:        sessions,
 		sessionFlush:    flush,

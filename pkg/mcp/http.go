@@ -2,16 +2,22 @@ package mcp
 
 import (
 	"context"
+	"crypto/subtle"
 	"errors"
 	"fmt"
 	"net"
 	"net/http"
+	"strings"
 	"time"
 
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 )
 
-const httpShutdownTimeout = 5 * time.Second
+const (
+	httpShutdownTimeout = 5 * time.Second
+	bearerPrefix        = "Bearer "
+	bearerRealm         = `Bearer realm="remindb"`
+)
 
 func (s *Server) runHttp(ctx context.Context) error {
 	ln := s.listener
@@ -25,14 +31,26 @@ func (s *Server) runHttp(ctx context.Context) error {
 	}
 
 	addr := ln.Addr().String()
+	nonLoopback := false
 	if host, _, err := net.SplitHostPort(addr); err == nil && !isLoopbackHost(host) {
-		s.logger.Warn("serve: HTTP bound to non-loopback; configure authentication before exposing publicly", "listen", addr)
+		nonLoopback = true
 	}
 
-	handler := mcp.NewStreamableHTTPHandler(func(*http.Request) *mcp.Server { return s.mcp }, nil)
+	if nonLoopback && s.authToken == "" && !s.insecurePublic {
+		_ = ln.Close()
+		return fmt.Errorf("refusing to bind HTTP transport to non-loopback %s without authentication: set REMINDB_AUTH_TOKEN to enable bearer-token auth, or pass --insecure-public (REMINDB_INSECURE_PUBLIC=1) to bypass", addr)
+	}
+	if nonLoopback && s.authToken == "" && s.insecurePublic {
+		s.logger.Warn("serve: HTTP bound to non-loopback with --insecure-public; no authentication", "listen", addr)
+	}
+
+	var handler http.Handler = mcp.NewStreamableHTTPHandler(func(*http.Request) *mcp.Server { return s.mcp }, nil)
+	if s.authToken != "" {
+		handler = bearerAuthMiddleware(s.authToken, handler)
+	}
 	httpSrv := &http.Server{Handler: handler}
 
-	s.logger.Info("serve: HTTP transport ready", "listen", addr)
+	s.logger.Info("serve: HTTP transport ready", "listen", addr, "auth", s.authToken != "")
 
 	errCh := make(chan error, 1)
 	go func() {
@@ -58,6 +76,27 @@ func (s *Server) runHttp(ctx context.Context) error {
 		}
 		return nil
 	}
+}
+
+func bearerAuthMiddleware(token string, next http.Handler) http.Handler {
+	want := []byte(token)
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		h := r.Header.Get("Authorization")
+		if !strings.HasPrefix(h, bearerPrefix) {
+			w.Header().Set("WWW-Authenticate", bearerRealm)
+			http.Error(w, http.StatusText(http.StatusUnauthorized), http.StatusUnauthorized)
+			return
+		}
+
+		got := []byte(strings.TrimPrefix(h, bearerPrefix))
+		if subtle.ConstantTimeCompare(got, want) != 1 {
+			w.Header().Set("WWW-Authenticate", bearerRealm)
+			http.Error(w, http.StatusText(http.StatusUnauthorized), http.StatusUnauthorized)
+			return
+		}
+
+		next.ServeHTTP(w, r)
+	})
 }
 
 func isLoopbackHost(host string) bool {
