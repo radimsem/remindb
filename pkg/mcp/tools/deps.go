@@ -141,11 +141,19 @@ func firstLine(s string, maxLen int) string {
 			return s[:i]
 		}
 		if i >= maxLen {
-			return s[:maxLen]
+			end := maxLen
+			for end > 0 && !utf8.RuneStart(s[end]) {
+				end--
+			}
+			return s[:end]
 		}
 	}
 	if len(s) > maxLen {
-		return s[:maxLen]
+		end := maxLen
+		for end > 0 && !utf8.RuneStart(s[end]) {
+			end--
+		}
+		return s[:end]
 	}
 
 	return s

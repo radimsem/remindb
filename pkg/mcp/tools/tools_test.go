@@ -9,6 +9,7 @@ import (
 	"strings"
 	"testing"
 	"time"
+	"unicode/utf8"
 
 	gomcp "github.com/modelcontextprotocol/go-sdk/mcp"
 	"github.com/radimsem/remindb/internal/redaction"
@@ -2402,5 +2403,39 @@ func TestBudgetResolution_PerToolIndependence(t *testing.T) {
 	text := textContent(t, result)
 	if !strings.Contains(text, "child body") {
 		t.Errorf("Fetch resolved the wrong config field (used Search=5 not Fetch=200):\n%s", text)
+	}
+}
+
+func TestFirstLine(t *testing.T) {
+	cases := []struct {
+		name   string
+		in     string
+		maxLen int
+		want   string
+	}{
+		{"short ascii unchanged", "hello", 80, "hello"},
+		{"newline before maxLen", "hi\nworld", 80, "hi"},
+		{"ascii truncated at maxLen", strings.Repeat("x", 100), 80, strings.Repeat("x", 80)},
+		// "abc" + U+1D54A (4 bytes, indices 3-6) + tail; maxLen=4 lands inside the 4-byte rune.
+		{"multibyte straddles maxLen in-loop", "abc\U0001D54Arest", 4, "abc"},
+		// "abcd" + "é" (2 bytes, indices 4-5); maxLen=5 lands inside the 2-byte trailing rune,
+		// loop completes before the in-loop guard fires.
+		{"multibyte straddles maxLen post-loop", "abcdé", 5, "abcd"},
+	}
+
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			got := firstLine(c.in, c.maxLen)
+			if got != c.want {
+				t.Errorf("firstLine(%q, %d) = %q, want %q", c.in, c.maxLen, got, c.want)
+			}
+
+			if !utf8.ValidString(got) {
+				t.Errorf("firstLine(%q, %d) returned invalid UTF-8: %q", c.in, c.maxLen, got)
+			}
+			if len(got) > c.maxLen && !strings.ContainsRune(c.in[:len(got)], '\n') {
+				t.Errorf("firstLine(%q, %d) returned %d bytes, exceeds cap", c.in, c.maxLen, len(got))
+			}
+		})
 	}
 }
