@@ -347,6 +347,16 @@ func (s *Store) GetAllNodes(ctx context.Context) ([]*Node, error) {
 	return collectRows(rows)
 }
 
+func (s *Store) GetAllNodesTx(ctx context.Context, tx *sql.Tx) ([]*Node, error) {
+	rows, err := tx.QueryContext(ctx, qSelectAllNodes)
+	if err != nil {
+		return nil, err
+	}
+	defer func() { _ = rows.Close() }()
+
+	return collectRows(rows)
+}
+
 func (s *Store) ListFileSummaries(ctx context.Context) ([]FileSummary, error) {
 	rows, err := s.db.QueryContext(ctx, qSelectFileSummaries)
 	if err != nil {
