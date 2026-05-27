@@ -944,6 +944,7 @@ func TestMcp_OverviewResource(t *testing.T) {
 	}
 	if overview == nil {
 		t.Fatalf("resources/list missing remindb://overview, got %d resources", len(listed.Resources))
+		return
 	}
 	if overview.MIMEType != "application/json" {
 		t.Errorf("overview MIME type = %q, want application/json", overview.MIMEType)
@@ -1032,6 +1033,7 @@ func TestMcp_FilesResource(t *testing.T) {
 	}
 	if files == nil {
 		t.Fatalf("resources/list missing remindb://files, got %d resources", len(listed.Resources))
+		return
 	}
 	if files.MIMEType != "application/json" {
 		t.Errorf("files MIME type = %q, want application/json", files.MIMEType)
@@ -1140,6 +1142,7 @@ func TestMcp_TreeResource(t *testing.T) {
 	}
 	if tree == nil {
 		t.Fatalf("resources/list missing remindb://tree, got %d resources", len(listed.Resources))
+		return
 	}
 	if tree.MIMEType != "application/json" {
 		t.Errorf("tree MIME type = %q, want application/json", tree.MIMEType)
