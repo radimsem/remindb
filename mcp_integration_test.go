@@ -1291,6 +1291,7 @@ func TestMcp_SnapshotsResource(t *testing.T) {
 	}
 	if snapshots == nil {
 		t.Fatalf("resources/list missing remindb://snapshots, got %d resources", len(listed.Resources))
+		return
 	}
 	if snapshots.MIMEType != "application/json" {
 		t.Errorf("snapshots MIME type = %q, want application/json", snapshots.MIMEType)
@@ -1491,6 +1492,7 @@ func TestMcp_TemperatureResource(t *testing.T) {
 	}
 	if heat == nil {
 		t.Fatalf("resources/list missing remindb://temperature, got %d resources", len(listed.Resources))
+		return
 	}
 	if heat.MIMEType != "application/json" {
 		t.Errorf("temperature MIME type = %q, want application/json", heat.MIMEType)
@@ -1579,6 +1581,7 @@ func TestMcp_DoctorResource(t *testing.T) {
 	}
 	if doctor == nil {
 		t.Fatalf("resources/list missing remindb://doctor, got %d resources", len(listed.Resources))
+		return
 	}
 	if doctor.MIMEType != "application/json" {
 		t.Errorf("doctor MIME type = %q, want application/json", doctor.MIMEType)
@@ -1649,6 +1652,7 @@ func TestMcp_LogsResource(t *testing.T) {
 	}
 	if logs == nil {
 		t.Fatalf("resources/list missing remindb://logs, got %d resources", len(listed.Resources))
+		return
 	}
 	if logs.MIMEType != "application/json" {
 		t.Errorf("logs MIME type = %q, want application/json", logs.MIMEType)
@@ -2103,6 +2107,7 @@ func TestMcp_RescanResource(t *testing.T) {
 	}
 	if rescan == nil {
 		t.Fatalf("resources/list missing remindb://rescan, got %d resources", len(listed.Resources))
+		return
 	}
 	if rescan.MIMEType != "application/json" {
 		t.Errorf("rescan MIME type = %q, want application/json", rescan.MIMEType)
