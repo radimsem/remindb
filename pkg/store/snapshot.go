@@ -175,6 +175,16 @@ func (s *Store) GetSnapshot(ctx context.Context, id int) (*Snapshot, error) {
 	return &snap, nil
 }
 
+func (s *Store) GetSnapshotTx(ctx context.Context, tx *sql.Tx, id int) (*Snapshot, error) {
+	var snap Snapshot
+	err := tx.QueryRowContext(ctx, qSelectSnapshotByID, id).
+		Scan(&snap.ID, &snap.CursorHash, &snap.ParentID, &snap.Message, &snap.CompileRoot, &snap.CreatedAt)
+	if err != nil {
+		return nil, err
+	}
+	return &snap, nil
+}
+
 func (s *Store) ListSnapshots(ctx context.Context, limit int) ([]*Snapshot, error) {
 	rows, err := s.db.QueryContext(ctx, qListSnapshots, limit)
 	if err != nil {
@@ -253,16 +263,23 @@ func collectDiffRows(rows *sql.Rows) ([]*DiffRecord, error) {
 	return out, rows.Err()
 }
 
-// Compute the node set at targetID by reverse-walking diffs from HEAD. Pure read.
+// Compute the node set at targetID by reverse-walking diffs from HEAD. Reads share one
+// read-only tx so a concurrent writer committing between them can't tear the result.
 func (s *Store) RestoreToSnapshot(ctx context.Context, targetID int64) (*RestoreResult, error) {
-	if _, err := s.GetSnapshot(ctx, int(targetID)); err != nil {
+	tx, err := s.db.BeginTx(ctx, &sql.TxOptions{ReadOnly: true})
+	if err != nil {
+		return nil, fmt.Errorf("failed to begin: read-only tx: %w", err)
+	}
+	defer func() { _ = tx.Rollback() }()
+
+	if _, err := s.GetSnapshotTx(ctx, tx, int(targetID)); err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
 			return nil, fmt.Errorf("snapshot %d not found", targetID)
 		}
 		return nil, fmt.Errorf("failed to fetch: snapshot %d: %w", targetID, err)
 	}
 
-	nodes, err := s.GetAllNodes(ctx)
+	nodes, err := s.GetAllNodesTx(ctx, tx)
 	if err != nil {
 		return nil, fmt.Errorf("failed to load: head nodes: %w", err)
 	}
@@ -273,7 +290,7 @@ func (s *Store) RestoreToSnapshot(ctx context.Context, targetID int64) (*Restore
 		state[n.ID] = &c
 	}
 
-	rows, err := s.db.QueryContext(ctx, qSelectDiffsAfter, targetID)
+	rows, err := tx.QueryContext(ctx, qSelectDiffsAfter, targetID)
 	if err != nil {
 		return nil, fmt.Errorf("failed to load: diffs after %d: %w", targetID, err)
 	}

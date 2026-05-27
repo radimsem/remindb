@@ -120,6 +120,123 @@ func TestConcurrent_SnapshotIDsMonotonic(t *testing.T) {
 	}
 }
 
+// Verify RestoreToSnapshot stays consistent while a writer commits new snapshots
+// in parallel. The two reads inside Restore (HEAD nodes + diffs-after) must observe
+// one WAL snapshot — a single read-only tx is the structural guarantee.
+func TestConcurrent_RestoreToSnapshot_ConsistentUnderWrites(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "shared.db")
+	st := openShared(t, path, true)
+	ctx := context.Background()
+
+	const baseContent = "content aaaaaaaa"
+
+	var targetID int64
+	err := st.Tx(ctx, func(tx *sql.Tx) error {
+		if err := st.UpsertNodeTx(ctx, tx, testNode("aaaaaaaa", "")); err != nil {
+			return err
+		}
+
+		id, err := st.CreateSnapshotTx(ctx, tx, WithCursorHash("hbase"), WithMessage("base"))
+		if err != nil {
+			return err
+		}
+		targetID = id
+
+		if err := st.InsertDiffTx(ctx, tx, &DiffRecord{
+			SnapshotID: id, NodeID: "aaaaaaaa", Op: "add",
+			NewHash: "hashaaaaaaaa", NewContent: baseContent,
+		}); err != nil {
+			return err
+		}
+
+		return st.AdvanceCursorTx(ctx, tx, id)
+	})
+	must(t, err)
+
+	const iters = 200
+
+	var wg sync.WaitGroup
+	wg.Add(2)
+
+	writerErrs := make(chan error, iters)
+	readerErrs := make(chan error, iters)
+
+	go func() {
+		defer wg.Done()
+
+		for i := range iters {
+			oldContent := baseContent
+			if i > 0 {
+				oldContent = fmt.Sprintf("v%d", i)
+			}
+			newContent := fmt.Sprintf("v%d", i+1)
+
+			err := st.Tx(ctx, func(tx *sql.Tx) error {
+				n := testNode("aaaaaaaa", "")
+				n.Content = newContent
+				n.ContentHash = "h" + newContent
+				if err := st.UpsertNodeTx(ctx, tx, n); err != nil {
+					return err
+				}
+
+				id, err := st.CreateSnapshotTx(ctx, tx, WithCursorHash("h"+newContent), WithMessage("mod"))
+				if err != nil {
+					return err
+				}
+
+				rec := &DiffRecord{
+					SnapshotID: id, NodeID: "aaaaaaaa", Op: "mod",
+					OldHash: "h" + oldContent, NewHash: "h" + newContent,
+					OldContent: oldContent, NewContent: newContent,
+				}
+				rec.SetOldMetadata(testNode("aaaaaaaa", ""))
+				if err := st.InsertDiffTx(ctx, tx, rec); err != nil {
+					return err
+				}
+
+				return st.AdvanceCursorTx(ctx, tx, id)
+			})
+			if err != nil {
+				writerErrs <- fmt.Errorf("iter %d: %w", i, err)
+				return
+			}
+		}
+	}()
+
+	go func() {
+		defer wg.Done()
+
+		for i := range iters {
+			res, err := st.RestoreToSnapshot(ctx, targetID)
+			if err != nil {
+				readerErrs <- fmt.Errorf("iter %d: %w", i, err)
+				return
+			}
+
+			n, ok := res.Nodes["aaaaaaaa"]
+			if !ok {
+				readerErrs <- fmt.Errorf("iter %d: restored state missing aaaaaaaa", i)
+				return
+			}
+			if n.Content != baseContent {
+				readerErrs <- fmt.Errorf("iter %d: a_0.Content = %q, want %q", i, n.Content, baseContent)
+				return
+			}
+		}
+	}()
+
+	wg.Wait()
+	close(writerErrs)
+	close(readerErrs)
+
+	for err := range writerErrs {
+		t.Errorf("writer: %v", err)
+	}
+	for err := range readerErrs {
+		t.Errorf("reader: %v", err)
+	}
+}
+
 func openShared(t *testing.T, path string, migrate bool) *Store {
 	t.Helper()
 
