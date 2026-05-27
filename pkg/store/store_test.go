@@ -1183,6 +1183,33 @@ func TestRewriteQuery(t *testing.T) {
 	}
 }
 
+func TestQuoteAllTerms(t *testing.T) {
+	tests := []struct {
+		in   string
+		want string
+	}{
+		{"", ""},
+		{"hello", `"hello"`},
+		{"hello world", `"hello" OR "world"`},
+		// Operator-bearing inputs that rewriteQuery would pass through verbatim
+		// are sanitized to well-formed FTS5 phrases here.
+		{`foo"`, `"foo"""`},
+		{`"unterminated`, `"""unterminated"`},
+		{"*", `"*"`},
+		{"(", `"("`},
+		{"foo:bar", `"foo:bar"`},
+		{"snap*", `"snap*"`},
+		{"ZEBRA-4471", `"ZEBRA-4471"`},
+	}
+
+	for _, tt := range tests {
+		got := quoteAllTerms(tt.in)
+		if got != tt.want {
+			t.Errorf("quoteAllTerms(%q) = %q, want %q", tt.in, got, tt.want)
+		}
+	}
+}
+
 func TestSearchMultiWord(t *testing.T) {
 	st := openTestDB(t)
 	ctx := context.Background()
@@ -1243,6 +1270,37 @@ func TestSearchPunctuation(t *testing.T) {
 
 	if len(results) != 1 {
 		t.Errorf("len = %d, want 1", len(results))
+	}
+}
+
+func TestSearch_AdversarialInput(t *testing.T) {
+	st := openTestDB(t)
+	ctx := context.Background()
+
+	n := testNode("aaaaaaaa", "")
+	n.Content = "the quick brown fox jumps over the lazy dog"
+	n.Label = "fox sentence"
+	must(t, st.UpsertNode(ctx, n))
+
+	// Inputs from issue #208 — operator-bearing but not valid FTS5. Pre-fix each
+	// surfaced an opaque "fts5: syntax error" from the driver; post-fix each
+	// must return cleanly (empty or matched), never an error.
+	inputs := []string{
+		`foo"`,
+		`foo(`,
+		`*`,
+		`"unterminated`,
+		`foo:bar`,
+		`(`,
+	}
+
+	for _, in := range inputs {
+		if _, err := st.Search(ctx, in, 10); err != nil {
+			t.Errorf("Search(%q): %v", in, err)
+		}
+		if _, err := st.SearchRanked(ctx, in, 10); err != nil {
+			t.Errorf("SearchRanked(%q): %v", in, err)
+		}
 	}
 }
 
