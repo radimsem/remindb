@@ -1192,6 +1192,7 @@ func TestMcp_TreeResource(t *testing.T) {
 	}
 	if pivot == nil {
 		t.Fatalf("no node with a grandchild found; cannot assert depth bounding")
+		return
 	}
 
 	// Shape: every node carries the full field set.

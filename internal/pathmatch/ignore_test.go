@@ -41,6 +41,7 @@ func TestLoadIgnore_EmptyFile(t *testing.T) {
 	}
 	if m == nil {
 		t.Fatal("expected non-nil matcher for empty file")
+		return
 	}
 	if m.Match("anything.md", false) {
 		t.Error("empty matcher should not match")
@@ -57,6 +58,7 @@ func TestLoadIgnore_CommentsAndBlanks(t *testing.T) {
 	}
 	if m == nil {
 		t.Fatal("expected non-nil matcher")
+		return
 	}
 	if len(m.patterns) != 0 {
 		t.Errorf("expected 0 patterns, got %d", len(m.patterns))
