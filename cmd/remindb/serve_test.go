@@ -171,6 +171,7 @@ func TestNewServeLogger_JsonFileOutput(t *testing.T) {
 	}
 	if file == nil {
 		t.Fatal("output_path set, file handle should be returned for cleanup")
+		return
 	}
 	defer func() { _ = file.Close() }()
 
@@ -204,6 +205,7 @@ func TestNewServeLogger_ConfiguredBufferCaptures(t *testing.T) {
 	}
 	if buf == nil {
 		t.Fatal("buffer should be returned for the logs resource")
+		return
 	}
 
 	lg.Info("a")

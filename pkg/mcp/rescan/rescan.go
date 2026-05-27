@@ -285,27 +285,34 @@ func (r *Loop) scan(ctx context.Context) {
 		return
 	}
 
-	var deleted []string
+	var deletedAbs []string
+	var deletedRel []string
 	for path := range r.modTimes {
 		if seen[path] {
 			continue
 		}
-		delete(r.modTimes, path)
 
 		rel, err := filepath.Rel(r.dir, path)
 		if err != nil {
 			rel = path
 		}
-		deleted = append(deleted, rel)
+		deletedAbs = append(deletedAbs, path)
+		deletedRel = append(deletedRel, rel)
 	}
 
 	r.store.OpMu.Lock()
 	defer r.store.OpMu.Unlock()
 
-	snap.PurgedFiles = r.reconcileDeleted(ctx, deleted)
+	purged, ok := r.reconcileDeleted(ctx, deletedRel)
+	snap.PurgedFiles = purged
+	if ok {
+		for _, abs := range deletedAbs {
+			delete(r.modTimes, abs)
+		}
+	}
 
 	if len(changed) == 0 {
-		if len(deleted) > 0 {
+		if ok && len(deletedRel) > 0 {
 			r.notifyChange()
 		}
 
@@ -344,18 +351,18 @@ func (r *Loop) scan(ctx context.Context) {
 	r.notifyChange()
 }
 
-func (r *Loop) reconcileDeleted(ctx context.Context, deleted []string) []rescanstat.PurgedFile {
+func (r *Loop) reconcileDeleted(ctx context.Context, deleted []string) ([]rescanstat.PurgedFile, bool) {
 	if len(deleted) == 0 {
-		return nil
+		return nil, true
 	}
 
 	nodes, err := r.store.GetNodesByFiles(ctx, deleted)
 	if err != nil {
 		r.logger.Error("rescan: load deleted nodes failed", "err", err)
-		return nil
+		return nil, false
 	}
 	if len(nodes) == 0 {
-		return nil
+		return nil, true
 	}
 
 	deltas := make([]diff.Delta, 0, len(nodes))
@@ -380,7 +387,7 @@ func (r *Loop) reconcileDeleted(ctx context.Context, deleted []string) []rescans
 		emitter.WithMessage(msg),
 	); err != nil {
 		r.logger.Error("rescan: purge emit failed", "err", err)
-		return nil
+		return nil, false
 	}
 
 	r.logger.Info("rescan: purged deleted files",
@@ -395,5 +402,5 @@ func (r *Loop) reconcileDeleted(ctx context.Context, deleted []string) []rescans
 	}
 
 	sort.Slice(purged, func(i, j int) bool { return purged[i].Path < purged[j].Path })
-	return purged
+	return purged, true
 }

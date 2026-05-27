@@ -438,6 +438,77 @@ func TestRescanLoop_SkipsPurgeOnWalkError(t *testing.T) {
 	}
 }
 
+func TestRescanLoop_RetainsModTimesOnPurgeEmitFailure(t *testing.T) {
+	dir := t.TempDir()
+	writeFile(t, dir, "keep.md", "# Keep\n")
+	writeFile(t, dir, "gone.md", "# Gone\n\nBody.\n")
+
+	st := testutil.OpenTestDB(t)
+	r := mustRescan(t, st, dir, time.Minute, nil)
+	r.now = func() time.Time { return time.Now().Add(time.Hour) }
+
+	ctx := context.Background()
+	r.scan(ctx)
+
+	before, err := st.GetNodesByFile(ctx, "gone.md")
+	if err != nil {
+		t.Fatalf("GetNodesByFile: %v", err)
+	}
+	if len(before) == 0 {
+		t.Fatal("expected gone.md nodes after initial scan")
+	}
+
+	if err := os.Remove(filepath.Join(dir, "gone.md")); err != nil {
+		t.Fatal(err)
+	}
+
+	failCtx, cancel := context.WithCancel(ctx)
+	originalWalk := r.walkFn
+	r.walkFn = func(root string, fn fs.WalkDirFunc) error {
+		if err := originalWalk(root, fn); err != nil {
+			return err
+		}
+		cancel()
+		return nil
+	}
+
+	snapsBefore, _ := st.ListSnapshots(ctx, 10)
+	r.scan(failCtx)
+
+	if _, ok := r.modTimes[filepath.Join(dir, "gone.md")]; !ok {
+		t.Error("modTimes entry for gone.md dropped despite failed purge emit")
+	}
+
+	stillThere, err := st.GetNodesByFile(ctx, "gone.md")
+	if err != nil {
+		t.Fatalf("GetNodesByFile (after failed emit): %v", err)
+	}
+	if len(stillThere) == 0 {
+		t.Error("gone.md nodes purged from DB even though emit failed")
+	}
+
+	snapsAfter, _ := st.ListSnapshots(ctx, 10)
+	if len(snapsAfter) != len(snapsBefore) {
+		t.Errorf("snapshots changed: before=%d after=%d (emit failed, must not commit purge snapshot)",
+			len(snapsBefore), len(snapsAfter))
+	}
+
+	r.walkFn = originalWalk
+	r.scan(ctx)
+
+	if _, ok := r.modTimes[filepath.Join(dir, "gone.md")]; ok {
+		t.Error("modTimes entry for gone.md should be cleared after successful retry")
+	}
+
+	after, err := st.GetNodesByFile(ctx, "gone.md")
+	if err != nil {
+		t.Fatalf("GetNodesByFile (retry): %v", err)
+	}
+	if len(after) != 0 {
+		t.Errorf("orphan nodes after successful retry = %d, want 0", len(after))
+	}
+}
+
 func TestRescanLoop_NewFile(t *testing.T) {
 	dir := t.TempDir()
 
