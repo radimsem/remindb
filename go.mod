@@ -9,7 +9,7 @@ require github.com/goccy/go-yaml v1.19.2
 require (
 	github.com/aymanbagabas/go-udiff v0.4.1
 	github.com/cespare/xxhash/v2 v2.3.0
-	github.com/modelcontextprotocol/go-sdk v1.6.0
+	github.com/modelcontextprotocol/go-sdk v1.6.1
 	github.com/spf13/cobra v1.10.2
 	github.com/toon-format/toon-go v0.0.0-20251202084852-7ca0e27c4e8c
 	golang.org/x/net v0.55.0
