@@ -152,6 +152,16 @@ func (s *Store) GetHeadCursorHash(ctx context.Context) (string, error) {
 func (s *Store) GetHeadSnapshotID(ctx context.Context) (int64, error) {
 	var id sql.NullInt64
 	err := s.db.QueryRowContext(ctx, qSelectHeadCursorSnapID).Scan(&id)
+	return scanHeadSnapshotID(id, err)
+}
+
+func (s *Store) GetHeadSnapshotIDTx(ctx context.Context, tx *sql.Tx) (int64, error) {
+	var id sql.NullInt64
+	err := tx.QueryRowContext(ctx, qSelectHeadCursorSnapID).Scan(&id)
+	return scanHeadSnapshotID(id, err)
+}
+
+func scanHeadSnapshotID(id sql.NullInt64, err error) (int64, error) {
 	if err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
 			return 0, nil
@@ -272,6 +282,10 @@ func (s *Store) RestoreToSnapshot(ctx context.Context, targetID int64) (*Restore
 	}
 	defer func() { _ = tx.Rollback() }()
 
+	return s.RestoreToSnapshotTx(ctx, tx, targetID)
+}
+
+func (s *Store) RestoreToSnapshotTx(ctx context.Context, tx *sql.Tx, targetID int64) (*RestoreResult, error) {
 	if _, err := s.GetSnapshotTx(ctx, tx, int(targetID)); err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
 			return nil, fmt.Errorf("snapshot %d not found", targetID)

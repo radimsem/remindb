@@ -4,9 +4,11 @@ import (
 	"context"
 	"database/sql"
 	"errors"
+	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 	"unicode/utf8"
@@ -2403,6 +2405,196 @@ func TestBudgetResolution_PerToolIndependence(t *testing.T) {
 	text := textContent(t, result)
 	if !strings.Contains(text, "child body") {
 		t.Errorf("Fetch resolved the wrong config field (used Search=5 not Fetch=200):\n%s", text)
+	}
+}
+
+// Verify the Tx variants used by HandleRollback compose under one caller-owned tx.
+func TestRestoreToSnapshotTx_AndGetHeadSnapshotIDTx(t *testing.T) {
+	d, st := setup(t)
+	ctx := context.Background()
+
+	_, snap1 := writeAndSnap(t, d, "Title alpha\nbaseline body\n")
+	_, snap2 := writeAndSnap(t, d, "Title alpha\nedit body\n")
+
+	var (
+		headID  int64
+		restore *store.RestoreResult
+	)
+
+	err := st.Tx(ctx, func(tx *sql.Tx) error {
+		var err error
+		headID, err = st.GetHeadSnapshotIDTx(ctx, tx)
+		if err != nil {
+			return err
+		}
+
+		restore, err = st.RestoreToSnapshotTx(ctx, tx, snap1)
+		return err
+	})
+	must(t, err)
+
+	if headID != snap2 {
+		t.Errorf("headID = %d, want snap2 %d", headID, snap2)
+	}
+	if len(restore.Nodes) == 0 {
+		t.Errorf("restore returned 0 nodes")
+	}
+
+	var found bool
+	for _, n := range restore.Nodes {
+		if strings.Contains(n.Content, "baseline") {
+			found = true
+			break
+		}
+	}
+	if !found {
+		t.Errorf("no restored node contains 'baseline'; rollback target state is wrong")
+	}
+}
+
+// Verify HandleRollback under concurrent OpMu-bypassing writers (the path the
+// compiler rescan loop takes — straight Store.Tx, txMu only). Each snapshot's
+// diffs must describe a real transition from the prior accumulated state. With
+// the pre-fix code, the rollback computed `current` non-tx so a concurrent
+// commit could yield deltas that don't apply cleanly on the snapshot's actual
+// parent state — the chain walk below would surface that.
+func TestConcurrent_HandleRollback_ChainConsistentUnderBypassingWrites(t *testing.T) {
+	d, st := setup(t)
+	ctx := context.Background()
+
+	_, snap1 := writeAndSnap(t, d, "Title alpha\nbaseline body\n")
+	_, _ = writeAndSnap(t, d, "Title alpha\nedit body\n")
+
+	const iters = 30
+
+	var wg sync.WaitGroup
+	wg.Add(2)
+	writerErrs := make(chan error, iters)
+	rollbackErrs := make(chan error, iters)
+
+	go func() {
+		defer wg.Done()
+
+		for i := range iters {
+			nodeID := fmt.Sprintf("bgnode%05d", i)
+			contentHash := fmt.Sprintf("hbg%05d", i)
+			content := fmt.Sprintf("bgcontent%05d", i)
+
+			err := st.Tx(ctx, func(tx *sql.Tx) error {
+				n := &store.Node{
+					ID: nodeID, SourceFile: "bg.md", NodeType: "text", Depth: 1,
+					Label: "bg", Content: content, Format: "plain", TokenCount: 5,
+					ContentHash: contentHash,
+				}
+				if err := st.UpsertNodeTx(ctx, tx, n); err != nil {
+					return err
+				}
+
+				snapID, err := st.CreateSnapshotTx(ctx, tx,
+					store.WithCursorHash("cbg"+contentHash),
+					store.WithMessage("bg-write"),
+				)
+				if err != nil {
+					return err
+				}
+
+				if err := st.InsertDiffTx(ctx, tx, &store.DiffRecord{
+					SnapshotID: snapID, NodeID: nodeID, Op: "add",
+					NewHash: contentHash, NewContent: content,
+				}); err != nil {
+					return err
+				}
+				return st.AdvanceCursorTx(ctx, tx, snapID)
+			})
+			if err != nil {
+				writerErrs <- fmt.Errorf("iter %d: %w", i, err)
+				return
+			}
+		}
+	}()
+
+	go func() {
+		defer wg.Done()
+
+		for i := range iters {
+			_, _, err := d.HandleRollback(ctx, &gomcp.CallToolRequest{}, RollbackInput{SnapshotID: snap1})
+			if err != nil {
+				rollbackErrs <- fmt.Errorf("iter %d: %w", i, err)
+				return
+			}
+		}
+	}()
+
+	wg.Wait()
+	close(writerErrs)
+	close(rollbackErrs)
+
+	for err := range writerErrs {
+		t.Errorf("writer: %v", err)
+	}
+	for err := range rollbackErrs {
+		t.Errorf("rollback: %v", err)
+	}
+
+	snaps, err := st.ListSnapshots(ctx, 1000)
+	must(t, err)
+
+	ordered := make([]*store.Snapshot, len(snaps))
+	for i, s := range snaps {
+		ordered[len(snaps)-1-i] = s
+	}
+
+	state := make(map[string]string)
+	for _, snap := range ordered {
+		diffs, err := st.GetDiffsBySnapshot(ctx, snap.ID)
+		must(t, err)
+
+		for _, dd := range diffs {
+			switch dd.Op {
+			case "add":
+				if h, ok := state[dd.NodeID]; ok {
+					t.Errorf("snap %d: add %s but state already has hash %q", snap.ID, dd.NodeID, h)
+				}
+				state[dd.NodeID] = dd.NewHash
+			case "mod":
+				h, ok := state[dd.NodeID]
+				if !ok {
+					t.Errorf("snap %d: mod %s but not in state", snap.ID, dd.NodeID)
+					continue
+				}
+				if h != dd.OldHash {
+					t.Errorf("snap %d: mod %s old=%q, state has %q", snap.ID, dd.NodeID, dd.OldHash, h)
+				}
+				state[dd.NodeID] = dd.NewHash
+			case "rem":
+				h, ok := state[dd.NodeID]
+				if !ok {
+					t.Errorf("snap %d: rem %s but not in state", snap.ID, dd.NodeID)
+					continue
+				}
+				if h != dd.OldHash {
+					t.Errorf("snap %d: rem %s old=%q, state has %q", snap.ID, dd.NodeID, dd.OldHash, h)
+				}
+				delete(state, dd.NodeID)
+			}
+		}
+	}
+
+	allNodes, err := st.GetAllNodes(ctx)
+	must(t, err)
+	for _, n := range allNodes {
+		h, ok := state[n.ID]
+		if !ok {
+			t.Errorf("DB has %s but chain walk doesn't", n.ID)
+			continue
+		}
+		if h != n.ContentHash {
+			t.Errorf("DB %s hash=%q, chain walk hash=%q", n.ID, n.ContentHash, h)
+		}
+		delete(state, n.ID)
+	}
+	for id := range state {
+		t.Errorf("chain walk has %s but DB doesn't", id)
 	}
 }
 

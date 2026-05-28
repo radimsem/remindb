@@ -30,43 +30,47 @@ func (d *Deps) HandleRollback(ctx context.Context, _ *gomcp.CallToolRequest, inp
 	d.Store.OpMu.Lock()
 	defer d.Store.OpMu.Unlock()
 
-	prevHeadID, err := d.Store.GetHeadSnapshotID(ctx)
-	if err != nil {
-		return nil, nil, fmt.Errorf("failed to fetch: head snapshot id: %w", err)
-	}
-
-	if prevHeadID == targetID {
-		return textResult(fmt.Sprintf("already at snapshot %d; nothing to do", targetID)), nil, nil
-	}
-	if targetID > prevHeadID {
-		return nil, nil, fmt.Errorf("snapshot %d is ahead of HEAD %d", targetID, prevHeadID)
-	}
-
-	restore, err := d.Store.RestoreToSnapshot(ctx, targetID)
-	if err != nil {
-		return nil, nil, fmt.Errorf("failed to restore: %w", err)
-	}
-
-	current, err := loadCurrentNodeMap(ctx, d.Store)
-	if err != nil {
-		return nil, nil, err
-	}
-
-	deltas := computeRollbackDeltas(current, restore.Nodes)
-	if len(deltas) == 0 {
-		return textResult(formatNoChange(targetID, restore.Skipped)), nil, nil
-	}
-
-	cursorHash := diff.CursorHashForRollback(prevHeadID, targetID, deltas)
-	parentID := prevHeadID
-	if input.DropAfter {
-		parentID = targetID
-	}
-
-	var newSnapID int64
-	var pruned int
+	var (
+		text  string
+		wrote bool
+	)
 
 	err = d.Store.Tx(ctx, func(tx *sql.Tx) error {
+		prevHeadID, err := d.Store.GetHeadSnapshotIDTx(ctx, tx)
+		if err != nil {
+			return fmt.Errorf("failed to fetch: head snapshot id: %w", err)
+		}
+
+		if prevHeadID == targetID {
+			text = fmt.Sprintf("already at snapshot %d; nothing to do", targetID)
+			return nil
+		}
+		if targetID > prevHeadID {
+			return fmt.Errorf("snapshot %d is ahead of HEAD %d", targetID, prevHeadID)
+		}
+
+		restore, err := d.Store.RestoreToSnapshotTx(ctx, tx, targetID)
+		if err != nil {
+			return fmt.Errorf("failed to restore: %w", err)
+		}
+
+		current, err := loadCurrentNodeMapTx(ctx, d.Store, tx)
+		if err != nil {
+			return err
+		}
+
+		deltas := computeRollbackDeltas(current, restore.Nodes)
+		if len(deltas) == 0 {
+			text = formatNoChange(targetID, restore.Skipped)
+			return nil
+		}
+
+		cursorHash := diff.CursorHashForRollback(prevHeadID, targetID, deltas)
+		parentID := prevHeadID
+		if input.DropAfter {
+			parentID = targetID
+		}
+
 		if _, err := tx.ExecContext(ctx, `PRAGMA defer_foreign_keys = 1`); err != nil {
 			return fmt.Errorf("failed to defer: foreign keys: %w", err)
 		}
@@ -80,7 +84,7 @@ func (d *Deps) HandleRollback(ctx context.Context, _ *gomcp.CallToolRequest, inp
 		}
 
 		msg := fmt.Sprintf("rollback to %d", targetID)
-		newSnapID, err = d.Store.CreateSnapshotTx(ctx, tx,
+		newSnapID, err := d.Store.CreateSnapshotTx(ctx, tx,
 			store.WithCursorHash(cursorHash),
 			store.WithMessage(msg),
 			store.WithParent(parentID),
@@ -96,6 +100,7 @@ func (d *Deps) HandleRollback(ctx context.Context, _ *gomcp.CallToolRequest, inp
 			return fmt.Errorf("failed to advance: cursor: %w", err)
 		}
 
+		var pruned int
 		if input.DropAfter {
 			n, err := d.Store.PruneSnapshotsAfterTx(ctx, tx, targetID, newSnapID)
 			if err != nil {
@@ -104,19 +109,24 @@ func (d *Deps) HandleRollback(ctx context.Context, _ *gomcp.CallToolRequest, inp
 
 			pruned = n
 		}
+
+		wrote = true
+		text = formatRollbackResult(targetID, newSnapID, len(deltas), pruned, input.DropAfter, restore.Skipped)
 		return nil
 	})
 	if err != nil {
 		return nil, nil, fmt.Errorf("failed to rollback: %w", err)
 	}
 
-	d.touchSnapshot()
+	if wrote {
+		d.touchSnapshot()
+	}
 
-	return textResult(formatRollbackResult(targetID, newSnapID, len(deltas), pruned, input.DropAfter, restore.Skipped)), nil, nil
+	return textResult(text), nil, nil
 }
 
-func loadCurrentNodeMap(ctx context.Context, st *store.Store) (map[string]*store.Node, error) {
-	nodes, err := st.GetAllNodes(ctx)
+func loadCurrentNodeMapTx(ctx context.Context, st *store.Store, tx *sql.Tx) (map[string]*store.Node, error) {
+	nodes, err := st.GetAllNodesTx(ctx, tx)
 	if err != nil {
 		return nil, fmt.Errorf("failed to load: head nodes: %w", err)
 	}
