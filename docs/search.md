@@ -16,7 +16,7 @@ When an agent doesn't have a memory layer, "find where I wrote about rate limiti
 
 Search runs on SQLite's **FTS5** virtual table, built at write time with a porter tokenizer over labels, content, and types. `MemorySearch` returns ranked anchors in milliseconds — no file rescan, no regex, no timeout. Ask for 500 tokens of matches and you get exactly 500: the engine fills up to the budget and stops, which is cheaper than returning everything and hoping the client truncates.
 
-Ranking folds in [temperature](./temperature.md): `score = relevance × (0.3 + 0.7 × temperature)`, where relevance is FTS5's BM25-like rank. A cold node with a strong match still surfaces; a warm node with a weak one does too. The budget trims from the bottom *after* ranking.
+Ranking composes three factors: `score = relevance × temperature_score × recency`, where `relevance` is FTS5's BM25-like rank, `temperature_score = 0.3 + 0.7 × [temperature](./temperature.md)` (the `0.3` floor keeps cold-but-relevant matches visible), and `recency = 1 / (1 + hours_since_last_access / 24)` (`1.0` for never-accessed nodes, `0.5` at 24h since last access). A cold node with a strong match still surfaces; a warm node with a weak one does too. The budget trims from the bottom *after* ranking.
 
 ## The one thing you must know: the OR rewrite
 

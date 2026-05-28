@@ -23,7 +23,7 @@ Every node carries a **temperature** in `[0.0, 1.0]`. A fresh compile starts eve
 
 The spread you see in a [tree dump](./node-tree.md) is the history of how the memory was actually used. *Architecture* sits at `0.88` because the agent keeps coming back. *Observability* has decayed to `0.08` because nobody has.
 
-Temperature feeds [search ranking](./search.md): `score = relevance × (0.3 + 0.7 × temperature)`. A cold node with a great keyword match still surfaces — it just stops crowding the top when its match is weak. Cold never means gone.
+Temperature feeds [search ranking](./search.md), which composes three factors: `score = relevance × temperature_score × recency`, with `temperature_score = 0.3 + 0.7 × temperature`. The `0.3` floor keeps a cold node with a great keyword match visible — it just stops crowding the top when its match is weak. Cold never means gone. (The `recency` multiplier is documented under [search](./search.md).)
 
 Two thresholds gate what happens next, independent so an operator can run a tighter alert band than the cold-set query:
 

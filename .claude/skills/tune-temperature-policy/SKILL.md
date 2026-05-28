@@ -20,7 +20,7 @@ If the numbers or the workflow drift from the code, agents will reason from stal
 |---|---|---|
 | `DecayRate` | `0.05` | `decayFactor = exp(-rate × elapsed_hours)` — applied each tick to every node |
 | `AccessBoost` | `0.15` | Added to a node's temperature on read; capped at `1.0` by SQL `min(1.0, …)` |
-| `ColdThreshold` | `0.1` | Below this, nodes are "cold" — used by `GetColdNodes` and the search relevance floor (`Score = relevance × (0.3 + 0.7 × temperature)`) |
+| `ColdThreshold` | `0.1` | Below this, nodes are "cold" — used by `GetColdNodes` and the search relevance floor (`score = relevance × (0.3 + 0.7 × temperature) × recency`) |
 | `NotifyThreshold` | `0.1` | Below this, the server pushes an MCP notification (`level: "warning"`, `logger: "remindb.temperature"`) — gated by per-node hysteresis dedup |
 | `TickInterval` | `5 * time.Minute` | How often `Tracker.Run` decays + queries cold nodes |
 
@@ -59,7 +59,7 @@ The two public skills carry different surfaces of the policy. Walk both:
 
 - **Frontmatter description** — mentions "warning-level cold-node notifications"
 - **Mental model → Nodes** — quotes `+0.15`, `exp(-0.05 × elapsed_hours)`, `~5% per hour`, the two thresholds, and `0.1` defaults
-- **Mental model → Ranking** — `score = relevance × (0.3 + 0.7 × temperature)`
+- **Mental model → Ranking** — `score = relevance × (0.3 + 0.7 × temperature) × recency`
 - **Mental model → Notifications** — quotes the message string, hysteresis behavior, payload shape
 - **Anti-patterns** — the dedup-and-rearm note, the `ColdThreshold` vs `NotifyThreshold` distinction
 
