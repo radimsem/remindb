@@ -14,9 +14,13 @@ import (
 )
 
 const (
-	httpShutdownTimeout = 5 * time.Second
-	bearerPrefix        = "Bearer "
-	bearerRealm         = `Bearer realm="remindb"`
+	httpReadHeaderTimeout = 10 * time.Second
+	httpReadTimeout       = 60 * time.Second
+	httpIdleTimeout       = 120 * time.Second
+	httpMaxHeaderBytes    = 1 << 20 // 1 MiB
+	httpShutdownTimeout   = 5 * time.Second
+	bearerPrefix          = "Bearer "
+	bearerRealm           = `Bearer realm="remindb"`
 )
 
 func (s *Server) runHttp(ctx context.Context) error {
@@ -48,7 +52,17 @@ func (s *Server) runHttp(ctx context.Context) error {
 	if s.authToken != "" {
 		handler = bearerAuthMiddleware(s.authToken, handler)
 	}
-	httpSrv := &http.Server{Handler: handler}
+	// WriteTimeout is intentionally left at the zero value: streamable HTTP
+	// keeps responses open for long-running POSTs and SSE GETs, and a
+	// server-wide cap would truncate them. Slow-read defense is left to the
+	// streaming handler's own per-write deadlines.
+	httpSrv := &http.Server{
+		Handler:           handler,
+		ReadHeaderTimeout: httpReadHeaderTimeout,
+		ReadTimeout:       httpReadTimeout,
+		IdleTimeout:       httpIdleTimeout,
+		MaxHeaderBytes:    httpMaxHeaderBytes,
+	}
 
 	s.logger.Info("serve: HTTP transport ready", "listen", addr, "auth", s.authToken != "")
 

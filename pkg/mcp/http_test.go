@@ -3,6 +3,7 @@ package mcp
 import (
 	"bytes"
 	"context"
+	"errors"
 	"log/slog"
 	"net"
 	"net/http"
@@ -201,6 +202,65 @@ func TestRunHttp_WithAuthToken_EndToEnd(t *testing.T) {
 	_ = withAuth.Body.Close()
 	if withAuth.StatusCode == http.StatusUnauthorized {
 		t.Errorf("authenticated status = 401, want non-401 (reached MCP layer)")
+	}
+}
+
+func TestRunHttp_ReadHeaderTimeout_ClosesSlowClient(t *testing.T) {
+	if testing.Short() {
+		t.Skipf("skipping Slowloris regression in -short mode (waits ~%s)", httpReadHeaderTimeout)
+	}
+
+	ln, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatalf("listen: %v", err)
+	}
+	addr := ln.Addr().String()
+
+	srv := newHttpTestServer(t, ln)
+
+	ctx, cancel := context.WithCancel(context.Background())
+	done := make(chan error, 1)
+	go func() { done <- srv.Run(ctx) }()
+	t.Cleanup(func() {
+		cancel()
+		<-done
+	})
+
+	time.Sleep(50 * time.Millisecond)
+
+	conn, err := net.DialTimeout("tcp", addr, time.Second)
+	if err != nil {
+		t.Fatalf("dial: %v", err)
+	}
+	defer func() { _ = conn.Close() }()
+
+	if _, err := conn.Write([]byte("GET / HTTP/1.1\r\n")); err != nil {
+		t.Fatalf("write partial: %v", err)
+	}
+
+	// Client deadline is intentionally much larger than the server's
+	// ReadHeaderTimeout. If the client deadline fires first, the server
+	// did not enforce its timeout and the test must fail — not pass on
+	// the client-side timeout it accidentally observed.
+	clientDeadline := httpReadHeaderTimeout + 10*time.Second
+	if err := conn.SetReadDeadline(time.Now().Add(clientDeadline)); err != nil {
+		t.Fatalf("set deadline: %v", err)
+	}
+
+	buf := make([]byte, 256)
+	start := time.Now()
+	_, readErr := conn.Read(buf)
+	elapsed := time.Since(start)
+
+	var netErr net.Error
+	if errors.As(readErr, &netErr) && netErr.Timeout() {
+		t.Fatalf("client deadline fired after %v before server closed — server did not enforce ReadHeaderTimeout", elapsed)
+	}
+	if readErr == nil {
+		t.Fatalf("read returned nil err after %v — server did not enforce ReadHeaderTimeout", elapsed)
+	}
+	if elapsed > httpReadHeaderTimeout+3*time.Second {
+		t.Errorf("server closed after %v, want within %v", elapsed, httpReadHeaderTimeout+3*time.Second)
 	}
 }
 
