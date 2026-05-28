@@ -46,7 +46,7 @@ Smallest unit = **node**:
 
 ### Ranking
 
-`score = relevance × (0.3 + 0.7 × temperature)`. Relevance = FTS5 BM25-like rank. Cold node + great match still surfaces; warm node + weak match too. Budget trims bottom after ranking.
+`score = relevance × (0.3 + 0.7 × temperature) × recency`, where `recency = 1 / (1 + hours_since_last_access / 24)` (`1.0` if never accessed, `0.5` at 24h). Relevance = FTS5 BM25-like rank. Cold node + great match still surfaces; warm node + weak match too. Budget trims bottom after ranking.
 
 ### Notifications
 
