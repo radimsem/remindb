@@ -115,12 +115,32 @@ func (s *Store) FindHeadingByLabel(ctx context.Context, label string) (string, e
 	return id, err
 }
 
+func (s *Store) FindHeadingByLabelTx(ctx context.Context, tx *sql.Tx, label string) (string, error) {
+	var id string
+	err := tx.QueryRowContext(ctx, qFindHeadingByLabel, label).Scan(&id)
+	if errors.Is(err, sql.ErrNoRows) {
+		return "", nil
+	}
+	return id, err
+}
+
 // Look up a heading node ID by label scoped to a source file.
 func (s *Store) FindHeadingByLabelInFile(ctx context.Context, sourceFile, label string) (string, error) {
 	var id string
 	suffixPattern := "%/" + likeEscaper.Replace(sourceFile)
 
 	err := s.db.QueryRowContext(ctx, qFindHeadingByLabelInFile, sourceFile, suffixPattern, label).Scan(&id)
+	if errors.Is(err, sql.ErrNoRows) {
+		return "", nil
+	}
+	return id, err
+}
+
+func (s *Store) FindHeadingByLabelInFileTx(ctx context.Context, tx *sql.Tx, sourceFile, label string) (string, error) {
+	var id string
+	suffixPattern := "%/" + likeEscaper.Replace(sourceFile)
+
+	err := tx.QueryRowContext(ctx, qFindHeadingByLabelInFile, sourceFile, suffixPattern, label).Scan(&id)
 	if errors.Is(err, sql.ErrNoRows) {
 		return "", nil
 	}
@@ -139,6 +159,16 @@ func (s *Store) GetAllRelations(ctx context.Context) ([]*Relation, error) {
 
 func (s *Store) GetAllPendingRelations(ctx context.Context) ([]*PendingRelation, error) {
 	rows, err := s.db.QueryContext(ctx, qSelectAllPendingRelations)
+	if err != nil {
+		return nil, err
+	}
+	defer func() { _ = rows.Close() }()
+
+	return collectPendingRows(rows)
+}
+
+func (s *Store) GetAllPendingRelationsTx(ctx context.Context, tx *sql.Tx) ([]*PendingRelation, error) {
+	rows, err := tx.QueryContext(ctx, qSelectAllPendingRelations)
 	if err != nil {
 		return nil, err
 	}

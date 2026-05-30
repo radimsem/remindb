@@ -43,79 +43,98 @@ func WithCompileRoot(r string) Option {
 }
 
 func Emit(ctx context.Context, st *store.Store, opts ...Option) error {
-	var o options
-	for _, opt := range opts {
-		opt(&o)
-	}
-
+	o := newOptions(opts)
 	if len(o.deltas) == 0 {
 		return nil
 	}
 
+	return st.Tx(ctx, func(tx *sql.Tx) error {
+		return emit(ctx, st, tx, o)
+	})
+}
+
+// EmitTx applies the diff deltas using tx, letting callers fold the snapshot
+// into a larger atomic transaction alongside their own writes.
+func EmitTx(ctx context.Context, st *store.Store, tx *sql.Tx, opts ...Option) error {
+	o := newOptions(opts)
+	if len(o.deltas) == 0 {
+		return nil
+	}
+
+	return emit(ctx, st, tx, o)
+}
+
+func newOptions(opts []Option) *options {
+	var o options
+	for _, opt := range opts {
+		opt(&o)
+	}
+	return &o
+}
+
+func emit(ctx context.Context, st *store.Store, tx *sql.Tx, o *options) error {
 	nodeMap := buildNodeMap(o.roots)
 
-	return st.Tx(ctx, func(tx *sql.Tx) error {
-		preState, err := capturePreState(ctx, st, tx, o.deltas)
-		if err != nil {
-			return err
-		}
+	preState, err := capturePreState(ctx, st, tx, o.deltas)
+	if err != nil {
+		return err
+	}
 
-		for i := range o.deltas {
-			d := &o.deltas[i]
+	for i := range o.deltas {
+		d := &o.deltas[i]
 
-			switch d.Op {
-			case diff.OpAdd, diff.OpMod:
-				cn, ok := nodeMap[d.NodeID]
-				if !ok {
-					return fmt.Errorf("emitter: node %s not found in tree", d.NodeID)
-				}
-				n := nodeFromContext(cn)
-				if err := st.UpsertNodeTx(ctx, tx, n); err != nil {
-					return fmt.Errorf("failed to upsert: node %s: %w", d.NodeID, err)
-				}
-
-			case diff.OpRem:
-				if err := st.DeleteNodeTx(ctx, tx, d.NodeID); err != nil {
-					return fmt.Errorf("failed to delete: node %s: %w", d.NodeID, err)
-				}
+		switch d.Op {
+		case diff.OpAdd, diff.OpMod:
+			cn, ok := nodeMap[d.NodeID]
+			if !ok {
+				return fmt.Errorf("emitter: node %s not found in tree", d.NodeID)
 			}
-		}
-
-		snapID, err := st.CreateSnapshotTx(ctx, tx,
-			store.WithCursorHash(o.cursorHash),
-			store.WithMessage(o.message),
-			store.WithCompileRoot(o.compileRoot),
-		)
-		if err != nil {
-			return fmt.Errorf("failed to create: snapshot: %w", err)
-		}
-
-		for i := range o.deltas {
-			d := &o.deltas[i]
-			rec := &store.DiffRecord{
-				SnapshotID: snapID,
-				NodeID:     d.NodeID,
-				Op:         string(d.Op),
-				OldHash:    d.OldHash,
-				NewHash:    d.NewHash,
-				OldContent: d.OldContent,
-				NewContent: d.NewContent,
+			n := nodeFromContext(cn)
+			if err := st.UpsertNodeTx(ctx, tx, n); err != nil {
+				return fmt.Errorf("failed to upsert: node %s: %w", d.NodeID, err)
 			}
 
-			if pre, ok := preState[d.NodeID]; ok {
-				rec.SetOldMetadata(pre)
-			}
-			if err := st.InsertDiffTx(ctx, tx, rec); err != nil {
-				return fmt.Errorf("failed to insert: diff %s: %w", d.NodeID, err)
+		case diff.OpRem:
+			if err := st.DeleteNodeTx(ctx, tx, d.NodeID); err != nil {
+				return fmt.Errorf("failed to delete: node %s: %w", d.NodeID, err)
 			}
 		}
+	}
 
-		if err := st.AdvanceCursorTx(ctx, tx, snapID); err != nil {
-			return fmt.Errorf("failed to advance: cursor: %w", err)
+	snapID, err := st.CreateSnapshotTx(ctx, tx,
+		store.WithCursorHash(o.cursorHash),
+		store.WithMessage(o.message),
+		store.WithCompileRoot(o.compileRoot),
+	)
+	if err != nil {
+		return fmt.Errorf("failed to create: snapshot: %w", err)
+	}
+
+	for i := range o.deltas {
+		d := &o.deltas[i]
+		rec := &store.DiffRecord{
+			SnapshotID: snapID,
+			NodeID:     d.NodeID,
+			Op:         string(d.Op),
+			OldHash:    d.OldHash,
+			NewHash:    d.NewHash,
+			OldContent: d.OldContent,
+			NewContent: d.NewContent,
 		}
 
-		return nil
-	})
+		if pre, ok := preState[d.NodeID]; ok {
+			rec.SetOldMetadata(pre)
+		}
+		if err := st.InsertDiffTx(ctx, tx, rec); err != nil {
+			return fmt.Errorf("failed to insert: diff %s: %w", d.NodeID, err)
+		}
+	}
+
+	if err := st.AdvanceCursorTx(ctx, tx, snapID); err != nil {
+		return fmt.Errorf("failed to advance: cursor: %w", err)
+	}
+
+	return nil
 }
 
 func capturePreState(ctx context.Context, st *store.Store, tx *sql.Tx, deltas []diff.Delta) (map[string]*store.Node, error) {
