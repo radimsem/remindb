@@ -253,19 +253,27 @@ func Compile(ctx context.Context, st *store.Store, opts ...Option) (*Result, err
 	deltas := diff.DiffFlat(flat, prev)
 	cursorHash := diff.CursorHashFlat(flat)
 
-	err = emitter.Emit(ctx, st,
-		emitter.WithRoots(roots),
-		emitter.WithDeltas(deltas),
-		emitter.WithCursorHash(cursorHash),
-		emitter.WithMessage(o.message),
-		emitter.WithCompileRoot(o.compileRoot),
-	)
-	if err != nil {
-		return nil, fmt.Errorf("failed to emit: %w", err)
-	}
+	// Emit and relations share one transaction so the snapshot, node mutations,
+	// cursor advance, and relation writes commit or roll back together. A relations
+	// failure must not leave HEAD ahead of the error returned to the caller.
+	err = st.Tx(ctx, func(tx *sql.Tx) error {
+		if err := emitter.EmitTx(ctx, st, tx,
+			emitter.WithRoots(roots),
+			emitter.WithDeltas(deltas),
+			emitter.WithCursorHash(cursorHash),
+			emitter.WithMessage(o.message),
+			emitter.WithCompileRoot(o.compileRoot),
+		); err != nil {
+			return fmt.Errorf("failed to emit: %w", err)
+		}
 
-	if err := relations.Run(ctx, st, flat); err != nil {
-		return nil, fmt.Errorf("failed to resolve relations: %w", err)
+		if err := relations.RunTx(ctx, st, tx, flat); err != nil {
+			return fmt.Errorf("failed to resolve relations: %w", err)
+		}
+		return nil
+	})
+	if err != nil {
+		return nil, err
 	}
 
 	return countResult(deltas), nil
