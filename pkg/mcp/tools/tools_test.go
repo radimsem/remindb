@@ -1584,6 +1584,19 @@ func TestHandleForget_Strict_Leaf(t *testing.T) {
 	}
 }
 
+func TestHandleForget_EmptyNodeID(t *testing.T) {
+	d, _ := setup(t)
+	ctx := context.Background()
+
+	_, _, err := d.HandleForget(ctx, &gomcp.CallToolRequest{}, ForgetInput{NodeID: ""})
+	if err == nil {
+		t.Fatal("HandleForget with empty node_id should error")
+	}
+	if !strings.Contains(err.Error(), "node_id is required") {
+		t.Errorf("err = %q, want node_id-required message", err)
+	}
+}
+
 func TestHandleForget_Strict_RejectsParent(t *testing.T) {
 	d, st := setup(t)
 	ctx := context.Background()
