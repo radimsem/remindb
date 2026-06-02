@@ -515,6 +515,7 @@ func TestCanonicalizePath(t *testing.T) {
 		input     string
 		sourceDir string
 		want      string
+		wantErr   bool
 	}{
 		{
 			name:  "empty source dir passes through",
@@ -533,8 +534,8 @@ func TestCanonicalizePath(t *testing.T) {
 			input: dir + "/./sub/doc.md", sourceDir: dir, want: file,
 		},
 		{
-			name:  "outside source tree passes through",
-			input: "/etc/hosts", sourceDir: dir, want: "/etc/hosts",
+			name:  "outside source tree rejected",
+			input: "/etc/hosts", sourceDir: dir, wantErr: true,
 		},
 		{
 			name:  "compile root itself stays as the source dir form",
@@ -546,6 +547,12 @@ func TestCanonicalizePath(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			got, err := canonicalizePath(tt.input, tt.sourceDir)
 
+			if tt.wantErr {
+				if err == nil {
+					t.Fatalf("canonicalizePath(%q): want error, got %q", tt.input, got)
+				}
+				return
+			}
 			if err != nil {
 				t.Fatalf("canonicalizePath: %v", err)
 			}
@@ -554,6 +561,23 @@ func TestCanonicalizePath(t *testing.T) {
 			}
 		})
 	}
+
+	// A symlink inside the source root pointing outside it must resolve to its
+	// real target and be rejected, not followed.
+	t.Run("symlink escaping source tree rejected", func(t *testing.T) {
+		escape := filepath.Join(sub, "escape.md")
+		outside := filepath.Join(t.TempDir(), "secret.md")
+		if err := os.WriteFile(outside, []byte("x"), 0o644); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.Symlink(outside, escape); err != nil {
+			t.Skipf("symlinks unsupported in this environment: %v", err)
+		}
+
+		if _, err := canonicalizePath(escape, dir); err == nil {
+			t.Fatal("canonicalizePath: want error for symlink escaping source root")
+		}
+	})
 }
 
 func TestHandleDelta(t *testing.T) {

@@ -2227,7 +2227,14 @@ func TestMcp_ResourceSubscription_CoalescesToOneNotification(t *testing.T) {
 
 func TestMcp_SessionLedger(t *testing.T) {
 	env := mcptest.NewEnvWithSessionLedger(t)
-	dir, _ := filepath.Abs("testdata/openclaw")
+
+	// Compile a copy of the fixture inside the server's source root — the
+	// containment check rejects paths resolving outside it (issue #225).
+	src, _ := filepath.Abs("testdata/openclaw")
+	dir := filepath.Join(env.WorkspaceDir, "openclaw")
+	if err := os.CopyFS(dir, os.DirFS(src)); err != nil {
+		t.Fatalf("copy fixture: %v", err)
+	}
 
 	// 1. Agent works: two tool calls accrue against its session.
 	env.CallTool(t, "MemoryCompile", map[string]any{"path": dir, "message": "ledger-init"})

@@ -9,6 +9,7 @@ import (
 	"os"
 	"path/filepath"
 	"runtime"
+	"strings"
 	"time"
 
 	"golang.org/x/sync/errgroup"
@@ -328,6 +329,15 @@ func CompileDir(ctx context.Context, st *store.Store, dir, message string, opts 
 		pinMatcher = m
 	}
 
+	// Resolve the root once so the containment check below compares walked
+	// symlink targets against the root's real path, not a symlinked alias.
+	rootReal, err := filepath.EvalSymlinks(absDir)
+	if err != nil {
+		rootReal = absDir
+	}
+
+	logger := loghelper.OrDefault(o.logger)
+
 	var paths []string
 	err = filepath.WalkDir(absDir, func(path string, d os.DirEntry, err error) error {
 		if err != nil {
@@ -353,6 +363,10 @@ func CompileDir(ctx context.Context, st *store.Store, dir, message string, opts 
 			return nil
 		}
 		if matcher.Match(rel, false) {
+			return nil
+		}
+		if symlinkEscapesRoot(rootReal, path, d) {
+			logger.Warn("compile: skipping symlink outside source root", "path", path)
 			return nil
 		}
 
@@ -393,6 +407,24 @@ func CompileDir(ctx context.Context, st *store.Store, dir, message string, opts 
 		return nil, err
 	}
 	return result, nil
+}
+
+// Containment applies to walked files too: a symlink in the tree must not pull in files outside the compile root.
+func symlinkEscapesRoot(root, path string, entry os.DirEntry) bool {
+	if entry.Type()&os.ModeSymlink == 0 {
+		return false
+	}
+
+	resolved, err := filepath.EvalSymlinks(path)
+	if err != nil {
+		return true
+	}
+
+	rel, err := filepath.Rel(root, resolved)
+	if err != nil {
+		return true
+	}
+	return rel == ".." || strings.HasPrefix(rel, ".."+string(filepath.Separator))
 }
 
 // Apply reseed flags without emitting a snapshot; combined flags share one Tx.

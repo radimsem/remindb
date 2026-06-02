@@ -13,7 +13,7 @@ import (
 )
 
 type CompileInput struct {
-	Path    string `json:"path" jsonschema:"File path or directory to compile (absolute or relative; anchored to the server's source root automatically)"`
+	Path    string `json:"path" jsonschema:"File path or directory to compile (absolute or relative; must resolve within the server's source root, else the call is rejected)"`
 	Message string `json:"message,omitempty" jsonschema:"Snapshot message"`
 }
 
@@ -23,7 +23,7 @@ func (d *Deps) HandleCompile(ctx context.Context, _ *gomcp.CallToolRequest, inpu
 	// Pure path normalization — runs before OpMu so EvalSymlinks doesn't block other writers.
 	path, err := canonicalizePath(input.Path, d.SourceDir)
 	if err != nil {
-		return nil, nil, fmt.Errorf("failed to canonicalize: %w", err)
+		return nil, nil, err
 	}
 
 	d.Store.OpMu.Lock()
@@ -82,9 +82,9 @@ func canonicalizePath(input, sourceDir string) (string, error) {
 	}
 
 	rel, err := filepath.Rel(absSource, absInput)
-	outsideSource := rel == ".." || strings.HasPrefix(rel, ".."+string(filepath.Separator))
-	if err != nil || outsideSource {
-		return input, nil
+	outsideSource := err != nil || rel == ".." || strings.HasPrefix(rel, ".."+string(filepath.Separator))
+	if outsideSource {
+		return "", fmt.Errorf("path %q is outside source root %q", input, sourceDir)
 	}
 
 	return filepath.Join(sourceDir, rel), nil

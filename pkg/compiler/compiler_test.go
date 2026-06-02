@@ -120,6 +120,38 @@ func TestCompileDir(t *testing.T) {
 	}
 }
 
+func TestCompileDir_SkipsSymlinkOutsideRoot(t *testing.T) {
+	st := testutil.OpenTestDB(t)
+	ctx := context.Background()
+	dir := t.TempDir()
+
+	writeFile(t, dir, "real.md", "# Real\n\nLegit memory.\n")
+
+	// A symlink inside the compile root pointing at a supported file outside
+	// it must be skipped, not followed and ingested (issue #225).
+	secret := writeFile(t, t.TempDir(), "secret.md", "# Secret\n\nshould-not-ingest\n")
+	escape := filepath.Join(dir, "escape.md")
+	if err := os.Symlink(secret, escape); err != nil {
+		t.Skipf("symlinks unsupported in this environment: %v", err)
+	}
+
+	result, err := CompileDir(ctx, st, dir, "batch")
+	if err != nil {
+		t.Fatalf("CompileDir: %v", err)
+	}
+	if result.Added == 0 {
+		t.Fatal("Added = 0, want the real sibling compiled")
+	}
+
+	escaped, err := st.GetNodesByFiles(ctx, []string{escape})
+	if err != nil {
+		t.Fatalf("GetNodesByFiles: %v", err)
+	}
+	if len(escaped) != 0 {
+		t.Errorf("escaping symlink produced %d nodes, want 0 (skipped)", len(escaped))
+	}
+}
+
 func TestCompileDir_SkipsMalformedJSON(t *testing.T) {
 	st := testutil.OpenTestDB(t)
 	ctx := context.Background()
