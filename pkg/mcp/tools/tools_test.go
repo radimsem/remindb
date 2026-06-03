@@ -936,17 +936,89 @@ func TestHandleSummarize_RejectsOutOfRangeTemperature(t *testing.T) {
 }
 
 func TestHandleHistory(t *testing.T) {
-	d, _ := setup(t)
+	d, st := setup(t)
 	ctx := context.Background()
 
+	node := &store.Node{
+		ID: "histnode1", SourceFile: "test.md", NodeType: "heading",
+		Depth: 1, Label: "Hist", Content: "hist",
+		Format: "plain", TokenCount: 5, ContentHash: "h1",
+	}
+	if err := st.UpsertNode(ctx, node); err != nil {
+		t.Fatalf("UpsertNode: %v", err)
+	}
+
 	result, _, err := d.HandleHistory(ctx, &gomcp.CallToolRequest{}, HistoryInput{
-		Anchor: "nonexist",
+		Anchor: "histnode1",
 	})
 	if err != nil {
 		t.Fatalf("HandleHistory: %v", err)
 	}
 	if len(result.Content) == 0 {
 		t.Error("empty content")
+	}
+}
+
+func TestHandleHistory_EmptyAnchor(t *testing.T) {
+	d, _ := setup(t)
+	ctx := context.Background()
+
+	_, _, err := d.HandleHistory(ctx, &gomcp.CallToolRequest{}, HistoryInput{Anchor: ""})
+	if err == nil {
+		t.Fatal("HandleHistory with empty anchor should error")
+	}
+	if !strings.Contains(err.Error(), "anchor is required") {
+		t.Errorf("err = %q, want anchor-required message", err)
+	}
+}
+
+func TestHandleHistory_MissingNode(t *testing.T) {
+	d, _ := setup(t)
+	ctx := context.Background()
+
+	_, _, err := d.HandleHistory(ctx, &gomcp.CallToolRequest{}, HistoryInput{Anchor: "ghost1234567"})
+	if err == nil {
+		t.Fatal("HandleHistory on missing node should error")
+	}
+	if !strings.Contains(err.Error(), "not found") {
+		t.Errorf("err = %q, want not-found message", err)
+	}
+}
+
+func TestHandleHistory_DeletedNodeKeepsTrail(t *testing.T) {
+	d, st := setup(t)
+	ctx := context.Background()
+
+	// Seed a diff trail for a node absent from the nodes table, mimicking a
+	// forgotten node whose history must remain accessible.
+	const deletedID = "deadnode0001"
+	err := st.Tx(ctx, func(tx *sql.Tx) error {
+		snapID, err := st.CreateSnapshotTx(ctx, tx,
+			store.WithCursorHash("cdead0001"),
+			store.WithMessage("forget:strict:"+deletedID),
+		)
+		if err != nil {
+			return err
+		}
+		return st.InsertDiffTx(ctx, tx, &store.DiffRecord{
+			SnapshotID: snapID, NodeID: deletedID, Op: "rem",
+			OldHash: "hdead", OldContent: "gone but remembered",
+		})
+	})
+	if err != nil {
+		t.Fatalf("seed diff: %v", err)
+	}
+
+	result, _, err := d.HandleHistory(ctx, &gomcp.CallToolRequest{}, HistoryInput{Anchor: deletedID})
+	if err != nil {
+		t.Fatalf("HandleHistory on forgotten node should not error: %v", err)
+	}
+	text := result.Content[0].(*gomcp.TextContent).Text
+	if strings.Contains(text, "not found") || strings.Contains(text, "no history") {
+		t.Errorf("forgotten node lost its trail: %q", text)
+	}
+	if !strings.Contains(text, "gone but remembered") {
+		t.Errorf("history did not surface the rem trail: %q", text)
 	}
 }
 

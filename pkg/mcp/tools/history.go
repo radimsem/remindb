@@ -2,6 +2,8 @@ package tools
 
 import (
 	"context"
+	"database/sql"
+	"errors"
 	"fmt"
 	"strings"
 	"time"
@@ -18,18 +20,33 @@ type HistoryInput struct {
 func (d *Deps) HandleHistory(ctx context.Context, _ *gomcp.CallToolRequest, input HistoryInput) (_ *gomcp.CallToolResult, _ any, err error) {
 	defer d.logCall(ctx, "MemoryHistory", &err, time.Now(), "anchor", input.Anchor, "depth", input.Depth)
 
+	if input.Anchor == "" {
+		return nil, nil, fmt.Errorf("anchor is required")
+	}
+
 	diffs, err := d.Store.GetDiffsForNode(ctx, input.Anchor)
 	if err != nil {
 		return nil, nil, fmt.Errorf("failed to get history: %w", err)
 	}
 
+	// An empty trail is ambiguous: a live node that never changed, or an
+	// unknown ID. Probe the nodes table to tell them apart. A non-empty
+	// trail renders as-is — diffs outlive the node, so history stays
+	// available for forgotten nodes.
+	if len(diffs) == 0 {
+		_, err = d.Store.GetNode(ctx, input.Anchor)
+		if err != nil {
+			if errors.Is(err, sql.ErrNoRows) {
+				return nil, nil, fmt.Errorf("node_id not found: %s", input.Anchor)
+			}
+			return nil, nil, fmt.Errorf("failed to fetch: node %s: %w", input.Anchor, err)
+		}
+		return textResult("no history for " + input.Anchor), nil, nil
+	}
+
 	limit := treewalk.ClampDepth(input.Depth, 10, treewalk.MaxDepth)
 	if limit > len(diffs) {
 		limit = len(diffs)
-	}
-
-	if len(diffs) == 0 {
-		return textResult("no history for " + input.Anchor), nil, nil
 	}
 
 	var b strings.Builder
