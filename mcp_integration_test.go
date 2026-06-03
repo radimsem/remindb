@@ -25,7 +25,7 @@ import (
 // Simulates an OpenClaw agent session.
 func TestMcp_OpenClawAgent(t *testing.T) {
 	env := mcptest.NewEnv(t)
-	dir, _ := filepath.Abs("testdata/openclaw")
+	dir := env.StageFixture(t, "testdata/openclaw")
 
 	// 1. Agent compiles its identity files into the database.
 	compileResult := env.CallTool(t, "MemoryCompile", map[string]any{
@@ -121,7 +121,7 @@ func TestMcp_OpenClawAgent(t *testing.T) {
 // Simulates a Claude Code session.
 func TestMcp_ClaudeCodeAgent(t *testing.T) {
 	env := mcptest.NewEnv(t)
-	dir, _ := filepath.Abs("testdata/claude-code")
+	dir := env.StageFixture(t, "testdata/claude-code")
 
 	// 1. Compile the project instructions and memory files.
 	env.CallTool(t, "MemoryCompile", map[string]any{
@@ -193,7 +193,7 @@ func TestMcp_ClaudeCodeAgent(t *testing.T) {
 // Simulates a Gemini CLI session.
 func TestMcp_GeminiCliAgent(t *testing.T) {
 	env := mcptest.NewEnv(t)
-	dir, _ := filepath.Abs("testdata/gemini-cli")
+	dir := env.StageFixture(t, "testdata/gemini-cli")
 
 	// 1. Compile the infra-api project context.
 	env.CallTool(t, "MemoryCompile", map[string]any{
@@ -266,7 +266,7 @@ func TestMcp_GeminiCliAgent(t *testing.T) {
 // Simulates a Codex agent session.
 func TestMcp_CodexAgent(t *testing.T) {
 	env := mcptest.NewEnv(t)
-	dir, _ := filepath.Abs("testdata/codex")
+	dir := env.StageFixture(t, "testdata/codex")
 
 	// 1. Compile the data pipeline project context.
 	compileResult := env.CallTool(t, "MemoryCompile", map[string]any{
@@ -361,7 +361,7 @@ func TestMcp_CodexAgent(t *testing.T) {
 // Simulates an OpenCode agent session.
 func TestMcp_OpenCodeAgent(t *testing.T) {
 	env := mcptest.NewEnv(t)
-	dir, _ := filepath.Abs("testdata/opencode")
+	dir := env.StageFixture(t, "testdata/opencode")
 
 	// 1. Compile the harbor project context.
 	compileResult := env.CallTool(t, "MemoryCompile", map[string]any{
@@ -471,7 +471,7 @@ func TestMcp_OpenCodeAgent(t *testing.T) {
 
 func TestMcp_WikilinkRelationsWorkflow(t *testing.T) {
 	env := mcptest.NewEnv(t)
-	dir := t.TempDir()
+	dir := env.WorkspaceDir
 
 	const (
 		aSrc = "# Source\n\nSee [[Target; w=2.0]] for the design.\nUniqueMarkerSource is the anchor.\n"
@@ -551,7 +551,7 @@ func TestMcp_WikilinkRelationsWorkflow(t *testing.T) {
 
 func TestMcp_FetchBatchWorkflow(t *testing.T) {
 	env := mcptest.NewEnv(t)
-	dir, _ := filepath.Abs("testdata/openclaw")
+	dir := env.StageFixture(t, "testdata/openclaw")
 
 	env.CallTool(t, "MemoryCompile", map[string]any{
 		"path":    dir,
@@ -599,7 +599,7 @@ func TestMcp_FetchBatchWorkflow(t *testing.T) {
 
 func TestMcp_StatsWorkflow(t *testing.T) {
 	env := mcptest.NewEnv(t)
-	dir, _ := filepath.Abs("testdata/openclaw")
+	dir := env.StageFixture(t, "testdata/openclaw")
 
 	env.CallTool(t, "MemoryCompile", map[string]any{
 		"path":    dir,
@@ -1003,7 +1003,7 @@ func TestMcp_FilesResource(t *testing.T) {
 	ctx := context.Background()
 
 	// A compiled dir → files grouped under a non-empty compile root.
-	dir, _ := filepath.Abs("testdata/openclaw")
+	dir := env.StageFixture(t, "testdata/openclaw")
 	compileResult := env.CallTool(t, "MemoryCompile", map[string]any{
 		"path":    dir,
 		"message": "files-resource-init",
@@ -1121,7 +1121,7 @@ func TestMcp_TreeResource(t *testing.T) {
 	env := mcptest.NewEnv(t)
 	ctx := context.Background()
 
-	dir, _ := filepath.Abs("testdata/openclaw")
+	dir := env.StageFixture(t, "testdata/openclaw")
 	compileResult := env.CallTool(t, "MemoryCompile", map[string]any{
 		"path":    dir,
 		"message": "tree-resource-init",
@@ -1267,7 +1267,7 @@ func TestMcp_SnapshotsResource(t *testing.T) {
 	ctx := context.Background()
 
 	// Seed a chain: compile (snap1) → write (snap2) → write (snap3, HEAD).
-	dir, _ := filepath.Abs("testdata/openclaw")
+	dir := env.StageFixture(t, "testdata/openclaw")
 	compileResult := env.CallTool(t, "MemoryCompile", map[string]any{
 		"path":    dir,
 		"message": "snapshots-resource-init",
@@ -2173,7 +2173,12 @@ func TestMcp_ResourceSubscription_CoalescesToOneNotification(t *testing.T) {
 		Resources: config.ResourcesConfig{Debounce: &debounce},
 	}}
 
-	srv, err := remindb.NewServer(st, tracker, cfg, remindb.WithWorkspaceConfig(wsCfg))
+	dir := t.TempDir()
+	if err := os.WriteFile(filepath.Join(dir, "note.md"), []byte("# Title\n\nbody\n"), 0o644); err != nil {
+		t.Fatalf("write source: %v", err)
+	}
+
+	srv, err := remindb.NewServer(st, tracker, cfg, remindb.WithWorkspaceConfig(wsCfg), remindb.WithSourceDir(dir))
 	if err != nil {
 		t.Fatalf("NewServer: %v", err)
 	}
@@ -2205,11 +2210,6 @@ func TestMcp_ResourceSubscription_CoalescesToOneNotification(t *testing.T) {
 	// Non-subscribable URIs must be rejected.
 	if err := cs.Subscribe(context.Background(), &gomcp.SubscribeParams{URI: "remindb://overview"}); err == nil {
 		t.Fatal("expected subscribe to remindb://overview to be rejected")
-	}
-
-	dir := t.TempDir()
-	if err := os.WriteFile(filepath.Join(dir, "note.md"), []byte("# Title\n\nbody\n"), 0o644); err != nil {
-		t.Fatalf("write source: %v", err)
 	}
 
 	if _, err := cs.CallTool(context.Background(), &gomcp.CallToolParams{
@@ -2496,7 +2496,7 @@ func TestMcp_SessionLogsResource(t *testing.T) {
 func TestMcp_MemoryCompile_HonorsPinnedSidecar(t *testing.T) {
 	env := mcptest.NewEnv(t)
 
-	dir := t.TempDir()
+	dir := env.WorkspaceDir
 	if err := os.MkdirAll(filepath.Join(dir, config.DirName), 0o755); err != nil {
 		t.Fatal(err)
 	}

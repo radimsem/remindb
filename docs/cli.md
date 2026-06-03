@@ -35,7 +35,7 @@ remindb compile ./notes --reseed-temperatures # force .remindb/temperatures.json
 
 ## `serve`
 
-Starts the MCP server. Default transport is stdio (one server per client process); pass `--transport http` to expose the same `Memory*` suite over streamable HTTP so a CI worker or a hosted agent session can connect to the same memory database. With `--source` set, remindb runs an initial compile (if the DB is empty) and keeps a background rescan loop running. Omit `--source` (and `REMINDB_SOURCE`) to run in DB-only mode — the server opens an existing DB and exposes the MCP surface without filesystem watching.
+Starts the MCP server. Default transport is stdio (one server per client process); pass `--transport http` to expose the same `Memory*` suite over streamable HTTP so a CI worker or a hosted agent session can connect to the same memory database. With `--source` set, remindb runs an initial compile (if the DB is empty) and keeps a background rescan loop running. Omit `--source` (and `REMINDB_SOURCE`) to run in DB-only mode — the server opens an existing DB and exposes the MCP surface without filesystem watching. In DB-only mode `MemoryCompile` is **not registered** (it would otherwise ingest arbitrary filesystem paths); the server logs a startup `Warn` noting it's disabled.
 
 ```bash
 remindb serve --db ./notes.db --source ./notes
@@ -50,7 +50,7 @@ HTTP defaults to `127.0.0.1:7474`. Binding to a non-loopback address (e.g. `--li
 | Flag | Env | Purpose |
 |------|-----|---------|
 | `--db` | `REMINDB_DB` | Database file. |
-| `--source` | `REMINDB_SOURCE` | Source directory to watch and incrementally recompile. Omit for DB-only mode. |
+| `--source` | `REMINDB_SOURCE` | Source directory to watch and incrementally recompile, and the prerequisite for `MemoryCompile` (the tool is unregistered without it). Omit for DB-only mode. |
 | `--rescan-interval` | `REMINDB_RESCAN_INTERVAL` | e.g. `30s`, `5m`. `0` keeps the tracker's default. Requires `--source`. |
 | `--transport` | `REMINDB_TRANSPORT` | `stdio` (default) or `http`. Also `server.transport` — see [configuration → precedence](./configuration.md#runtime-config-remindbconfigjson). |
 | `--listen` | `REMINDB_LISTEN` | Listen address for HTTP transport. Default `127.0.0.1:7474`; requires `--transport=http`. Also `server.listen`. |

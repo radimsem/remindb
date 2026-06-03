@@ -48,7 +48,10 @@ func NewEnv(t *testing.T) *Env {
 		t.Fatalf("NewTracker: %v", err)
 	}
 
-	srv, err := remindb.NewServer(st, tracker, cfg)
+	// A source root keeps MemoryCompile registered and bounds it; tests stage
+	// fixtures into WorkspaceDir via StageFixture before compiling.
+	dir := t.TempDir()
+	srv, err := remindb.NewServer(st, tracker, cfg, remindb.WithSourceDir(dir))
 	if err != nil {
 		t.Fatalf("NewServer: %v", err)
 	}
@@ -69,7 +72,7 @@ func NewEnv(t *testing.T) *Env {
 
 	t.Cleanup(func() { _ = session.Close() })
 
-	return &Env{Session: session, Store: st}
+	return &Env{Session: session, Store: st, WorkspaceDir: dir, srv: srv}
 }
 
 func NewEnvWithLog(t *testing.T) *Env {
@@ -130,9 +133,11 @@ func NewHttpEnv(t *testing.T) *Env {
 		t.Fatalf("failed to listen: %v", err)
 	}
 
+	dir := t.TempDir()
 	srv, err := remindb.NewServer(st, tracker, cfg,
 		remindb.WithTransport(remindb.TransportHttp),
 		remindb.WithListener(ln),
+		remindb.WithSourceDir(dir),
 	)
 	if err != nil {
 		t.Fatalf("NewServer: %v", err)
@@ -160,7 +165,7 @@ func NewHttpEnv(t *testing.T) *Env {
 		}
 	})
 
-	return &Env{Session: session, Store: st}
+	return &Env{Session: session, Store: st, WorkspaceDir: dir}
 }
 
 func NewEnvWithRescan(t *testing.T) *Env {
@@ -329,6 +334,42 @@ func (e *Env) CallTool(t *testing.T, name string, args map[string]any) *mcp.Call
 	t.Logf("← %s: %s", name, text)
 
 	return result
+}
+
+// StageFixture copies a testdata fixture (file or dir) into the env's source root
+// and returns the in-root path, so MemoryCompile — which rejects paths outside the
+// root — can ingest it. The basename is preserved under WorkspaceDir.
+func (e *Env) StageFixture(t *testing.T, rel string) string {
+	t.Helper()
+	if e.WorkspaceDir == "" {
+		t.Fatal("StageFixture: env has no source root")
+	}
+
+	src, err := filepath.Abs(rel)
+	if err != nil {
+		t.Fatalf("abs %s: %v", rel, err)
+	}
+	dst := filepath.Join(e.WorkspaceDir, filepath.Base(rel))
+
+	fi, err := os.Stat(src)
+	if err != nil {
+		t.Fatalf("stat fixture %s: %v", src, err)
+	}
+	if fi.IsDir() {
+		if err := os.CopyFS(dst, os.DirFS(src)); err != nil {
+			t.Fatalf("copy fixture dir %s: %v", src, err)
+		}
+		return dst
+	}
+
+	data, err := os.ReadFile(src)
+	if err != nil {
+		t.Fatalf("read fixture %s: %v", src, err)
+	}
+	if err := os.WriteFile(dst, data, 0o644); err != nil {
+		t.Fatalf("write fixture %s: %v", dst, err)
+	}
+	return dst
 }
 
 func (e *Env) ReadResource(t *testing.T, uri string) string {

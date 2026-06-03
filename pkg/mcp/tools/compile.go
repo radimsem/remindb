@@ -61,8 +61,13 @@ func (d *Deps) HandleCompile(ctx context.Context, _ *gomcp.CallToolRequest, inpu
 }
 
 func canonicalizePath(input, sourceDir string) (string, error) {
-	if sourceDir == "" || input == "" {
-		return input, nil
+	if input == "" {
+		return "", nil
+	}
+	// Empty source root is rejected — MemoryCompile registers only with a configured
+	// source, so reaching here without one is a fail-closed guard.
+	if sourceDir == "" {
+		return "", fmt.Errorf("compile requires a configured source root")
 	}
 
 	absInput, err := filepath.Abs(input)
