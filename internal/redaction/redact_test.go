@@ -302,6 +302,36 @@ func TestScrub_OverlapPrefersLonger(t *testing.T) {
 	}
 }
 
+func TestScrub_MergesPartialOverlap(t *testing.T) {
+	r, err := New(Config{Custom: []CustomPattern{
+		{Kind: "short", Pattern: `ABCDE`},     // matches [0,5)
+		{Kind: "long", Pattern: `CDEFGHIJKL`}, // matches [2,12), overlaps short's tail
+	}})
+	if err != nil {
+		t.Fatalf("New: %v", err)
+	}
+
+	out, hits := r.Scrub("ABCDEFGHIJKL trailing")
+
+	// Every byte either pattern flagged must be gone; the earlier-start match
+	// ending first must not leak the longer match's tail (issue #240).
+	for _, leaked := range []string{"ABCDE", "FGHIJKL", "CDEFGHIJKL"} {
+		if strings.Contains(out, leaked) {
+			t.Errorf("overlapping secret leaked %q into output: %q", leaked, out)
+		}
+	}
+	if !strings.HasSuffix(out, " trailing") {
+		t.Errorf("non-secret suffix dropped or altered: %q", out)
+	}
+
+	if len(hits) != 1 {
+		t.Fatalf("expected one merged span, got %d: %+v", len(hits), hits)
+	}
+	if span := len("ABCDEFGHIJKL"); hits[0].Start != 0 || hits[0].End != span {
+		t.Errorf("merged span = [%d,%d), want [0,%d)", hits[0].Start, hits[0].End, span)
+	}
+}
+
 func TestScrub_MultipleKinds(t *testing.T) {
 	r := newDefault(t)
 

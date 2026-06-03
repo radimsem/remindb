@@ -70,15 +70,18 @@ func (r *Redactor) Scrub(s string) (string, []Hit) {
 		return cmp.Compare(b.End, a.End)
 	})
 
+	// Merge overlapping spans so every flagged byte is redacted, even when an
+	// earlier-start match ends before an overlapping later one; dropping the
+	// later hit would leak its tail. The anchor (earliest-start) kind labels
+	// the merged span.
 	accepted := hits[:0]
-	lastEnd := 0
 	for _, h := range hits {
-		if h.Start < lastEnd {
+		if n := len(accepted); n > 0 && h.Start < accepted[n-1].End {
+			accepted[n-1].End = max(accepted[n-1].End, h.End)
 			continue
 		}
 
 		accepted = append(accepted, h)
-		lastEnd = h.End
 	}
 
 	var b strings.Builder
