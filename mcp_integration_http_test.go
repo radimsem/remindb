@@ -1,7 +1,6 @@
 package remindb_test
 
 import (
-	"path/filepath"
 	"strings"
 	"testing"
 
@@ -10,7 +9,7 @@ import (
 
 func TestMcp_HttpTransport(t *testing.T) {
 	env := mcptest.NewHttpEnv(t)
-	fixture, _ := filepath.Abs("testdata/sample.md")
+	fixture := env.StageFixture(t, "testdata/sample.md")
 
 	compileResult := env.CallTool(t, "MemoryCompile", map[string]any{
 		"path":    fixture,

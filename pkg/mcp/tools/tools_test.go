@@ -440,6 +440,7 @@ func TestHandleCompile(t *testing.T) {
 	d, _ := setup(t)
 	ctx := context.Background()
 	dir := t.TempDir()
+	d.SourceDir = dir
 
 	p := filepath.Join(dir, "doc.md")
 	if err := os.WriteFile(p, []byte("# Test\n\nHello.\n"), 0o644); err != nil {
@@ -518,8 +519,8 @@ func TestCanonicalizePath(t *testing.T) {
 		wantErr   bool
 	}{
 		{
-			name:  "empty source dir passes through",
-			input: file, sourceDir: "", want: file,
+			name:  "empty source root is rejected",
+			input: file, sourceDir: "", wantErr: true,
 		},
 		{
 			name:  "empty input passes through",

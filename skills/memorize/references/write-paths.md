@@ -17,7 +17,7 @@ echo "$REMINDB_SOURCE"      # canonical source root
 remindb__MemoryStats()      # compile root, if the env var is unset
 ```
 
-No source root → there is no compile plane in this session (serve has no `--source`). Either set one, or fall back to `MemoryWrite` for flat notes.
+No source root → **`MemoryCompile` is not registered** (absent from the tool list) and there is no compile plane in this session (serve has no `--source`). Either set one, or fall back to `MemoryWrite` for flat notes.
 
 ### 2. Place the file where it topically belongs
 

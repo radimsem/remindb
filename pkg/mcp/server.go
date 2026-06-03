@@ -347,10 +347,14 @@ func registerTools(srv *mcp.Server, d *tools.Deps) {
 		Description: "Write or update content at an anchor node, creating a snapshot",
 	}, d.HandleWrite)
 
-	mcp.AddTool(srv, &mcp.Tool{
-		Name:        "MemoryCompile",
-		Description: "Compile source files or a directory into the memory database",
-	}, d.HandleCompile)
+	// MemoryCompile is registered only with a configured source root; without one it
+	// would expose arbitrary-path ingest, so it stays absent from tools/list.
+	if d.SourceDir != "" {
+		mcp.AddTool(srv, &mcp.Tool{
+			Name:        "MemoryCompile",
+			Description: "Compile source files or a directory into the memory database",
+		}, d.HandleCompile)
+	}
 
 	mcp.AddTool(srv, &mcp.Tool{
 		Name:        "MemoryDelta",

@@ -31,7 +31,7 @@ Match the situation, run the sequence, heed the watch-out. Every write here snap
 | Update one node's text in place | `MemoryFetch` → edit → `MemoryWrite(anchor, payload)` | Whole-node replacement, no patch. File-sourced node → edit the file instead (desync trap). | *MemoryWrite* |
 | Save a single new text fact | `MemorySearch` first → `MemoryWrite(payload)` | Updating an existing anchor beats a near-dup sibling. | *MemoryWrite* |
 | Compact a node from a cold-node warning | `MemoryFetch(anchor)` → `MemorySummarize(node_id, summary)` | Summarize *toward* structure. Rebounds temperature to 0.5. | `references/lifecycle.md` |
-| Re-sync after source files changed on disk | `MemoryCompile(path)` | Narrow the path. Honors `.remindb/ignore` and `.remindb/pinned`. | `references/lifecycle.md` |
+| Re-sync after source files changed on disk | `MemoryCompile(path)` | Needs a source root (absent without one). Narrow the path. Honors `.remindb/ignore` and `.remindb/pinned`. | `references/lifecycle.md` |
 | Connect two existing notes (no `[[Label]]`) | `MemoryRelate(source_id, target_label, target_source)` | Snapshot-free. Prefer `target_label`+`target_source` over `target_id`. | `references/wiki-links.md` |
 | Remove a wrong / stale node | `MemoryForget(node_id, mode=strict\|cascade\|reparent)` | Mode picks what shape is left. Pinning does **not** block deletion. | `references/lifecycle.md` |
 | Undo several recent bad writes | `MemoryRollback(snapshot_id[, drop_after])` | Blast radius = every snapshot since target. `drop_after=true` irreversible. | `references/lifecycle.md` |

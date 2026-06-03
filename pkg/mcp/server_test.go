@@ -159,3 +159,66 @@ func TestNotifyColdNodes_ClientWithoutSetLevelGetsNothing(t *testing.T) {
 	case <-time.After(200 * time.Millisecond):
 	}
 }
+
+func toolNames(t *testing.T, sourceDir string) map[string]bool {
+	t.Helper()
+
+	st := testutil.OpenTestDB(t)
+	cfg := temperature.DefaultConfig()
+	cfg.TickInterval = time.Minute
+
+	tracker, err := temperature.NewTracker(st, sourceDir, cfg, nil)
+	if err != nil {
+		t.Fatalf("NewTracker: %v", err)
+	}
+
+	var opts []Option
+	if sourceDir != "" {
+		opts = append(opts, WithSourceDir(sourceDir))
+	}
+	srv, err := NewServer(st, tracker, cfg, opts...)
+	if err != nil {
+		t.Fatalf("NewServer: %v", err)
+	}
+
+	serverTransport, clientTransport := gomcp.NewInMemoryTransports()
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	t.Cleanup(cancel)
+
+	if _, err := srv.Connect(ctx, serverTransport); err != nil {
+		t.Fatalf("server connect: %v", err)
+	}
+
+	client := gomcp.NewClient(&gomcp.Implementation{Name: "test", Version: "0.1.0"}, nil)
+	cs, err := client.Connect(ctx, clientTransport, nil)
+	if err != nil {
+		t.Fatalf("client connect: %v", err)
+	}
+	t.Cleanup(func() { _ = cs.Close() })
+
+	res, err := cs.ListTools(ctx, nil)
+	if err != nil {
+		t.Fatalf("ListTools: %v", err)
+	}
+
+	names := make(map[string]bool, len(res.Tools))
+	for _, tool := range res.Tools {
+		names[tool.Name] = true
+	}
+	return names
+}
+
+func TestRegisterTools_CompileGatedOnSourceDir(t *testing.T) {
+	withSource := toolNames(t, t.TempDir())
+	if !withSource["MemoryCompile"] {
+		t.Error("MemoryCompile should be registered when a source root is configured")
+	}
+
+	withoutSource := toolNames(t, "")
+	if withoutSource["MemoryCompile"] {
+		t.Error("MemoryCompile should be absent without a source root")
+	}
+	if !withoutSource["MemorySearch"] {
+		t.Error("MemorySearch should be registered regardless of source root")
+	}
+}

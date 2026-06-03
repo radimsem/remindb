@@ -149,6 +149,9 @@ func runServe(cmd *cobra.Command, _ []string) error {
 	rescanEff := rescan.EffectiveInterval(rescanInterval, workspaceCfg.Rescan)
 	rescanEnabled := workspaceCfg.Rescan.Enabled == nil || *workspaceCfg.Rescan.Enabled
 	logger.Info("serve: starting", startupAttrs(logLevel, startCfg.TickInterval, rescanEff, rescanEnabled, startCfg.Enabled)...)
+	if sourceDir == "" {
+		logger.Warn("serve: MemoryCompile disabled (no --source / REMINDB_SOURCE)")
+	}
 
 	go checkLatestVersion(ctx, version.Get(), logger)
 

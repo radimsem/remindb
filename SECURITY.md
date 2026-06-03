@@ -32,3 +32,7 @@ Which transport `remindb serve` runs in determines the trust boundary.
 - `--insecure-public` is passed (env: `REMINDB_INSECURE_PUBLIC=true`) — a deliberately ugly opt-out for homelab or reverse-proxy setups where you trust the network layer to gate access. Logs a startup `Warn`.
 
 The bearer-token path is intentionally a single shared secret in an env var — enough to make accidental network exposure non-catastrophic, not a multi-tenant auth system. **mTLS, OAuth, per-user tokens, and rate limiting are explicit non-goals for the current release.** If you need them, terminate them in a reverse proxy in front of `remindb` and run it with `--insecure-public`.
+
+## Compile is gated on a source root
+
+`MemoryCompile` reads files off disk into the database. It is **registered only when a source root is configured** (`--source` or `REMINDB_SOURCE`); without one the tool is absent from `tools/list` entirely, and `serve` logs a startup `Warn`. When a source root *is* set, compile paths are **confined to it** — a path resolving outside the root, including via symlink, is rejected. Together these keep a server — including a public HTTP one behind `--insecure-public` — from being turned into an arbitrary-file-read primitive (compile `/etc/passwd`, read it back through `MemorySearch`/`MemoryFetch`).
