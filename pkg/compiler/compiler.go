@@ -252,12 +252,19 @@ func Compile(ctx context.Context, st *store.Store, opts ...Option) (*Result, err
 	}
 
 	deltas := diff.DiffFlat(flat, prev)
-	cursorHash := diff.CursorHashFlat(flat)
 
 	// Emit and relations share one transaction so the snapshot, node mutations,
 	// cursor advance, and relation writes commit or roll back together. A relations
 	// failure must not leave HEAD ahead of the error returned to the caller.
 	err = st.Tx(ctx, func(tx *sql.Tx) error {
+		// Fold the in-transaction HEAD id into the cursor hash so a compile whose
+		// post-state matches an earlier snapshot doesn't collide on cursor_hash.
+		prevHeadID, err := st.GetHeadSnapshotIDTx(ctx, tx)
+		if err != nil {
+			return fmt.Errorf("failed to fetch: head snapshot id: %w", err)
+		}
+		cursorHash := diff.CursorHashForCompile(prevHeadID, flat)
+
 		if err := emitter.EmitTx(ctx, st, tx,
 			emitter.WithRoots(roots),
 			emitter.WithDeltas(deltas),

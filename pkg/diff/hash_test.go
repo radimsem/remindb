@@ -91,6 +91,36 @@ func TestCursorHashForChange_OrderStable(t *testing.T) {
 	}
 }
 
+// A compile that lands on a prior content state (edit→compile→revert→compile)
+// reproduces the same flat post-state; folding the parent snapshot id keeps the
+// digest unique so it doesn't collide on snapshots.cursor_hash. Regression for #244.
+func TestCursorHashForCompile_DistinctAcrossRepeatState(t *testing.T) {
+	flat := []*parser.ContextNode{{ID: "n1", ContentHash: "aaaa"}}
+
+	a := CursorHashForCompile(2, flat)
+	b := CursorHashForCompile(4, flat)
+	if a == b {
+		t.Errorf("repeated post-state shares hash across parents: %q", a)
+	}
+	if len(a) != 16 {
+		t.Errorf("len = %d, want 16", len(a))
+	}
+}
+
+func TestCursorHashForCompile_OrderIndependent(t *testing.T) {
+	a := CursorHashForCompile(3, []*parser.ContextNode{
+		{ID: "n1", ContentHash: "aaaa"},
+		{ID: "n2", ContentHash: "bbbb"},
+	})
+	b := CursorHashForCompile(3, []*parser.ContextNode{
+		{ID: "n2", ContentHash: "bbbb"},
+		{ID: "n1", ContentHash: "aaaa"},
+	})
+	if a != b {
+		t.Errorf("order-dependent: %q vs %q", a, b)
+	}
+}
+
 func TestSnapshotFromNodes(t *testing.T) {
 	roots := []*parser.ContextNode{
 		{

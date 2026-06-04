@@ -338,6 +338,36 @@ func TestCompile_Recompile(t *testing.T) {
 	}
 }
 
+// Reverting a file to a prior content state lands the compile post-state on an
+// earlier snapshot's content; folding the parent snapshot id keeps cursor_hash
+// unique so the revert-compile doesn't hit UNIQUE constraint failed. Regression for #244.
+func TestCompile_RevertToPriorStateSucceeds(t *testing.T) {
+	st := testutil.OpenTestDB(t)
+	ctx := context.Background()
+	dir := t.TempDir()
+
+	p := writeFile(t, dir, "doc.md", "# Hello\n\nState A.\n")
+	if _, err := Compile(ctx, st, WithPaths([]string{p}), WithMessage("v1")); err != nil {
+		t.Fatalf("Compile v1: %v", err)
+	}
+
+	writeFile(t, dir, "doc.md", "# Hello\n\nState B.\n")
+	if _, err := Compile(ctx, st, WithPaths([]string{p}), WithMessage("v2")); err != nil {
+		t.Fatalf("Compile v2: %v", err)
+	}
+
+	// Revert to the exact content of v1; the post-state matches snapshot 1.
+	writeFile(t, dir, "doc.md", "# Hello\n\nState A.\n")
+	if _, err := Compile(ctx, st, WithPaths([]string{p}), WithMessage("v3")); err != nil {
+		t.Fatalf("Compile v3 (revert to prior state): %v", err)
+	}
+
+	snaps, _ := st.ListSnapshots(ctx, 10)
+	if len(snaps) != 3 {
+		t.Errorf("snapshots = %d, want 3 (each compile lands its own snapshot)", len(snaps))
+	}
+}
+
 func TestCompile_SingleFileRescanAfterBatch(t *testing.T) {
 	st := testutil.OpenTestDB(t)
 	ctx := context.Background()
