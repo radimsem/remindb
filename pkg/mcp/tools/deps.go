@@ -2,6 +2,7 @@ package tools
 
 import (
 	"context"
+	"fmt"
 	"log/slog"
 	"time"
 	"unicode/utf8"
@@ -110,10 +111,17 @@ func (d *Deps) boostResultNodes(ctx context.Context, result *query.Result) {
 // Emit one snapshot for a single mutated or newly created node, then signal the resources that snapshot reshaped.
 func (d *Deps) emitNodeChange(ctx context.Context, node *parser.ContextNode, prev map[string]diff.NodeState, msg string) error {
 	roots := []*parser.ContextNode{node}
+	deltas := diff.Diff(roots, prev)
+
+	prevHeadID, err := d.Store.GetHeadSnapshotID(ctx)
+	if err != nil {
+		return fmt.Errorf("failed to fetch: head snapshot id: %w", err)
+	}
+
 	if err := emitter.Emit(ctx, d.Store,
 		emitter.WithRoots(roots),
-		emitter.WithDeltas(diff.Diff(roots, prev)),
-		emitter.WithCursorHash(diff.CursorHash(roots)),
+		emitter.WithDeltas(deltas),
+		emitter.WithCursorHash(diff.CursorHashForChange(prevHeadID, deltas)),
 		emitter.WithMessage(msg),
 	); err != nil {
 		return err

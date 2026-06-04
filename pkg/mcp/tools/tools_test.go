@@ -366,6 +366,35 @@ func TestHandleWrite_Update(t *testing.T) {
 	}
 }
 
+// Toggling a node's payload back and forth (A→B→A→B→A) must not collide on
+// snapshots.cursor_hash; each write lands its own snapshot. Regression for #238.
+func TestHandleWrite_TogglePingPong(t *testing.T) {
+	d, st := setup(t)
+	ctx := context.Background()
+
+	payloads := []string{"alpha", "beta", "alpha", "beta", "alpha"}
+	for i, p := range payloads {
+		if _, _, err := d.HandleWrite(ctx, &gomcp.CallToolRequest{}, WriteInput{
+			Anchor: "anchor01", Payload: p,
+		}); err != nil {
+			t.Fatalf("HandleWrite #%d (%q): %v", i+1, p, err)
+		}
+	}
+
+	snaps, err := st.ListSnapshots(ctx, 100)
+	if err != nil {
+		t.Fatalf("ListSnapshots: %v", err)
+	}
+	if len(snaps) != len(payloads) {
+		t.Fatalf("snapshots = %d, want %d (one per write)", len(snaps), len(payloads))
+	}
+
+	got, _ := st.GetNode(ctx, "anchor01")
+	if got.Content != "alpha" {
+		t.Errorf("Content = %q, want 'alpha'", got.Content)
+	}
+}
+
 func TestHandleWrite_ScrubsSecret(t *testing.T) {
 	d, st := setup(t)
 	ctx := context.Background()
@@ -855,6 +884,44 @@ func TestHandleSummarize(t *testing.T) {
 	}
 	if dr.NewContent != "short summary" {
 		t.Errorf("diff.NewContent = %q, want 'short summary'", dr.NewContent)
+	}
+}
+
+// Re-summarizing back to a prior summary (s1→s2→s1) must not collide on
+// snapshots.cursor_hash. Regression for #238 via the shared emitNodeChange.
+func TestHandleSummarize_RevertSucceeds(t *testing.T) {
+	d, st := setup(t)
+	ctx := context.Background()
+
+	seed := &store.Node{
+		ID: "node0001", SourceFile: "test.md", NodeType: "text",
+		Depth: 1, Label: "original", Content: "long original content",
+		Format: "plain", TokenCount: 50, ContentHash: "orig_hash",
+	}
+	if err := st.UpsertNode(ctx, seed); err != nil {
+		t.Fatalf("UpsertNode: %v", err)
+	}
+
+	summaries := []string{"first summary", "second summary", "first summary"}
+	for i, s := range summaries {
+		if _, _, err := d.HandleSummarize(ctx, &gomcp.CallToolRequest{}, SummarizeInput{
+			NodeID: "node0001", Summary: s,
+		}); err != nil {
+			t.Fatalf("HandleSummarize #%d (%q): %v", i+1, s, err)
+		}
+	}
+
+	snaps, err := st.ListSnapshots(ctx, 100)
+	if err != nil {
+		t.Fatalf("ListSnapshots: %v", err)
+	}
+	if len(snaps) != len(summaries) {
+		t.Fatalf("snapshots = %d, want %d (one per summarize)", len(snaps), len(summaries))
+	}
+
+	got, _ := st.GetNode(ctx, "node0001")
+	if got.Content != "first summary" {
+		t.Errorf("Content = %q, want 'first summary'", got.Content)
 	}
 }
 

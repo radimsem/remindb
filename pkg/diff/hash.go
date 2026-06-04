@@ -49,6 +49,31 @@ func CursorHashForDeltas(deltas []Delta) string {
 	return hex.EncodeToString(buf[:])
 }
 
+// Hash a change against its parent snapshot so reverting to a prior post-state
+// still yields a unique digest. prevHeadID is the HEAD snapshot id (monotonic,
+// never reused), so the result is unique per snapshot even when the deltas repeat.
+func CursorHashForChange(prevHeadID int64, deltas []Delta) string {
+	h := xxhash.New()
+
+	var idBuf [8]byte
+	binary.BigEndian.PutUint64(idBuf[:], uint64(prevHeadID))
+	_, _ = h.Write(idBuf[:])
+
+	pairs := make([]string, len(deltas))
+	for i, d := range deltas {
+		pairs[i] = string(d.Op) + ":" + d.NodeID + ":" + d.OldHash + ":" + d.NewHash
+	}
+
+	sort.Strings(pairs)
+	for _, p := range pairs {
+		_, _ = h.WriteString(p)
+	}
+
+	var out [8]byte
+	binary.BigEndian.PutUint64(out[:], h.Sum64())
+	return hex.EncodeToString(out[:])
+}
+
 func CursorHashForRollback(prevHeadID, targetID int64, deltas []Delta) string {
 	h := xxhash.New()
 
