@@ -53,10 +53,15 @@ func (d *Deps) HandleForget(ctx context.Context, _ *gomcp.CallToolRequest, input
 		return nil, nil, err
 	}
 
+	prevHeadID, err := d.Store.GetHeadSnapshotID(ctx)
+	if err != nil {
+		return nil, nil, fmt.Errorf("failed to fetch: head snapshot id: %w", err)
+	}
+
 	if err := emitter.Emit(ctx, d.Store,
 		emitter.WithRoots(roots),
 		emitter.WithDeltas(deltas),
-		emitter.WithCursorHash(diff.CursorHashForDeltas(deltas)),
+		emitter.WithCursorHash(diff.CursorHashForChange(prevHeadID, deltas)),
 		emitter.WithMessage("forget:"+mode.String()+":"+input.NodeID),
 	); err != nil {
 		return nil, nil, fmt.Errorf("failed to forget: %w", err)

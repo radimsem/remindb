@@ -1857,6 +1857,32 @@ func TestHandleForget_Reparent_EmitsSingleSnapshot(t *testing.T) {
 	}
 }
 
+// A re-add-then-forget sequence reproduces an identical delta set (same op, id,
+// and old hash); folding the parent snapshot id keeps each forget's cursor_hash
+// unique instead of colliding on snapshots.cursor_hash. Regression for #244.
+func TestHandleForget_ReAddThenForget(t *testing.T) {
+	d, st := setup(t)
+	ctx := context.Background()
+
+	const anchor = "dupanchor001"
+	for i := 0; i < 2; i++ {
+		if _, _, err := d.HandleWrite(ctx, &gomcp.CallToolRequest{}, WriteInput{
+			Anchor: anchor, Payload: "same payload",
+		}); err != nil {
+			t.Fatalf("HandleWrite #%d: %v", i+1, err)
+		}
+		if _, _, err := d.HandleForget(ctx, &gomcp.CallToolRequest{}, ForgetInput{NodeID: anchor}); err != nil {
+			t.Fatalf("HandleForget #%d: %v", i+1, err)
+		}
+	}
+
+	snaps, err := st.ListSnapshots(ctx, 100)
+	must(t, err)
+	if len(snaps) != 4 {
+		t.Fatalf("snapshots = %d, want 4 (write+forget twice, each lands its own snapshot)", len(snaps))
+	}
+}
+
 func TestHandleForget_MissingNode(t *testing.T) {
 	d, _ := setup(t)
 	ctx := context.Background()
