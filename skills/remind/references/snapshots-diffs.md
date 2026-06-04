@@ -6,7 +6,7 @@ Reference for `remind`'s resync/compare/history tools (`MemoryDelta`, `MemoryDif
 
 ### Snapshots
 
-Every `MemoryCompile`/`MemoryWrite` creates a **snapshot**: an auto-increment `id` (int64) + a `cursor_hash` (xxhash64 of whole DB state). Linear parent chain. Pass the **id** to `MemoryDelta`; the **hash** is an opaque fingerprint for equality comparison only — they are not interchangeable.
+Every `MemoryCompile`/`MemoryWrite` creates a **snapshot**: an auto-increment `id` (int64) + an opaque `cursor_hash` (xxhash64), unique per snapshot. Linear parent chain. Pass the **id** to `MemoryDelta`; the **hash** is for equality comparison only — not a stable content digest (the same content state may hash differently across snapshots), and the two are not interchangeable.
 
 ### Diffs
 

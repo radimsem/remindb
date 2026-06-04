@@ -16,9 +16,9 @@ I wanted version control that costs nothing to maintain and lets a returning age
 
 ## Snapshots
 
-Every `MemoryCompile`, `MemoryWrite`, `MemorySummarize`, and `MemoryRollback` lands a **snapshot**: a row with an auto-increment `id` (int64) and a `cursor_hash` (xxhash64 of the entire DB state). Snapshots form a linear parent chain — no branches, no merge commits, just a straight line of "here's what the world looked like."
+Every `MemoryCompile`, `MemoryWrite`, `MemorySummarize`, `MemoryForget`, and `MemoryRollback` lands a **snapshot**: a row with an auto-increment `id` (int64) and an opaque `cursor_hash` (xxhash64), unique per snapshot. Snapshots form a linear parent chain — no branches, no merge commits, just a straight line of "here's what the world looked like."
 
-The `id` is what you hand to `MemoryDelta`. The `cursor_hash` is an opaque fingerprint — store it, compare it later for equality, but don't try to read meaning into it.
+The `id` is what you hand to `MemoryDelta`. The `cursor_hash` is an opaque, unique-per-snapshot fingerprint — store it and compare it for equality, but don't read meaning into it: it is not a stable content digest, so the same content state may hash differently across snapshots.
 
 One call, one snapshot. That invariant is load-bearing: it's what keeps the diff trail something an agent can walk without surprises.
 

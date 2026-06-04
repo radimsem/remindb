@@ -61,6 +61,36 @@ func TestCursorHash_DetectsIdentitySwap(t *testing.T) {
 	}
 }
 
+// A repeated transition (same op/id/old/new deltas) must hash differently
+// under a different parent snapshot id — this is what keeps an A→B→A→B toggle
+// from colliding on snapshots.cursor_hash.
+func TestCursorHashForChange_DistinctAcrossRepeatTransition(t *testing.T) {
+	deltas := []Delta{{NodeID: "n1", Op: OpMod, OldHash: "aaaa", NewHash: "bbbb"}}
+
+	a := CursorHashForChange(2, deltas)
+	b := CursorHashForChange(4, deltas)
+	if a == b {
+		t.Errorf("repeated transition shares hash across parents: %q", a)
+	}
+	if len(a) != 16 {
+		t.Errorf("len = %d, want 16", len(a))
+	}
+}
+
+func TestCursorHashForChange_OrderStable(t *testing.T) {
+	a := CursorHashForChange(7, []Delta{
+		{NodeID: "n1", Op: OpMod, OldHash: "aaaa", NewHash: "bbbb"},
+		{NodeID: "n2", Op: OpAdd, NewHash: "cccc"},
+	})
+	b := CursorHashForChange(7, []Delta{
+		{NodeID: "n2", Op: OpAdd, NewHash: "cccc"},
+		{NodeID: "n1", Op: OpMod, OldHash: "aaaa", NewHash: "bbbb"},
+	})
+	if a != b {
+		t.Errorf("order-dependent: %q vs %q", a, b)
+	}
+}
+
 func TestSnapshotFromNodes(t *testing.T) {
 	roots := []*parser.ContextNode{
 		{
