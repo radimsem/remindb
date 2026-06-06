@@ -392,6 +392,55 @@ func TestRescanLoop_RecordsDeletionsInSnapshot(t *testing.T) {
 	}
 }
 
+func TestRescanLoop_RepeatedDeleteOfSameFileSet(t *testing.T) {
+	dir := t.TempDir()
+	writeFile(t, dir, "keep.md", "# Keep\n")
+	const goneBody = "# Gone\n\nBody.\n"
+	writeFile(t, dir, "gone.md", goneBody)
+
+	st := testutil.OpenTestDB(t)
+	r := mustRescan(t, st, dir, time.Minute, nil)
+	r.now = func() time.Time { return time.Now().Add(time.Hour) }
+
+	ctx := context.Background()
+
+	r.scan(ctx)
+	if err := os.Remove(filepath.Join(dir, "gone.md")); err != nil {
+		t.Fatal(err)
+	}
+	r.scan(ctx)
+
+	// Recreate the same file with identical content, then purge it again. The
+	// deleted node set (ids + content hashes) is byte-identical to the first
+	// purge, so a content-only cursor hash collides on snapshots.cursor_hash and
+	// the second purge emit is silently swallowed.
+	writeFile(t, dir, "gone.md", goneBody)
+	r.scan(ctx)
+	if err := os.Remove(filepath.Join(dir, "gone.md")); err != nil {
+		t.Fatal(err)
+	}
+	r.scan(ctx)
+
+	snaps, err := st.ListSnapshots(ctx, 20)
+	if err != nil {
+		t.Fatalf("ListSnapshots: %v", err)
+	}
+
+	var purges []string
+	for _, s := range snaps {
+		if strings.Contains(s.Message, "purged") {
+			purges = append(purges, s.CursorHash)
+		}
+	}
+
+	if len(purges) != 2 {
+		t.Fatalf("purge snapshots = %d, want 2 (repeated delete of the same file set must not be swallowed)", len(purges))
+	}
+	if purges[0] == purges[1] {
+		t.Errorf("purge cursor hashes collide: %q == %q", purges[0], purges[1])
+	}
+}
+
 func TestRescanLoop_SkipsPurgeOnWalkError(t *testing.T) {
 	dir := t.TempDir()
 	writeFile(t, dir, "keep.md", "# Keep\n\nBody.\n")
