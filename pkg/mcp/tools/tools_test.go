@@ -366,6 +366,33 @@ func TestHandleWrite_Update(t *testing.T) {
 	}
 }
 
+// A non-ErrNoRows failure from the anchor lookup must surface, not be swallowed
+// into the create-with-defaults path. Regression for #218.
+func TestHandleWrite_SurfacesGetNodeError(t *testing.T) {
+	d, _ := setup(t)
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel() // GetNode now returns context.Canceled, not sql.ErrNoRows.
+
+	_, _, err := d.HandleWrite(ctx, &gomcp.CallToolRequest{}, WriteInput{
+		Anchor: "anchor01", Payload: "should not be written",
+	})
+	if err == nil {
+		t.Fatal("HandleWrite: want error, got nil")
+	}
+	if !errors.Is(err, context.Canceled) {
+		t.Errorf("err = %v, want it to wrap context.Canceled", err)
+	}
+	// The fixed path short-circuits at the anchor lookup, so the error names the
+	// node and never reaches the emit ("failed to write") wrapper. The swallowing
+	// path would instead surface a later, unrelated emit failure.
+	if !strings.Contains(err.Error(), "anchor01") {
+		t.Errorf("err = %q, want the anchor lookup failure surfaced (names the node)", err)
+	}
+	if strings.Contains(err.Error(), "failed to write") {
+		t.Errorf("err = %q, swallowed into the create+emit path instead of surfacing the lookup error", err)
+	}
+}
+
 // Toggling a node's payload back and forth (A→B→A→B→A) must not collide on
 // snapshots.cursor_hash; each write lands its own snapshot. Regression for #238.
 func TestHandleWrite_TogglePingPong(t *testing.T) {
