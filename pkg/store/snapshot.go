@@ -224,8 +224,8 @@ func (s *Store) GetDiffsBySnapshot(ctx context.Context, snapshotID int64) ([]*Di
 	return collectDiffRows(rows)
 }
 
-func (s *Store) GetDiffsSince(ctx context.Context, sinceSnapshotID int64) ([]*DiffRecord, error) {
-	rows, err := s.db.QueryContext(ctx, qSelectDiffsSince, sinceSnapshotID)
+func (s *Store) GetDiffsSince(ctx context.Context, sinceSnapshotID, limit int64) ([]*DiffRecord, error) {
+	rows, err := s.db.QueryContext(ctx, qSelectDiffsSince, sinceSnapshotID, limit)
 	if err != nil {
 		return nil, err
 	}

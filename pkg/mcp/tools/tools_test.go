@@ -623,6 +623,58 @@ func TestHandleDelta(t *testing.T) {
 	}
 }
 
+func TestHandleDelta_LimitTruncationNote(t *testing.T) {
+	d, _ := setup(t)
+	ctx := context.Background()
+
+	mustWriteSnapshot(t, d, ctx, "", "one")
+	mustWriteSnapshot(t, d, ctx, "", "two")
+	mustWriteSnapshot(t, d, ctx, "", "three")
+
+	// limit=1 over three single-diff snapshots: a clean boundary, not an overflow.
+	result, _, err := d.HandleDelta(ctx, &gomcp.CallToolRequest{}, DeltaInput{SinceSnapshot: 0, Limit: 1})
+	if err != nil {
+		t.Fatalf("HandleDelta: %v", err)
+	}
+
+	text := textContent(t, result)
+	if !strings.Contains(text, "note: truncated at limit 1") {
+		t.Errorf("missing continuation note, got:\n%s", text)
+	}
+	if !strings.Contains(text, "since_snapshot=") {
+		t.Errorf("note lacks since_snapshot continuation, got:\n%s", text)
+	}
+	if strings.Contains(text, "raise limit") {
+		t.Errorf("clean boundary should not advise raising limit, got:\n%s", text)
+	}
+}
+
+func TestDeltaTruncationNote(t *testing.T) {
+	multi := []*store.DiffRecord{{SnapshotID: 10}, {SnapshotID: 20}}
+	single := []*store.DiffRecord{{SnapshotID: 30}, {SnapshotID: 30}}
+
+	// Boundary truncation: resume from the last complete snapshot.
+	note := deltaTruncationNote(multi, 0, 500, false)
+	if !strings.Contains(note, "since_snapshot=20") || strings.Contains(note, "raise limit") {
+		t.Errorf("boundary note = %q", note)
+	}
+
+	// Overflow below the ceiling: raising the limit can help.
+	note = deltaTruncationNote(single, 5, 500, true)
+	if !strings.Contains(note, "raise limit (max 5000)") {
+		t.Errorf("overflow-below-ceiling note = %q", note)
+	}
+
+	// Overflow at the ceiling: raising is impossible, steer to MemoryDiff scoped to the snapshot.
+	note = deltaTruncationNote(single, 5, maxDeltaLimit, true)
+	if !strings.Contains(note, "MemoryDiff(from_snapshot_id=5, to_snapshot_id=30)") {
+		t.Errorf("overflow-at-ceiling note = %q", note)
+	}
+	if strings.Contains(note, "raise limit") {
+		t.Errorf("at-ceiling note should not advise raising limit: %q", note)
+	}
+}
+
 func TestHandleDiff_FullRangeAndSubset(t *testing.T) {
 	d, st := setup(t)
 	ctx := context.Background()

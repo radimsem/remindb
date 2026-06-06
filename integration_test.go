@@ -564,7 +564,7 @@ func TestRecompileWorkflow(t *testing.T) {
 
 	// Delta query should show changes between v1 and v2.
 	eng := query.NewEngine(st)
-	diffs, err := eng.Delta(ctx, snaps[1].ID)
+	diffs, _, _, err := eng.Delta(ctx, snaps[1].ID, 10)
 	if err != nil {
 		t.Fatalf("Delta: %v", err)
 	}
