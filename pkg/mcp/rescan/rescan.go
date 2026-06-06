@@ -23,7 +23,6 @@ import (
 	"github.com/radimsem/remindb/pkg/emitter"
 	"github.com/radimsem/remindb/pkg/mcp/rescanlog"
 	"github.com/radimsem/remindb/pkg/mcp/rescanstat"
-	"github.com/radimsem/remindb/pkg/parser"
 	"github.com/radimsem/remindb/pkg/store"
 )
 
@@ -366,7 +365,6 @@ func (r *Loop) reconcileDeleted(ctx context.Context, deleted []string) ([]rescan
 	}
 
 	deltas := make([]diff.Delta, 0, len(nodes))
-	synthetic := make([]*parser.ContextNode, 0, len(nodes))
 	counts := make(map[string]int, len(deleted))
 	for _, n := range nodes {
 		deltas = append(deltas, diff.Delta{
@@ -376,14 +374,19 @@ func (r *Loop) reconcileDeleted(ctx context.Context, deleted []string) ([]rescan
 			OldContent: n.Content,
 		})
 
-		synthetic = append(synthetic, &parser.ContextNode{ContentHash: "rem:" + n.ID + ":" + n.ContentHash})
 		counts[n.SourceFile]++
+	}
+
+	prevHeadID, err := r.store.GetHeadSnapshotID(ctx)
+	if err != nil {
+		r.logger.Error("rescan: head snapshot id failed", "err", err)
+		return nil, false
 	}
 
 	msg := fmt.Sprintf("rescan: purged %d files", len(deleted))
 	if err := emitter.Emit(ctx, r.store,
 		emitter.WithDeltas(deltas),
-		emitter.WithCursorHash(diff.CursorHashFlat(synthetic)),
+		emitter.WithCursorHash(diff.CursorHashForChange(prevHeadID, deltas)),
 		emitter.WithMessage(msg),
 	); err != nil {
 		r.logger.Error("rescan: purge emit failed", "err", err)
