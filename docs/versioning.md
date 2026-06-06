@@ -32,7 +32,7 @@ One subtlety worth knowing: a `mod` whose `old_hash == new_hash` is a **structur
 
 Three tools, picked by which end of the range is fixed:
 
-- **`MemoryDelta`** — "what changed since X?" The upper bound is always HEAD. This is the resync call: pass the last snapshot `id` you saw and get back just the changed nodes, not the whole tree.
+- **`MemoryDelta`** — "what changed since X?" The upper bound is always HEAD. This is the resync call: pass the last snapshot `id` you saw and get back just the changed nodes, not the whole tree. Results are capped (`limit`, default 500, ceiling 5000) to keep a busy vault from blowing the context window; when more changes exist the response ends with a `note:` telling you to resume from a later snapshot `id` or raise the cap.
 - **`MemoryDiff`** — "what changed between X and Y?" Both ends fixed, git-diff-style hunks. State at X versus state at Y, not the per-snapshot event log between them — intermediate jitter collapses to the net change. This is the forensic call (rollback target vs. result, yesterday's compile vs. today's).
 - **`MemoryHistory`** — the diff trail for one specific node. Use it before overwriting something, or to cite prior wording.
 

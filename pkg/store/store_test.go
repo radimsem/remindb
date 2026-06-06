@@ -1018,7 +1018,7 @@ func TestGetDiffsSince(t *testing.T) {
 	must(t, err)
 
 	// Diffs since snapshot 1 should only include snapshot 2's diffs.
-	diffs, err := st.GetDiffsSince(ctx, 1)
+	diffs, err := st.GetDiffsSince(ctx, 1, 10)
 	if err != nil {
 		t.Fatalf("GetDiffsSince: %v", err)
 	}

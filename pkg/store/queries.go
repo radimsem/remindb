@@ -157,7 +157,7 @@ const (
 
 	qSelectDiffsBySnapshot = `SELECT ` + diffColumns + ` FROM diffs WHERE snapshot_id = ? ORDER BY id`
 
-	qSelectDiffsSince = `SELECT ` + diffColumns + ` FROM diffs WHERE snapshot_id > ? ORDER BY snapshot_id, id`
+	qSelectDiffsSince = `SELECT ` + diffColumns + ` FROM diffs WHERE snapshot_id > ? ORDER BY snapshot_id, id LIMIT ?`
 
 	qSelectDiffsBetween = `SELECT ` + diffColumns + ` FROM diffs
 		WHERE snapshot_id > ? AND snapshot_id <= ? ORDER BY snapshot_id, id`

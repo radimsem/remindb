@@ -21,11 +21,20 @@ Picked by which end of the range is fixed.
 **`MemoryDelta`** — "what changed since X?", upper bound always HEAD. Use on resume / after external writes; pass the last snapshot **id** seen:
 
 ```
-remindb__MemoryDelta(since_snapshot=42)    # snapshot ID (int64), not cursor_hash
-remindb__MemoryDelta(since_snapshot=0)     # all changes ever — expensive, rarely wanted
+remindb__MemoryDelta(since_snapshot=42)             # snapshot ID (int64), not cursor_hash
+remindb__MemoryDelta(since_snapshot=0)              # all changes ever, bounded by limit
+remindb__MemoryDelta(since_snapshot=42, limit=1000) # raise the cap (default 500, max 5000)
 ```
 
 Returns `[op] node_id (snapshot N)` lines; fetch nodes you need. Keep the last snapshot id from a prior tree/search/write result.
+
+**`limit`** caps rows (default 500, ceiling 5000 — over-asks clamp, not error). When more changes exist the result ends with a `note:` line — **follow it, don't assume you're synced**:
+
+- `note: truncated at limit N; ... Re-call MemoryDelta(since_snapshot=M)` → the cap landed on a snapshot boundary; resume from `M` (the last *complete* snapshot, no rows skipped).
+- `note: snapshot M alone has more than N diffs; raise limit (max 5000)` → one snapshot is bigger than the current cap, so advancing would skip its tail; bump `limit` instead.
+- `note: snapshot M exceeds the max page of 5000 diffs ... read it in full with MemoryDiff(...)` → a single snapshot is bigger than the hard ceiling; `MemoryDelta` can't page within one snapshot, so the note hands you the exact `MemoryDiff` call (that snapshot is the immediate next one, so the diff is scoped to it alone).
+
+Truncation is signalled by the **note's presence**, not the row count (a trimmed page can return fewer than `limit` rows).
 
 **`MemoryDiff`** — "what changed between X and Y?", both ends fixed. Like `git diff X Y`: compares state-at-X vs state-at-Y, not the event log between. Lower bound exclusive, upper inclusive:
 

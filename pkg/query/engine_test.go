@@ -428,15 +428,115 @@ func TestDelta(t *testing.T) {
 
 	eng := NewEngine(st)
 
-	diffs, err := eng.Delta(ctx, 1)
+	diffs, truncated, _, err := eng.Delta(ctx, 1, 10)
 	if err != nil {
 		t.Fatalf("Delta: %v", err)
+	}
+	if truncated {
+		t.Error("truncated = true, want false")
 	}
 	if len(diffs) != 1 {
 		t.Fatalf("len = %d, want 1", len(diffs))
 	}
 	if diffs[0].NodeID != "node0002" {
 		t.Errorf("NodeID = %q, want node0002", diffs[0].NodeID)
+	}
+}
+
+func writeDiffSnapshot(t *testing.T, st *store.Store, ctx context.Context, hash, msg string, nodeIDs ...string) int64 {
+	t.Helper()
+
+	var id int64
+	err := st.Tx(ctx, func(tx *sql.Tx) error {
+		var err error
+		id, err = st.CreateSnapshotTx(ctx, tx, store.WithCursorHash(hash), store.WithMessage(msg))
+		if err != nil {
+			return err
+		}
+		for _, nid := range nodeIDs {
+			diff := &store.DiffRecord{SnapshotID: id, NodeID: nid, Op: "add", NewHash: "h", NewContent: "x"}
+			if err := st.InsertDiffTx(ctx, tx, diff); err != nil {
+				return err
+			}
+		}
+		return st.AdvanceCursorTx(ctx, tx, id)
+	})
+	if err != nil {
+		t.Fatalf("writeDiffSnapshot %s: %v", msg, err)
+	}
+	return id
+}
+
+func TestDelta_Limit(t *testing.T) {
+	st := testutil.OpenTestDB(t)
+	ctx := context.Background()
+
+	a := writeDiffSnapshot(t, st, ctx, "hashaaaa", "A", "a0000001", "a0000002")
+	writeDiffSnapshot(t, st, ctx, "hashbbbb", "B", "b0000001", "b0000002", "b0000003")
+	writeDiffSnapshot(t, st, ctx, "hashcccc", "C", "c0000001", "c0000002")
+
+	eng := NewEngine(st)
+
+	// Fits under the limit: all 7 diffs, no truncation.
+	diffs, truncated, overflow, err := eng.Delta(ctx, 0, 10)
+	if err != nil {
+		t.Fatalf("Delta fit: %v", err)
+	}
+	if truncated || overflow || len(diffs) != 7 {
+		t.Fatalf("fit: len=%d truncated=%v overflow=%v, want 7,false,false", len(diffs), truncated, overflow)
+	}
+
+	// Cap lands inside snapshot B: trim B, end on complete snapshot A.
+	diffs, truncated, overflow, err = eng.Delta(ctx, 0, 3)
+	if err != nil {
+		t.Fatalf("Delta trim: %v", err)
+	}
+	if !truncated || overflow {
+		t.Errorf("trim: truncated=%v overflow=%v, want true,false", truncated, overflow)
+	}
+	if len(diffs) != 2 {
+		t.Fatalf("trim: len=%d, want 2 (snapshot A only)", len(diffs))
+	}
+	if last := diffs[len(diffs)-1].SnapshotID; last != a {
+		t.Errorf("trim: continuation = %d, want %d (last complete snapshot)", last, a)
+	}
+
+	// Limit aligns on a snapshot boundary (snapshot A's 2 diffs): complete, not overflow.
+	diffs, truncated, overflow, err = eng.Delta(ctx, 0, 2)
+	if err != nil {
+		t.Fatalf("Delta boundary: %v", err)
+	}
+	if !truncated || overflow {
+		t.Errorf("boundary: truncated=%v overflow=%v, want true,false", truncated, overflow)
+	}
+	if len(diffs) != 2 || diffs[len(diffs)-1].SnapshotID != a {
+		t.Errorf("boundary: len=%d last=%d, want 2 ending on snapshot %d", len(diffs), diffs[len(diffs)-1].SnapshotID, a)
+	}
+
+	// A single snapshot exceeds the limit: can't trim, flag overflow.
+	diffs, truncated, overflow, err = eng.Delta(ctx, 0, 1)
+	if err != nil {
+		t.Fatalf("Delta overflow: %v", err)
+	}
+	if !truncated || !overflow {
+		t.Errorf("overflow: truncated=%v overflow=%v, want true,true", truncated, overflow)
+	}
+	if len(diffs) != 1 {
+		t.Fatalf("overflow: len=%d, want 1", len(diffs))
+	}
+	if diffs[0].SnapshotID != a {
+		t.Errorf("overflow: snapshot = %d, want %d", diffs[0].SnapshotID, a)
+	}
+
+	// A non-positive limit yields no rows instead of panicking on the trim slice.
+	for _, lim := range []int64{0, -1} {
+		diffs, truncated, overflow, err = eng.Delta(ctx, 0, lim)
+		if err != nil {
+			t.Fatalf("Delta limit=%d: %v", lim, err)
+		}
+		if len(diffs) != 0 || truncated || overflow {
+			t.Errorf("limit=%d: len=%d truncated=%v overflow=%v, want 0,false,false", lim, len(diffs), truncated, overflow)
+		}
 	}
 }
 
