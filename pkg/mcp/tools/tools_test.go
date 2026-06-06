@@ -74,6 +74,24 @@ func TestHandleFetch(t *testing.T) {
 	}
 }
 
+func TestHandleFetch_EmptyAnchor(t *testing.T) {
+	d, _ := setup(t)
+	ctx := context.Background()
+
+	_, _, err := d.HandleFetch(ctx, &gomcp.CallToolRequest{}, FetchInput{Anchor: ""})
+	if err == nil {
+		t.Fatal("HandleFetch with empty anchor should error")
+	}
+	if !strings.Contains(err.Error(), "anchor is required") {
+		t.Errorf("err = %q, want anchor-required message", err)
+	}
+	// The guard must fire before Engine.Fetch; an empty anchor errors even
+	// without it, so assert the generic fetch error is absent (see #218).
+	if strings.Contains(err.Error(), "failed to fetch") {
+		t.Errorf("err = %q, guard did not short-circuit before Engine.Fetch", err)
+	}
+}
+
 func TestHandleFetchBatch_AllFound(t *testing.T) {
 	d, st := setup(t)
 	ctx := context.Background()

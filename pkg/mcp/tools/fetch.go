@@ -19,6 +19,10 @@ func (d *Deps) HandleFetch(ctx context.Context, _ *gomcp.CallToolRequest, input 
 	budget := resolveBudget(input.Budget, d.WorkspaceConfig.Budgets.Fetch, 0)
 	defer d.logCall(ctx, "MemoryFetch", &err, time.Now(), "anchor", input.Anchor, "budget", budget, "depth", input.Depth)
 
+	if input.Anchor == "" {
+		return nil, nil, fmt.Errorf("anchor is required")
+	}
+
 	result, err := d.Engine.Fetch(ctx, input.Anchor, budget, input.Depth)
 	if err != nil {
 		return nil, nil, fmt.Errorf("failed to fetch: %w", err)
