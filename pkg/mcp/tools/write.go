@@ -2,6 +2,8 @@ package tools
 
 import (
 	"context"
+	"database/sql"
+	"errors"
 	"fmt"
 	"time"
 
@@ -36,7 +38,10 @@ func (d *Deps) HandleWrite(ctx context.Context, _ *gomcp.CallToolRequest, input 
 	label := firstLine(payload, 80)
 
 	prev := make(map[string]diff.NodeState)
-	existing, _ := d.Store.GetNode(ctx, nodeID)
+	existing, err := d.Store.GetNode(ctx, nodeID)
+	if err != nil && !errors.Is(err, sql.ErrNoRows) {
+		return nil, nil, fmt.Errorf("failed to fetch: node %s: %w", nodeID, err)
+	}
 
 	var node *parser.ContextNode
 	if existing != nil {
