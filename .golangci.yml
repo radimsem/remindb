@@ -1,0 +1,9 @@
+version: "2"
+
+linters:
+  exclusions:
+    rules:
+      # SEP-2577 deprecates MCP logging but keeps it working for at least
+      # twelve months. Cold-node notifications still go out through it.
+      - linters: [staticcheck]
+        text: "SEP-2577"
