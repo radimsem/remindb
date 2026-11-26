@@ -2197,7 +2197,10 @@ func TestMcp_ResourceSubscription_CoalescesToOneNotification(t *testing.T) {
 		},
 	})
 
-	cs, err := c.Connect(context.Background(), clientT, nil)
+	// Under protocol 2026-07-28 the client's Subscribe does not return the
+	// server's rejection, so pin the version that does.
+	sessOpts := &gomcp.ClientSessionOptions{ProtocolVersion: "2025-11-25"}
+	cs, err := c.Connect(context.Background(), clientT, sessOpts)
 	if err != nil {
 		t.Fatalf("client connect: %v", err)
 	}

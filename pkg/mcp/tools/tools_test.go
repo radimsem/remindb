@@ -2321,8 +2321,8 @@ func TestHandleRollback_BlocksOnOpMu(t *testing.T) {
 	}()
 
 	select {
-	case <-done:
-		t.Fatal("HandleRollback completed while OpMu was held")
+	case err := <-done:
+		t.Fatalf("HandleRollback completed while OpMu was held: %v", err)
 	case <-time.After(50 * time.Millisecond):
 	}
 

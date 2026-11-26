@@ -169,7 +169,9 @@ func TestRunHttp_WithAuthToken_EndToEnd(t *testing.T) {
 	go func() { done <- srv.Run(ctx) }()
 	t.Cleanup(func() {
 		cancel()
-		<-done
+		if err := <-done; err != nil {
+			t.Logf("server run returned: %v", err)
+		}
 	})
 
 	time.Sleep(50 * time.Millisecond)
@@ -223,7 +225,9 @@ func TestRunHttp_ReadHeaderTimeout_ClosesSlowClient(t *testing.T) {
 	go func() { done <- srv.Run(ctx) }()
 	t.Cleanup(func() {
 		cancel()
-		<-done
+		if err := <-done; err != nil {
+			t.Logf("server run returned: %v", err)
+		}
 	})
 
 	time.Sleep(50 * time.Millisecond)
