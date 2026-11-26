@@ -153,8 +153,8 @@ func NewHttpEnv(t *testing.T) *Env {
 	session, err := client.Connect(ctx, transport, nil)
 	if err != nil {
 		cancel()
-		<-runErr
-		t.Fatalf("client connect: %v", err)
+		runE := <-runErr
+		t.Fatalf("client connect: %v (server run: %v)", err, runE)
 	}
 
 	t.Cleanup(func() {
